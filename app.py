@@ -4,6 +4,7 @@ import gdown
 import os
 import glob
 import unicodedata
+import re
 
 # Configuração de tela para celular
 st.set_page_config(page_title="Delly's - Inteligência de Vendas", layout="centered")
@@ -11,12 +12,49 @@ st.set_page_config(page_title="Delly's - Inteligência de Vendas", layout="cente
 # 📸 CABEÇALHO VIA LINK DA INTERNET (Fundo Branco Perfeito)
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 
+# Memória do Streamlit para a busca de clientes não sumir
+if 'termo_busca_cliente' not in st.session_state:
+    st.session_state.termo_busca_cliente = ""
+
 # Função para remover acentos e padronizar textos de busca
 def limpar_texto(texto):
     if pd.isna(texto):
         return ""
     texto_limpo = unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII')
     return texto_limpo.strip().lower()
+
+# MOTOR DE BUSCA INTELIGENTE: Quebra o texto e valida palavras em qualquer ordem/posição
+def filtrar_por_palavras(df, coluna_busca, termo_usuario):
+    termo_limpo = limpar_texto(termo_usuario)
+    # Remove conectores comuns e foca nas palavras principais
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'por']
+    palavras = [p for p in termo_limpo.split() if p not in ignorar and len(p) > 1]
+    
+    if not palavras:
+        palavras = termo_limpo.split()
+    if not palavras:
+        return df
+        
+    # Valida linha por linha se TODAS as palavras principais estão contidas no texto do banco
+    mascara = df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))
+    return df[mascara]
+
+# LIMPADOR DE TEXTO DE OFERTA: Extrai apenas o nome real do produto ignorando preços/pesos/códigos
+def extrair_palavras_produto(linha):
+    linha_limpa = limpar_texto(linha)
+    linha_limpa = re.sub(r'[^\w\s]', ' ', linha_limpa) # Remove pontuações
+    palavras = linha_limpa.split()
+    
+    palavras_validas = []
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
+    
+    for p in palavras:
+        # Remove números grudados em letras (ex: '1kg' vira 'kg', '35,90' vira '')
+        p_limpo = re.sub(r'\d+', '', p)
+        if not p_limpo or len(p_limpo) <= 1 or p_limpo in ignorar:
+            continue
+        palavras_validas.append(p_limpo)
+    return palavras_validas
 
 @st.cache_data(ttl=600)
 def carregar_dados_nuvem():
@@ -77,7 +115,6 @@ if df_total.empty:
     st.warning("⚠️ Nenhuma planilha processada. Aguarde 10 segundos e atualize a página.")
     st.stop()
 
-# Data de referência mais recente do sistema
 data_maxima_sistema = df_total['Data_Datetime'].max()
 
 # --- METRICAS GLOBAIS NO TOPO ---
@@ -95,7 +132,7 @@ with col2:
 st.write("")
 with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
     ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
-    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
+    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime'].dt.days)
     clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
     
     if not clientes_totalmente_sumidos.empty:
@@ -108,8 +145,8 @@ with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem compr
 
 st.write("---")
 
-# --- ABAS DE PESQUISA ---
-aba1, aba2 = st.tabs(["🔍 Por Produto", "👤 Por Cliente"])
+# --- MUDANÇA: AGORA SÃO 3 ABAS OPERACIONAIS ---
+aba1, aba2, aba3 = st.tabs(["🔍 Por Produto", "👤 Por Cliente", "📱 Ofertas p/ WhatsApp"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
 with aba1:
@@ -118,8 +155,8 @@ with aba1:
     botao_buscar_prod = st.button("📊 Gerar Relatório de Produto", use_container_width=True)
 
     if botao_buscar_prod and palavra_chave:
-        termo_busca = limpar_texto(palavra_chave)
-        filtro_prod = df_total[df_total['Produto_Busca'].str.contains(termo_busca, na=False)]
+        # Aplica a nova busca inteligente por palavras soltas
+        filtro_prod = filtrar_por_palavras(df_total, 'Produto_Busca', palavra_chave)
         
         if not filtro_prod.empty:
             st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 30 dias)")
@@ -149,29 +186,25 @@ with aba1:
                 proporcao = float(row['Faturamento Brut'] / ranking_clientes['Faturamento Brut'].max())
                 st.progress(proporcao)
         else:
-            st.warning("Nenhum produto encontrado.")
+            st.warning("Nenhum produto encontrado com essas características.")
 
-# --- ABA 2: BUSCA POR CLIENTE (COM BOTÃO ADICIONADO E BLINDADO) ---
+# --- ABA 2: BUSCA POR CLIENTE ---
 with aba2:
     st.subheader("Análise de Cliente")
-    
-    # Input de texto normal
-    busca_cliente = st.text_input("Digite o nome, parte do nome ou código do cliente:", key="cli_input_field").strip()
-    
-    # 🌟 O BOTÃO QUE ESTAVA FALTANDO AQUI:
+    input_cliente = st.text_input("Digite o nome, parte do nome ou código do cliente:", key="cli_input").strip()
     botao_buscar_cli = st.button("📋 Gerar Raio-X do Cliente", use_container_width=True)
 
-    # Guarda o termo na memória quando o botão é clicado para o menu não sumir
-    if botao_buscar_cli and busca_cliente:
-        st.session_state['termo_cliente_salvo'] = busca_cliente
+    if botao_buscar_cli and input_cliente:
+        st.session_state.termo_busca_cliente = input_cliente
 
-    # Executa apenas se o usuário já tiver clicado no botão anteriormente
-    if 'termo_cliente_salvo' in st.session_state and st.session_state['termo_cliente_salvo']:
-        termo_busca = limpar_texto(st.session_state['termo_cliente_salvo'])
-        clientes_encontrados = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]['Cliente'].unique()
+    if st.session_state.termo_busca_cliente:
+        # Aplica a busca inteligente por palavras soltas na base de clientes
+        df_clientes_filtrados = filtrar_por_palavras(df_total, 'Cliente_Busca', st.session_state.termo_busca_cliente)
+        clientes_encontrados = df_clientes_filtrados['Cliente'].unique()
         
         if len(clientes_encontrados) == 0:
             st.warning("⚠️ Nenhum cliente encontrado com esse termo ou código.")
+            st.session_state.termo_busca_cliente = ""
         else:
             if len(clientes_encontrados) > 1:
                 cliente_selecionado = st.selectbox(f"📋 Encontramos {len(clientes_encontrados)} correspondências. Selecione o correto:", clientes_encontrados)
@@ -184,14 +217,12 @@ with aba2:
             st.write("---")
             st.markdown(f"## 🏢 Ficha Completa: {cliente_selecionado}")
             
-            # 🚨 ALERTA CRÍTICO SE O CLIENTE PAROU DE COMPRAR TUDO
             ultima_venda_geral_cliente = filtro_cliente['Data_Datetime'].max()
             dias_total_sumido = (data_maxima_sistema - ultima_venda_geral_cliente).days
             
             if dias_total_sumido > 30:
-                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUM COMPRA! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
+                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUMA COMPRA! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
             
-            # 🚨 ALERTA DE PRODUTOS ESPECÍFICOS ABANDONADOS (> 30 DIAS)
             st.markdown("### 🚨 Itens Esquecidos/Queda por este Cliente (> 30 dias)")
             
             analise_produtos_cliente = filtro_cliente.groupby('Produto').agg(
@@ -224,3 +255,69 @@ with aba2:
             st.markdown("### 📊 Histórico Geral de Compras do Cliente (Mês a Mês)")
             compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
             st.bar_chart(compras_mensais, color="#0B4F93")
+
+# --- 📱 NOVA ABA 3: TEXTO DE OFERTAS BRUTO PARA LISTA DE WHATSAPP ---
+with aba3:
+    st.subheader("📋 Gerador de Ofertas Direcionadas para WhatsApp")
+    st.write("Cole abaixo a lista de ofertas enviada pela empresa (pode conter códigos, preços e descrições misturadas). O app analisará as palavras e montará mensagens personalizadas separadas por cliente.")
+    
+    texto_ofertas = st.text_area("Cole aqui a lista de ofertas do dia:", height=200, placeholder="Exemplo de colagem:\n10204 - Miolo da Alcatra Friboi KG - R$ 38,90\n9920 - Queijo Mussarela Fatiado R$ 26,00\nMoela de Frango Sadia Pct - R$ 12,50")
+    botao_processar_ofertas = st.button("🚀 Processar e Cruzar com Banco de Dados", use_container_width=True)
+    
+    if botao_processar_ofertas and texto_ofertas:
+        # Quebra as ofertas por linha e limpa vazias
+        linhas_oferta = [l.strip() for l in texto_ofertas.split('\n') if l.strip()]
+        
+        # Mapeamento rápido e otimizado de produtos e quem comprou
+        prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
+        produtos_unicos_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
+        
+        # Dicionário que guardará { Cliente: [Lista de linhas originais que combinam] }
+        mensagens_por_cliente = {}
+        
+        with st.spinner("Analisando perfil de consumo dos clientes..."):
+            for linha in linhas_oferta:
+                # Extrai apenas as palavras textuais e estruturais da oferta (ignora números/preços/medidas)
+                palavras_chave = extrair_palavras_produto(linha)
+                if not palavras_chave:
+                    continue
+                
+                # Procura no banco de dados quais produtos possuem todas as palavras extraídas
+                produtos_combinados = []
+                for prod_original, prod_busca in produtos_unicos_busca.items():
+                    if all(p in prod_busca for p in palavras_chave):
+                        produtos_combinados.append(prod_original)
+                
+                # Descobre quais clientes compraram os produtos encontrados
+                clientes_interessados = set()
+                for prod in produtos_combinados:
+                    clientes_interessados.update(prod_to_clientes[prod])
+                
+                # Vincula a linha da oferta ao painel de mensagens de cada cliente específico
+                for cli in clientes_interessados:
+                    if cli not in mensagens_por_cliente:
+                        mensagens_por_cliente[cli] = []
+                    if linha not in mensagens_por_cliente[cli]:
+                        mensagens_por_cliente[cli].append(linha)
+                        
+        # Exibe os blocos prontos na tela com o botão copiar integrado
+        if mensagens_por_cliente:
+            st.success(f"🔥 Sucesso! Geradas ofertas customizadas para {len(mensagens_por_cliente)} clientes da sua carteira.")
+            st.write("Clique no ícone de prancheta 📋 no canto direito de cada caixa para copiar a mensagem instantaneamente.")
+            
+            # Ordena por nome do cliente
+            for cli in sorted(mensagens_por_cliente.keys()):
+                ofertas_do_cliente = mensagens_por_cliente[cli]
+                
+                # Montagem estruturada do texto comercial para disparar no Zap
+                msg_final = f"Olá! Veja as nossas ofertas de hoje que separamos com base nos itens que você costuma comprar conosco:\n\n"
+                for of in ofertas_do_cliente:
+                    msg_final += f"👉 {of}\n"
+                msg_final += f"\nFico à disposição para lançar o seu pedido! Se precisar de algo mais, é só avisar. 👍"
+                
+                # Renderiza em bloco contêiner visual com botão de cópia móvel nativa
+                st.markdown(f"#### 👤 {cli}")
+                st.code(msg_final, language=None)
+                st.write("")
+        else:
+            st.warning("⚠️ O sistema leu as linhas, mas nenhuma palavra-chave bateu com o histórico de compras de produtos do seu Drive. Verifique a grafia dos itens.")
