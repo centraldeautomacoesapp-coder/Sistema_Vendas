@@ -91,14 +91,11 @@ with col2:
     top_produto_nome = df_total.groupby('Produto')['Faturamento Brut'].sum().idxmax()
     st.metric(label="🥩 Campeão Geral de Vendas", value=str(top_produto_nome)[:18] + "...")
 
-# 🚨 NOVA GAVETA DE ALERTAS: CLIENTES TOTALMENTE INATIVOS (> 30 DIAS)
+# 🚨 GAVETA DE ALERTAS: CLIENTES TOTALMENTE INATIVOS (> 30 DIAS)
 st.write("")
 with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
-    # Calcula a última compra de QUALQUER item por cliente
     ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
     ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
-    
-    # Filtra os completamente sumidos há mais de 30 dias
     clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
     
     if not clientes_totalmente_sumidos.empty:
@@ -125,12 +122,9 @@ with aba1:
         filtro_prod = df_total[df_total['Produto_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_prod.empty:
-            # 🚨 RECALIBRADO PARA 30 DIAS: CLIENTES QUE PARARAM DE COMPRAR ESTE ITEM
             st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 30 dias)")
-            
             ultimas_compras_clientes = filtro_prod.groupby('Cliente')['Data_Datetime'].max().reset_index()
             ultimas_compras_clientes['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_clientes['Data_Datetime']).dt.days
-            
             clientes_sumidos = ultimas_compras_clientes[ultimas_compras_clientes['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
             
             if not clientes_sumidos.empty:
@@ -157,28 +151,40 @@ with aba1:
         else:
             st.warning("Nenhum produto encontrado.")
 
-# --- ABA 2: BUSCA POR CLIENTE ---
+# --- ABA 2: BUSCA POR CLIENTE (MECANISMO INTELIGENTE ATIVADO) ---
 with aba2:
     st.subheader("Análise de Cliente")
-    busca_cliente = st.text_input("Qual código ou nome do cliente?", key="cli_input").strip()
-    botao_buscar_cli = st.button("📋 Gerar Raio-X do Cliente", use_container_width=True)
+    busca_cliente = st.text_input("Digite o nome, parte do nome ou código do cliente:", key="cli_input").strip()
 
-    if botao_buscar_cli and busca_cliente:
+    if busca_cliente:
         termo_busca = limpar_texto(busca_cliente)
-        filtro_cliente = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]
+        # Encontra a lista de clientes únicos correspondentes à palavra digitada
+        clientes_encontrados = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]['Cliente'].unique()
         
-        if not filtro_cliente.empty:
-            nome_cliente_real = filtro_cliente['Cliente'].iloc[0]
-            st.markdown(f"## 🏢 Ficha de: {nome_cliente_real}")
+        if len(clientes_encontrados) == 0:
+            st.warning("⚠️ Nenhum cliente encontrado com esse termo ou código.")
+        else:
+            # Se achar mais de um, cria um menu de escolha
+            if len(clientes_encontrados) > 1:
+                cliente_selecionado = st.selectbox(f"📋 Encontramos {len(clientes_encontrados)} correspondências. Selecione o correto:", clientes_encontrados)
+            else:
+                cliente_selecionado = clientes_encontrados[0]
+                st.success(f"🏢 Cliente Encontrado: **{cliente_selecionado}**")
             
-            # 🚨 NOVO ALERTA CRÍTICO: SE O CLIENTE INTEGRALMENTE SUMIU HÁ MAIS DE 30 DIAS
+            # Filtra estritamente a base de dados pelo cliente escolhido no menu
+            filtro_cliente = df_total[df_total['Cliente'] == cliente_selecionado]
+            
+            st.write("---")
+            st.markdown(f"## 🏢 Ficha Completa: {cliente_selecionado}")
+            
+            # 🚨 ALERTA CRÍTICO SE O CLIENTE PAROU DE COMPRAR TUDO
             ultima_venda_geral_cliente = filtro_cliente['Data_Datetime'].max()
             dias_total_sumido = (data_maxima_sistema - ultima_venda_geral_cliente).days
             
             if dias_total_sumido > 30:
-                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUM COMPRA na empresa! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
+                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUM COMPRA! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
             
-            # 🚨 RECALIBRADO PARA 30 DIAS: ITENS ESPECÍFICOS ESQUECIDOS
+            # 🚨 ALERTA DE PRODUTOS ESPECÍFICOS ABANDONADOS (> 30 DIAS)
             st.markdown("### 🚨 Itens Esquecidos/Queda por este Cliente (> 30 dias)")
             
             analise_produtos_cliente = filtro_cliente.groupby('Produto').agg(
@@ -187,17 +193,17 @@ with aba2:
             ).reset_index()
             
             analise_produtos_cliente['Dias_Sem_Comprar'] = (data_maxima_sistema - analise_produtos_cliente['Ultima_Compra']).dt.days
-            
             produtos_abandonados = analise_produtos_cliente[analise_produtos_cliente['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
             
             if not produtos_abandonados.empty:
                 for idx, row in produtos_abandonados.head(5).iterrows():
                     data_prod_pt = row['Ultima_Compra'].strftime('%d/%m/%Y')
-                    st.warning(f"降低 **Item Abandonado:** Deixou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
+                    st.warning(f"📉 **Item Abandonado:** Deixou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
             else:
-                st.success("✅ Este cliente está comprando o mix tradicional em dia.")
+                st.success("✅ Este cliente está com todo o seu mix tradicional em dia.")
             
             st.write("---")
+            # 🏆 RANKING DE PRODUTOS MAIS VENDIDOS DO CLIENTE
             st.markdown("### 🏆 Ranking de Produtos Mais Vendidos para este Cliente")
             ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
             ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
@@ -212,5 +218,3 @@ with aba2:
             st.markdown("### 📊 Histórico Geral de Compras do Cliente (Mês a Mês)")
             compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
             st.bar_chart(compras_mensais, color="#0B4F93")
-        else:
-            st.warning("Cliente não encontrado.")
