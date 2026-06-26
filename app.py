@@ -8,11 +8,19 @@ import unicodedata
 # Configuração de tela para celular
 st.set_page_config(page_title="Delly's - Painel de Vendas", layout="centered")
 
-# 📸 CABEÇALHO PREMIUM: Carrega o banner da Delly's se ele existir no GitHub
-if os.path.exists("logo.jpg"):
-    st.image("logo.jpg", use_container_width=True)
+# 📸 DETECTOR DE LOGOTIPO BLINDADO
+# Ele vai procurar o arquivo independentemente de estar em PNG, JPG ou JPEG
+logo_arquivo = None
+for nome in os.listdir("."):
+    if nome.lower() in ["logo.jpg", "logo.jpeg", "logo.png"]:
+        logo_arquivo = nome
+        break
+
+if logo_arquivo:
+    st.image(logo_arquivo, use_container_width=True)
 else:
     st.title("📊 Delly's - Sistema de Vendas Histórico")
+    st.info("💡 Para ativar o cabeçalho personalizado, suba a imagem no GitHub com o nome 'logo.jpg'")
 
 # Função para remover acentos e padronizar textos
 def limpar_texto(texto):
@@ -64,7 +72,6 @@ def carregar_dados_nuvem():
             
     if lista_dfs:
         df_unificado = pd.concat(lista_dfs, ignore_index=True)
-        # Converte a data para um formato real do Python para podermos criar os gráficos mensais
         df_unificado['Data_Datetime'] = pd.to_datetime(df_unificado['Dt. Delivery'], errors='coerce')
         df_unificado['Ano_Mes'] = df_unificado['Data_Datetime'].dt.strftime('%Y-%m')
         
@@ -81,7 +88,7 @@ if df_total.empty:
     st.warning("⚠️ Nenhuma planilha processada. Aguarde 10 segundos e atualize a página.")
     st.stop()
 
-# --- 📊 IDEIA 1: METRICAS GLOBAIS NO TOPO (KPIs) ---
+# --- METRICAS GLOBAIS (DESIGN REFRESH) ---
 st.write("---")
 col1, col2 = st.columns(2)
 
@@ -92,12 +99,11 @@ with col1:
 
 with col2:
     top_produto_nome = df_total.groupby('Produto')['Faturamento Brut'].sum().idxmax()
-    # Corta o nome se for muito longo para não quebrar o layout do celular
     st.metric(label="🥩 Produto Campeão de Vendas", value=str(top_produto_nome)[:18] + "...")
 
 st.write("---")
 
-# --- INTERFACE VISUAL RESPONSIVA ---
+# --- INTERFACE VISUAL EM ABAS ---
 aba1, aba2 = st.tabs(["🔍 Por Produto", "👤 Por Cliente"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
@@ -111,12 +117,10 @@ with aba1:
         filtro_prod = df_total[df_total['Produto_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_prod.empty:
-            # 📈 IDEIA 2: Gráfico de linha do tempo do produto
             st.markdown("### 📈 Evolução das Vendas deste Produto (Mês a Mês)")
             faturamento_mensal = filtro_prod.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
-            st.line_chart(faturamento_mensal, color="#00875A")
+            st.line_chart(faturamento_mensal, color="#00875A") # Verde Delly's
             
-            # Ranking de compradores
             ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
             ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
             
@@ -124,7 +128,6 @@ with aba1:
             for idx, row in ranking_clientes.head(10).iterrows():
                 fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 st.markdown(f"👤 **{row['Cliente']}** \n💰 Total Comprado: **{fat_total}**")
-                # Barra visual de progresso proporcional
                 proporcao = float(row['Faturamento Brut'] / ranking_clientes['Faturamento Brut'].max())
                 st.progress(proporcao)
         else:
@@ -141,12 +144,10 @@ with aba2:
         filtro_cliente = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_cliente.empty:
-            # 📈 IDEIA 2: Gráfico de compras do cliente
             st.markdown("### 📊 Histórico de Compras do Cliente (Mês a Mês)")
             compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
-            st.bar_chart(compras_mensais, color="#0052CC")
+            st.bar_chart(compras_mensais, color="#0B4F93") # Azul Delly's
             
-            # Produtos preferidos do cliente
             ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
             ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
             
