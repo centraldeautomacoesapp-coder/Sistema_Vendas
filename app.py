@@ -151,27 +151,34 @@ with aba1:
         else:
             st.warning("Nenhum produto encontrado.")
 
-# --- ABA 2: BUSCA POR CLIENTE (MECANISMO INTELIGENTE ATIVADO) ---
+# --- ABA 2: BUSCA POR CLIENTE (COM BOTÃO ADICIONADO E BLINDADO) ---
 with aba2:
     st.subheader("Análise de Cliente")
-    busca_cliente = st.text_input("Digite o nome, parte do nome ou código do cliente:", key="cli_input").strip()
+    
+    # Input de texto normal
+    busca_cliente = st.text_input("Digite o nome, parte do nome ou código do cliente:", key="cli_input_field").strip()
+    
+    # 🌟 O BOTÃO QUE ESTAVA FALTANDO AQUI:
+    botao_buscar_cli = st.button("📋 Gerar Raio-X do Cliente", use_container_width=True)
 
-    if busca_cliente:
-        termo_busca = limpar_texto(busca_cliente)
-        # Encontra a lista de clientes únicos correspondentes à palavra digitada
+    # Guarda o termo na memória quando o botão é clicado para o menu não sumir
+    if botao_buscar_cli and busca_cliente:
+        st.session_state['termo_cliente_salvo'] = busca_cliente
+
+    # Executa apenas se o usuário já tiver clicado no botão anteriormente
+    if 'termo_cliente_salvo' in st.session_state and st.session_state['termo_cliente_salvo']:
+        termo_busca = limpar_texto(st.session_state['termo_cliente_salvo'])
         clientes_encontrados = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]['Cliente'].unique()
         
         if len(clientes_encontrados) == 0:
             st.warning("⚠️ Nenhum cliente encontrado com esse termo ou código.")
         else:
-            # Se achar mais de um, cria um menu de escolha
             if len(clientes_encontrados) > 1:
                 cliente_selecionado = st.selectbox(f"📋 Encontramos {len(clientes_encontrados)} correspondências. Selecione o correto:", clientes_encontrados)
             else:
                 cliente_selecionado = clientes_encontrados[0]
                 st.success(f"🏢 Cliente Encontrado: **{cliente_selecionado}**")
             
-            # Filtra estritamente a base de dados pelo cliente escolhido no menu
             filtro_cliente = df_total[df_total['Cliente'] == cliente_selecionado]
             
             st.write("---")
@@ -203,7 +210,6 @@ with aba2:
                 st.success("✅ Este cliente está com todo o seu mix tradicional em dia.")
             
             st.write("---")
-            # 🏆 RANKING DE PRODUTOS MAIS VENDIDOS DO CLIENTE
             st.markdown("### 🏆 Ranking de Produtos Mais Vendidos para este Cliente")
             ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
             ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
