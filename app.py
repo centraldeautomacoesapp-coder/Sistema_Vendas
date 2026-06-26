@@ -15,7 +15,7 @@ FOLDER_ID = "1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF"
 PASTA_DESTINO = "planilhas_drive"
 
 # --- FUNÇÃO PARA BAIXAR E UNIFICAR OS ARQUIVOS ---
-@st.cache_data(ttl=3600)  # Atualiza os dados a cada 1 hora se houver arquivo novo no Drive
+@st.cache_data(ttl=3600)  # Atualiza os dados a cada 1 hora
 def carregar_dados_nuvem():
     if not os.path.exists(PASTA_DESTINO):
         os.makedirs(PASTA_DESTINO)
@@ -27,8 +27,8 @@ def carregar_dados_nuvem():
     except Exception as e:
         st.error(f"Erro ao conectar com o Google Drive: {e}")
     
-    # Busca todos os arquivos .xlsx baixados
-    arquivos_excel = glob.glob(os.path.join(PASTA_DESTINO, "*.xlsx"))
+    # 📌 AJUSTE AQUI: Procura os arquivos dentro de qualquer subpasta criada pelo Drive
+    arquivos_excel = glob.glob(os.path.join(PASTA_DESTINO, "**", "*.xlsx"), recursive=True)
     
     if not arquivos_excel:
         return pd.DataFrame()
@@ -61,48 +61,57 @@ def carregar_dados_nuvem():
 with st.spinner("Atualizando banco de dados do Google Drive..."):
     df_total = carregar_dados_nuvem()
 
-if df_total.empty:
-    st.warning("⚠️ Nenhuma planilha processada ainda. Se o app acabou de atualizar, aguarde o download da pasta do Drive terminar.")
-    st.stop()
+# Se a lista ainda estiver vazia no primeiro segundo, evita travar a tela abaixo
+if df_total is None or df_total.empty:
+    st.warning("⚠️ Aguardando a leitura das planilhas do Drive. Se as abas não aparecerem em 10 segundos, atualize a página.")
+    df_total = pd.DataFrame(columns=['Dt. Entrega NF', 'Cliente', 'Produto', 'Faturamento Brut'])
+
+# --- RECURSO VISUAL PARA CELULAR (ABAS RESPONSIVAS) ---
+aba1, aba2 = st.tabs(["🔍 Por Produto", "👤 Por Cliente"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
-st.header("🔍 Pesquisar por Produto")
-palavra_chave = st.text_input("Digite a palavra-chave (ex: alcatra, cox, frango):").strip().lower()
+with aba1:
+    st.header("Buscar por Produto")
+    palavra_chave = st.text_input("Digite a palavra-chave (ex: alcatra, cox, frango):", key="prod_input").strip().lower()
 
-if palavra_chave:
-    filtro_prod = df_total[df_total['Produto'].astype(str).str.lower().str.contains(palavra_chave, na=False)]
-    
-    if not filtro_prod.empty:
-        ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
-        ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
+    if palavra_chave and not df_total.empty:
+        filtro_prod = df_total[df_total['Produto'].astype(str).str.lower().str.contains(palavra_chave, na=False)]
         
-        st.subheader("🏆 Ranking de Maiores Compradores")
-        for idx, row in ranking_clientes.iterrows():
-            fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            st.markdown(f"👤 **{row['Cliente']}** | Total: **{fat_total}**")
-        
-        st.write("---")
-        st.subheader("📋 Histórico Detalhado")
-        detalhe_vendas = filtro_prod.sort_values(by='Dt. Entrega NF', ascending=False)
-        detalhe_vendas['Faturamento Brut'] = detalhe_vendas['Faturamento Brut'].map(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-        st.dataframe(detalhe_vendas[['Dt. Entrega NF', 'Cliente', 'Produto', 'Faturamento Brut']], use_container_width=True)
-    else:
-        st.warning("Nenhum produto correspondente encontrado.")
+        if not filtro_prod.empty:
+            ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
+            ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
+            
+            st.subheader("🏆 Ranking de Maiores Compradores")
+            for idx, row in ranking_clientes.iterrows():
+                fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                st.markdown(f"👤 **{row['Cliente']}** \n💰 Total: **{fat_total}**")
+            
+            st.write("---")
+            st.subheader("📋 Histórico Detalhado")
+            detalhe_vendas = filtro_prod.sort_values(by='Dt. Entrega NF', ascending=False)
+            
+            # Formata para exibição
+            dados_exibicao = detalhe_vendas.copy()
+            dados_exibicao['Faturamento Brut'] = dados_exibicao['Faturamento Brut'].map(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.dataframe(dados_exibicao[['Dt. Entrega NF', 'Cliente', 'Produto', 'Faturamento Brut']], use_container_width=True)
+        else:
+            st.warning("Nenhum produto correspondente encontrado.")
 
 # --- ABA 2: BUSCA POR CLIENTE ---
-st.header("👤 Histórico do Cliente")
-busca_cliente = st.text_input("Digite o código ou nome do cliente:")
+with aba2:
+    st.header("Histórico do Cliente")
+    busca_cliente = st.text_input("Digite o código ou nome do cliente:", key="cli_input").strip().lower()
 
-if busca_cliente:
-    filtro_cliente = df_total[df_total['Cliente'].astype(str).str.lower().str.contains(busca_cliente.lower(), na=False)]
-    
-    if not filtro_cliente.empty:
-        ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
-        ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
+    if busca_cliente and not df_total.empty:
+        filtro_cliente = df_total[df_total['Cliente'].astype(str).str.lower().str.contains(busca_cliente, na=False)]
         
-        st.subheader("🥩 Produtos mais comprados por este cliente:")
-        for idx, row in ranking_produtos.iterrows():
-            fat_prod = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            st.write(f"• **{row['Produto']}** - Total: {fat_prod}")
-    else:
-        st.warning("Cliente não encontrado.")
+        if not filtro_cliente.empty:
+            ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
+            ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
+            
+            st.subheader("🥩 Produtos mais comprados por este cliente:")
+            for idx, row in ranking_produtos.iterrows():
+                fat_prod = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                st.write(f"• **{row['Produto']}** - Total: {fat_prod}")
+        else:
+            st.warning("Cliente não encontrado.")
