@@ -23,7 +23,7 @@ def carregar_dados_nuvem():
     try:
         # Baixa todos os arquivos da pasta pública do Drive
         url_pasta = f"https://drive.google.com/drive/folders/{FOLDER_ID}"
-        gdown.download_folder(url_pasta, output=PASTA_DESTINO, quiet=True, remaining_ok=True)
+        gdown.download_folder(url_pasta, output=PASTA_DESTINO, quiet=True)
     except Exception as e:
         st.error(f"Erro ao conectar com o Google Drive: {e}")
     
