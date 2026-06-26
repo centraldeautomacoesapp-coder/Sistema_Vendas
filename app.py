@@ -132,7 +132,8 @@ with col2:
 st.write("")
 with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
     ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
-    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime'].dt.days)
+    # LINHA CORRIGIDA AQUI:
+    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
     clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
     
     if not clientes_totalmente_sumidos.empty:
@@ -145,7 +146,7 @@ with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem compr
 
 st.write("---")
 
-# --- MUDANÇA: AGORA SÃO 3 ABAS OPERACIONAIS ---
+# --- AS 3 ABAS OPERACIONAIS ---
 aba1, aba2, aba3 = st.tabs(["🔍 Por Produto", "👤 Por Cliente", "📱 Ofertas p/ WhatsApp"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
@@ -155,7 +156,6 @@ with aba1:
     botao_buscar_prod = st.button("📊 Gerar Relatório de Produto", use_container_width=True)
 
     if botao_buscar_prod and palavra_chave:
-        # Aplica a nova busca inteligente por palavras soltas
         filtro_prod = filtrar_por_palavras(df_total, 'Produto_Busca', palavra_chave)
         
         if not filtro_prod.empty:
@@ -198,7 +198,6 @@ with aba2:
         st.session_state.termo_busca_cliente = input_cliente
 
     if st.session_state.termo_busca_cliente:
-        # Aplica a busca inteligente por palavras soltas na base de clientes
         df_clientes_filtrados = filtrar_por_palavras(df_total, 'Cliente_Busca', st.session_state.termo_busca_cliente)
         clientes_encontrados = df_clientes_filtrados['Cliente'].unique()
         
@@ -256,7 +255,7 @@ with aba2:
             compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
             st.bar_chart(compras_mensais, color="#0B4F93")
 
-# --- 📱 NOVA ABA 3: TEXTO DE OFERTAS BRUTO PARA LISTA DE WHATSAPP ---
+# --- 📱 ABA 3: TEXTO DE OFERTAS BRUTO PARA LISTA DE WHATSAPP ---
 with aba3:
     st.subheader("📋 Gerador de Ofertas Direcionadas para WhatsApp")
     st.write("Cole abaixo a lista de ofertas enviada pela empresa (pode conter códigos, preços e descrições misturadas). O app analisará as palavras e montará mensagens personalizadas separadas por cliente.")
@@ -265,57 +264,46 @@ with aba3:
     botao_processar_ofertas = st.button("🚀 Processar e Cruzar com Banco de Dados", use_container_width=True)
     
     if botao_processar_ofertas and texto_ofertas:
-        # Quebra as ofertas por linha e limpa vazias
         linhas_oferta = [l.strip() for l in texto_ofertas.split('\n') if l.strip()]
         
-        # Mapeamento rápido e otimizado de produtos e quem comprou
         prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
         produtos_unicos_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
         
-        # Dicionário que guardará { Cliente: [Lista de linhas originais que combinam] }
         mensagens_por_cliente = {}
         
         with st.spinner("Analisando perfil de consumo dos clientes..."):
             for linha in linhas_oferta:
-                # Extrai apenas as palavras textuais e estruturais da oferta (ignora números/preços/medidas)
                 palavras_chave = extrair_palavras_produto(linha)
                 if not palavras_chave:
                     continue
                 
-                # Procura no banco de dados quais produtos possuem todas as palavras extraídas
                 produtos_combinados = []
                 for prod_original, prod_busca in produtos_unicos_busca.items():
                     if all(p in prod_busca for p in palavras_chave):
                         produtos_combinados.append(prod_original)
                 
-                # Descobre quais clientes compraram os produtos encontrados
                 clientes_interessados = set()
                 for prod in produtos_combinados:
                     clientes_interessados.update(prod_to_clientes[prod])
                 
-                # Vincula a linha da oferta ao painel de mensagens de cada cliente específico
                 for cli in clientes_interessados:
                     if cli not in mensagens_por_cliente:
                         mensagens_por_cliente[cli] = []
                     if linha not in mensagens_por_cliente[cli]:
                         mensagens_por_cliente[cli].append(linha)
                         
-        # Exibe os blocos prontos na tela com o botão copiar integrado
-        if mensagens_por_cliente:
+        if mensajes_por_cliente:
             st.success(f"🔥 Sucesso! Geradas ofertas customizadas para {len(mensagens_por_cliente)} clientes da sua carteira.")
             st.write("Clique no ícone de prancheta 📋 no canto direito de cada caixa para copiar a mensagem instantaneamente.")
             
-            # Ordena por nome do cliente
             for cli in sorted(mensagens_por_cliente.keys()):
                 ofertas_do_cliente = mensagens_por_cliente[cli]
                 
-                # Montagem estruturada do texto comercial para disparar no Zap
                 msg_final = f"Olá! Veja as nossas ofertas de hoje que separamos com base nos itens que você costuma comprar conosco:\n\n"
                 for of in ofertas_do_cliente:
                     msg_final += f"👉 {of}\n"
                 msg_final += f"\nFico à disposição para lançar o seu pedido! Se precisar de algo mais, é só avisar. 👍"
                 
-                # Renderiza em bloco contêiner visual com botão de cópia móvel nativa
                 st.markdown(f"#### 👤 {cli}")
                 st.code(msg_final, language=None)
                 st.write("")
