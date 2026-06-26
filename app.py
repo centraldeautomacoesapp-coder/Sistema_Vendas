@@ -12,23 +12,22 @@ st.write("Conectado diretamente ao Google Drive Nuvem.")
 
 # ID da sua pasta do Google Drive
 FOLDER_ID = "1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF"
-PASTA_DESTINO = "./planilhas_drive"
+PASTA_DESTINO = "planilhas_drive"
 
-# --- FUNÇÃO PARABAIXAR E UNIFICAR OS ARQUIVOS DA NUVEM ---
+# --- FUNÇÃO PARA BAIXAR E UNIFICAR OS ARQUIVOS ---
 @st.cache_data(ttl=3600)  # Atualiza os dados a cada 1 hora se houver arquivo novo no Drive
 def carregar_dados_nuvem():
-    # Cria uma pasta temporária na nuvem do Streamlit para receber os arquivos
     if not os.path.exists(PASTA_DESTINO):
         os.makedirs(PASTA_DESTINO)
     
     try:
-        # Baixa todos os arquivos da pasta pública do Drive de uma vez só
+        # Baixa todos os arquivos da pasta pública do Drive
         url_pasta = f"https://drive.google.com/drive/folders/{FOLDER_ID}"
         gdown.download_folder(url_pasta, output=PASTA_DESTINO, quiet=True, remaining_ok=True)
     except Exception as e:
         st.error(f"Erro ao conectar com o Google Drive: {e}")
     
-    # Busca todos os arquivos .xlsx baixados do seu Drive
+    # Busca todos os arquivos .xlsx baixados
     arquivos_excel = glob.glob(os.path.join(PASTA_DESTINO, "*.xlsx"))
     
     if not arquivos_excel:
@@ -38,21 +37,18 @@ def carregar_dados_nuvem():
     
     for arquivo in arquivos_excel:
         try:
-            # Lê o arquivo Excel focando nas suas colunas oficiais
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
             
             colunas_necessarias = ['Dt. Entrega NF', 'Cliente', 'Produto', 'Faturamento Brut']
             df = df[colunas_necessarias]
             
-            # Tratamento do faturamento brasileiro (ex: 1.229,05 -> 1229.05)
+            # Tratamento do faturamento brasileiro
             if df['Faturamento Brut'].dtype == 'object':
                 df['Faturamento Brut'] = df['Faturamento Brut'].astype(str).str.replace('.', '', regex=False)
                 df['Faturamento Brut'] = df['Faturamento Brut'].str.replace(',', '.', regex=False)
-                df['Faturamento Brut'] = pd.to_numeric(df['Faturamento Brut'], errors='coerce')
-            else:
-                df['Faturamento Brut'] = pd.to_numeric(df['Faturamento Brut'], errors='coerce')
-                
+            
+            df['Faturamento Brut'] = pd.to_numeric(df['Faturamento Brut'], errors='coerce')
             lista_dfs.append(df)
         except:
             continue
@@ -66,7 +62,7 @@ with st.spinner("Atualizando banco de dados do Google Drive..."):
     df_total = carregar_dados_nuvem()
 
 if df_total.empty:
-    st.warning("⚠️ Nenhuma planilha encontrada na pasta do Google Drive ou o acesso falhou. Verifique se os arquivos estão lá.")
+    st.warning("⚠️ Nenhuma planilha processada ainda. Se o app acabou de atualizar, aguarde o download da pasta do Drive terminar.")
     st.stop()
 
 # --- ABA 1: BUSCA POR PRODUTO ---
@@ -77,7 +73,6 @@ if palavra_chave:
     filtro_prod = df_total[df_total['Produto'].astype(str).str.lower().str.contains(palavra_chave, na=False)]
     
     if not filtro_prod.empty:
-        # Ranking de faturamento acumulado por cliente
         ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
         ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
         
