@@ -61,7 +61,6 @@ def carregar_dados_nuvem():
             
     if lista_dfs:
         df_unificado = pd.concat(lista_dfs, ignore_index=True)
-        # Força conversão de datas tratando formatos brasileiros comuns
         df_unificado['Data_Datetime'] = pd.to_datetime(df_unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
         df_unificado['Ano_Mes'] = df_unificado['Data_Datetime'].dt.strftime('%Y-%m')
         
@@ -78,7 +77,7 @@ if df_total.empty:
     st.warning("⚠️ Nenhuma planilha processada. Aguarde 10 segundos e atualize a página.")
     st.stop()
 
-# Define a data de referência mais recente do sistema para calcular o tempo sem comprar
+# Data de referência mais recente do sistema
 data_maxima_sistema = df_total['Data_Datetime'].max()
 
 # --- METRICAS GLOBAIS NO TOPO ---
@@ -92,9 +91,27 @@ with col2:
     top_produto_nome = df_total.groupby('Produto')['Faturamento Brut'].sum().idxmax()
     st.metric(label="🥩 Campeão Geral de Vendas", value=str(top_produto_nome)[:18] + "...")
 
+# 🚨 NOVA GAVETA DE ALERTAS: CLIENTES TOTALMENTE INATIVOS (> 30 DIAS)
+st.write("")
+with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
+    # Calcula a última compra de QUALQUER item por cliente
+    ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
+    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
+    
+    # Filtra os completamente sumidos há mais de 30 dias
+    clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
+    
+    if not clientes_totalmente_sumidos.empty:
+        st.write("Os clientes abaixo compravam com você e não fazem nenhum pedido há mais de um mês:")
+        for idx, row in clientes_totalmente_sumidos.iterrows():
+            dt_com_pt = row['Data_Datetime'].strftime('%d/%m/%Y')
+            st.markdown(f"🔴 **{row['Cliente']}** — Está há **{row['Dias_Sem_Comprar']} dias** sem comprar nada. (Última compra: {dt_com_pt})")
+    else:
+        st.success("✅ Que sucesso! Nenhum cliente da base está há mais de 30 dias sem comprar.")
+
 st.write("---")
 
-# --- REORGANIZAÇÃO DAS ABAS ---
+# --- ABAS DE PESQUISA ---
 aba1, aba2 = st.tabs(["🔍 Por Produto", "👤 Por Cliente"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
@@ -108,22 +125,20 @@ with aba1:
         filtro_prod = df_total[df_total['Produto_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_prod.empty:
-            # 🚨 NOVO: ALERTAS DE CLIENTES QUE PARARAM DE COMPRAR ESTE PRODUTO
-            st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 45 dias)")
+            # 🚨 RECALIBRADO PARA 30 DIAS: CLIENTES QUE PARARAM DE COMPRAR ESTE ITEM
+            st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 30 dias)")
             
-            # Agrupa para descobrir a última data que cada cliente comprou esse item específico
             ultimas_compras_clientes = filtro_prod.groupby('Cliente')['Data_Datetime'].max().reset_index()
             ultimas_compras_clientes['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_clientes['Data_Datetime']).dt.days
             
-            # Filtra quem está sem comprar há mais de 45 dias
-            clientes_sumidos = ultimas_compras_clientes[ultimas_compras_clientes['Dias_Sem_Comprar'] > 45].sort_values(by='Dias_Sem_Comprar', ascending=False)
+            clientes_sumidos = ultimas_compras_clientes[ultimas_compras_clientes['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
             
             if not clientes_sumidos.empty:
-                for idx, row in clientes_sumidos.head(5).iterrows():
+                for idx, row in clientes_sumidos.head(8).iterrows():
                     data_pt = row['Data_Datetime'].strftime('%d/%m/%Y')
                     st.error(f"⚠️ **{row['Cliente']}** não compra este item desde **{data_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
             else:
-                st.success("✅ Excelente! Todos os clientes ativos compraram este produto recentemente.")
+                st.success("✅ Todos os clientes compraram este produto nos últimos 30 dias.")
             
             st.write("---")
             st.markdown("### 📈 Evolução das Vendas deste Produto (Mês a Mês)")
@@ -156,10 +171,16 @@ with aba2:
             nome_cliente_real = filtro_cliente['Cliente'].iloc[0]
             st.markdown(f"## 🏢 Ficha de: {nome_cliente_real}")
             
-            # 🚨 NOVO: ALERTA DE QUEDA DE VENDAS / PRODUTOS ABANDONADOS POR ESTE CLIENTE
-            st.markdown("### 🚨 Alerta de Itens Esquecidos/Queda por este Cliente")
+            # 🚨 NOVO ALERTA CRÍTICO: SE O CLIENTE INTEGRALMENTE SUMIU HÁ MAIS DE 30 DIAS
+            ultima_venda_geral_cliente = filtro_cliente['Data_Datetime'].max()
+            dias_total_sumido = (data_maxima_sistema - ultima_venda_geral_cliente).days
             
-            # Agrupa por produto comprado por esse cliente para ver a última data
+            if dias_total_sumido > 30:
+                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUM COMPRA na empresa! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
+            
+            # 🚨 RECALIBRADO PARA 30 DIAS: ITENS ESPECÍFICOS ESQUECIDOS
+            st.markdown("### 🚨 Itens Esquecidos/Queda por este Cliente (> 30 dias)")
+            
             analise_produtos_cliente = filtro_cliente.groupby('Produto').agg(
                 Ultima_Compra=('Data_Datetime', 'max'),
                 Total_Faturado=('Faturamento Brut', 'sum')
@@ -167,15 +188,14 @@ with aba2:
             
             analise_produtos_cliente['Dias_Sem_Comprar'] = (data_maxima_sistema - analise_produtos_cliente['Ultima_Compra']).dt.days
             
-            # Filtra os produtos que ele comprava bem mas não compra há mais de 45 dias
-            produtos_abandonados = analise_produtos_cliente[analise_produtos_cliente['Dias_Sem_Comprar'] > 45].sort_values(by='Dias_Sem_Comprar', ascending=False)
+            produtos_abandonados = analise_produtos_cliente[analise_produtos_cliente['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
             
             if not produtos_abandonados.empty:
                 for idx, row in produtos_abandonados.head(5).iterrows():
                     data_prod_pt = row['Ultima_Compra'].strftime('%d/%m/%Y')
-                    st.warning(f"📉 **Queda de Venda:** Parou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
+                    st.warning(f"降低 **Item Abandonado:** Deixou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
             else:
-                st.success("✅ Perfeito! Este cliente continua comprando o mix tradicional de produtos frequentemente.")
+                st.success("✅ Este cliente está comprando o mix tradicional em dia.")
             
             st.write("---")
             st.markdown("### 🏆 Ranking de Produtos Mais Vendidos para este Cliente")
