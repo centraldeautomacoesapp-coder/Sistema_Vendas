@@ -132,7 +132,6 @@ with col2:
 st.write("")
 with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
     ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
-    # LINHA CORRIGIDA AQUI:
     ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
     clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
     
@@ -269,6 +268,7 @@ with aba3:
         prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
         produtos_unicos_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
         
+        # Variável com o nome correto em português (com G)
         mensagens_por_cliente = {}
         
         with st.spinner("Analisando perfil de consumo dos clientes..."):
@@ -292,7 +292,8 @@ with aba3:
                     if linha not in mensagens_por_cliente[cli]:
                         mensagens_por_cliente[cli].append(linha)
                         
-        if mensajes_por_cliente:
+        # LINHA CORRIGIDA AQUI (de 'mensajes' para 'mensagens'):
+        if mensagens_por_cliente:
             st.success(f"🔥 Sucesso! Geradas ofertas customizadas para {len(mensagens_por_cliente)} clientes da sua carteira.")
             st.write("Clique no ícone de prancheta 📋 no canto direito de cada caixa para copiar a mensagem instantaneamente.")
             
