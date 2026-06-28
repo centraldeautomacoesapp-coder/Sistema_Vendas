@@ -35,7 +35,6 @@ if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_o
 if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set()
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
-# Memória para controlar qual aba está ativa na tela
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 
 # Funções de padronização de texto
@@ -166,40 +165,47 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">⚠️ SUMIDO >30D</span>'
     return html
 
-# --- 📊 CARTÕES DE MÉTRICAS COMPACTOS E TEXTO INTEIRO DO RANKING (RESOLVE ISSO 1 E 2) ---
+# --- 📊 INDICADORES SUPERIORES ADAPTADOS (Métricas + Não Positivados do Mês Atual + Ranking Inteiro) ---
 st.write("---")
-c1, c2, c3 = st.columns([1, 1, 1.8]) # Aumentado proporcionalmente o espaço do ranking
+c1, c2, c3, c4 = st.columns([1, 1, 1, 1.8]) # Adicionado espaço para o novo cálculo sem apertar o layout
 
 f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
 f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
+nao_pos_mes = sum(1 for c, v in dict_carteira.items() if "NÃO POSITIVADO" in v["tags"]) # Contagem automática do mês atual
 
 with c1:
     st.markdown(f"""
     <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #00875A; min-height: 55px;">
-        <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟢 Posit. FL2</p>
-        <h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f2_pos} Cli</h4>
+        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟢 Posit. FL2</p>
+        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f2_pos} Cli</h4>
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
     st.markdown(f"""
     <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FF8B00; min-height: 55px;">
-        <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟠 Posit. FL6</p>
-        <h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f6_pos} Cli</h4>
+        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟠 Posit. FL6</p>
+        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f6_pos} Cli</h4>
     </div>
     """, unsafe_allow_html=True)
 
 with c3:
-    st.markdown("<p style='font-size:12px; margin:0 0 2px 0; color:#555; font-weight:bold;'>🏆 Ranking de Produtos</p>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #DE350B; min-height: 55px;">
+        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🔴 Não Posit.</p>
+        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{nao_pos_mes} Cli</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c4:
+    st.markdown("<p style='font-size:11px; margin:0 0 2px 0; color:#555; font-weight:bold;'>🏆 Ranking Geral</p>", unsafe_allow_html=True)
     top_3_mes = df_mes_atual.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
     for idx, p in enumerate(top_3_mes, 1):
-        # Removido o corte [:12] -> O texto agora aparece inteiro e maior
-        st.markdown(f"<p style='font-size:12px; margin:1px 0; font-weight:bold; color:#222; line-height:1.2;'>{idx}° {p}</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='font-size:11px; margin:1px 0; font-weight:bold; color:#222; line-height:1.2;'>{idx}° {p}</p>", unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 🚀 SELETOR DE ABAS DINÂMICO VIA SESSION STATE (RESOLVE ISSO 3) ---
-# Usando botões estilizados lado a lado para garantir que a troca de abas funcione instantaneamente por código
+# --- 🚀 NAVEGAÇÃO LADO A LADO DO ASSISTENTE (OFERTAS, ALERTAS, CONSULTA) ---
 col_nav1, col_nav2, col_nav3 = st.columns(3)
 
 with col_nav1:
@@ -217,7 +223,7 @@ with col_nav3:
 
 st.write("")
 
-# --- INTERFACE DA ABA SELECIONADA ---
+# --- INTERFACES DAS ABAS ---
 
 # 1. ABA OFERTAS WHATSAPP
 if st.session_state.aba_atual == "🟢 Ofertas":
@@ -230,9 +236,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     
     with st.expander("📝 Colar / Inserir Novas Ofertas da Lista"):
         txt_novas = st.text_area("Insira o bloco de texto:", height=90, key=f"txt_{id_fila}", placeholder="Ex: 102 - Alcatra - R$ 35,00")
-        if st.button("🚀 Processar e Atualizar esta Lista", use_container_width=True, key=f"btn_proc_{id_fila}"):
+        if st.button("🚀 Processar e Otimizar para Todos os Meses", use_container_width=True, key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
+                
+                # REQUISITO GARANTIDO: Agrupamento feito sobre 'df_total' para capturar compradores de TODOS OS MESES
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
                 
@@ -251,7 +259,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                         if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
                 
                 st.session_state[id_fila] = nova_fila
-                st.success("Lista processada! Fila atualizada abaixo.")
+                st.success("Lista processada com histórico completo! Fila criada abaixo.")
                 st.rerun()
 
     st.write("---")
@@ -305,12 +313,12 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.markdown(obter_badges_html(c_nome), unsafe_allow_html=True)
                 st.write("")
                 
-                # REQUISITO MIGRADO: Ao clicar, muda a aba master e foca no cliente automaticamente
+                # MUDANÇA DE ABA AUTOMÁTICA: Redireciona na hora para a aba Consulta
                 if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}", use_container_width=True):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                    st.session_state.aba_atual = "🔍 Consulta"  # Salva a nova aba na memória
-                    st.rerun() # Executa o redirecionamento instantâneo
+                    st.session_state.aba_atual = "🔍 Consulta"  
+                    st.rerun()
 
 # 3. ABA CONSULTAS
 elif st.session_state.aba_atual == "🔍 Consulta":
