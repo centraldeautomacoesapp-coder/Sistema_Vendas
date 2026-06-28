@@ -6,6 +6,7 @@ import glob
 import unicodedata
 import re
 import random
+import json
 
 # Configuração de tela compacta para celular
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
@@ -18,27 +19,62 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- CONTROLE E AUTO-LIMPEZA DIÁRIA DA MEMÓRIA ---
+# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ANTI-QUEDA ---
+ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
+
+def carregar_progresso_salvo():
+    if os.path.exists(ARQUIVO_PROGRESSO):
+        try:
+            with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
+                dados = json.load(f)
+            if dados.get("data_ultimo_acesso") == data_hoje_str:
+                return dados
+        except:
+            pass
+    return None
+
+def salvar_progresso_atual():
+    dados = {
+        "data_ultimo_acesso": st.session_state.data_ultimo_acesso,
+        "envios_hoje": st.session_state.envios_hoje,
+        "fila_ofertas_dia": st.session_state.fila_ofertas_dia,
+        "fila_ofertas_relampago": st.session_state.fila_ofertas_relampago,
+        "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
+        "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
+        "excluidos_permanente": list(st.session_state.excluidos_permanente)
+    }
+    try:
+        with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
+            json.dump(dados, f, ensure_ascii=False, indent=4)
+    except:
+        pass
+
+# Inicialização inteligente baseada no arquivo de segurança
+progresso_backup = carregar_progresso_salvo()
+
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-if st.session_state.data_ultimo_acesso != data_hoje_str:
+# Recupera do backup ou inicia zerado caso seja um novo dia
+if progresso_backup:
+    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup["envios_hoje"]
+    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup["fila_ofertas_dia"]
+    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup["fila_ofertas_relampago"]
+    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup["excluidos_ofertas_dia"])
+    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup["excluidos_ofertas_relampago"])
+    if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup["excluidos_permanente"])
+else:
+    st.session_state.envios_hoje = 0
     st.session_state.fila_ofertas_dia = None
     st.session_state.fila_ofertas_relampago = None
     st.session_state.excluidos_ofertas_dia = set()
     st.session_state.excluidos_ofertas_relampago = set()
-    st.session_state.envios_hoje = 0  # Zera o contador de envios do dia à meia-noite
-    st.session_state.data_ultimo_acesso = data_hoje_str
+    st.session_state.excluidos_permanente = set()
+    salvar_progresso_atual()
 
-if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = None
-if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = None
-if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set()
-if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set()
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
-if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
-if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set()
 
 # Funções de padronização de texto
 def limpar_texto(texto):
@@ -168,7 +204,7 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">⚠️ SUMIDO >30D</span>'
     return html
 
-# --- 📊 INDICADORES SUPERIORES ADAPTADOS (Ranking agora é Geral) ---
+# --- 📊 INDICADORES SUPERIORES ---
 st.write("---")
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1.8])
 
@@ -177,78 +213,51 @@ f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
 nao_pos_mes = sum(1 for c, v in dict_carteira.items() if "NÃO POSITIVADO" in v["tags"])
 
 with c1:
-    st.markdown(f"""
-    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #00875A; min-height: 55px;">
-        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟢 Posit. FL2</p>
-        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f2_pos} Cli</h4>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #00875A; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟢 Posit. FL2</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f2_pos} Cli</h4></div>""", unsafe_allow_html=True)
 with c2:
-    st.markdown(f"""
-    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FF8B00; min-height: 55px;">
-        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟠 Posit. FL6</p>
-        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f6_pos} Cli</h4>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FF8B00; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟠 Posit. FL6</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f6_pos} Cli</h4></div>""", unsafe_allow_html=True)
 with c3:
-    st.markdown(f"""
-    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #DE350B; min-height: 55px;">
-        <p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🔴 Não Posit.</p>
-        <h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{nao_pos_mes} Cli</h4>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #DE350B; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🔴 Não Posit.</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{nao_pos_mes} Cli</h4></div>""", unsafe_allow_html=True)
 
 with c4:
     st.markdown("<p style='font-size:11px; margin:0 0 2px 0; color:#555; font-weight:bold;'>🏆 Ranking Geral (Todos os Meses)</p>", unsafe_allow_html=True)
-    # REQUISITO ATENDIDO: Ranking calculado sobre a base geral (df_total)
     top_3_geral = df_total.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
     for idx, p in enumerate(top_3_geral, 1):
         st.markdown(f"<p style='font-size:11px; margin:1px 0; font-weight:bold; color:#222; line-height:1.2;'>{idx}° {p}</p>", unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 🚀 NAVEGAÇÃO LADO A LADO DO ASSISTENTE ---
+# --- NAVEGAÇÃO ---
 col_nav1, col_nav2, col_nav3 = st.columns(3)
-
 with col_nav1:
     if st.button("🟢 Ofertas", use_container_width=True, type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-        st.session_state.aba_atual = "🟢 Ofertas"
-        st.rerun()
+        st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 with col_nav2:
     if st.button("🚨 Alertas", use_container_width=True, type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-        st.session_state.aba_atual = "🚨 Alertas"
-        st.rerun()
+        st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
 with col_nav3:
     if st.button("🔍 Consulta", use_container_width=True, type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
-        st.session_state.aba_atual = "🔍 Consulta"
-        st.rerun()
+        st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
 
 st.write("")
 
-# --- INTERFACES DAS ABAS ---
+# --- ABAS ---
 
-# 1. ABA OFERTAS WHATSAPP
+# 1. ABA OFERTAS
 if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
-    
-    # Exibição do contador recomendado
-    st.markdown(f"📊 **Progresso de hoje:** Você já realizou **{st.session_state.envios_hoje}** envios de listas com sucesso! 🚀")
+    st.markdown(f"📊 **Progresso diário seguro:** Você já enviou **{st.session_state.envios_hoje}** listas hoje!")
     
     tipo_lista = st.radio("Selecione o Canal de Ofertas:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago do Dia"], horizontal=True)
-    
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     tipo_msg = "dia" if "☀️" in tipo_lista else "relampago"
     
     with st.expander("📝 Colar / Inserir Novas Ofertas da Lista"):
-        txt_novas = st.text_area("Insira o bloco de texto:", height=90, key=f"txt_{id_fila}", placeholder="Ex: 102 - Alcatra - R$ 35,00")
-        if st.button("🚀 Processar e Otimizar para Todos os Meses", use_container_width=True, key=f"btn_proc_{id_fila}"):
+        txt_novas = st.text_area("Insira o bloco de texto:", height=90, key=f"txt_{id_fila}")
+        if st.button("🚀 Processar e Vincular Clientes", use_container_width=True, key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                
-                # Agrupamento feito sobre 'df_total' para capturar compradores de todo o histórico
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
                 
@@ -264,7 +273,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     for c in combs: interessados.update(prod_to_clientes[c])
                     
                     for cli in interessados:
-                        # REQUISITO DE EXCLUSÃO INTELIGENTE: Se foi excluído manualmente da base, mas comprou no mês atual, ele volta automaticamente!
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual:
                                 st.session_state.excluidos_permanente.remove(cli)
@@ -276,14 +284,15 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                         if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
                 
                 st.session_state[id_fila] = nova_fila
-                st.success("Lista vinculada com histórico completo!")
+                salvar_progresso_atual()  # Salva no arquivo de segurança
+                st.success("Lista processada com sucesso!")
                 st.rerun()
 
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
     if fila_ativa is None or len(fila_ativa) == 0:
-        st.info(f"Nenhum cliente na fila de {tipo_lista} no momento.")
+        st.info(f"Nenhum cliente pendente na fila de {tipo_lista}.")
     else:
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Clientes restantes na Fila: **{len(clientes_restantes)}**")
@@ -298,63 +307,75 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         st.code(mensagem_pronta, language=None)
         
-        # REQUISITO ATENDIDO: Três botões lado a lado organizados para celular
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
             if st.button("📋 Copiar", use_container_width=True, key=f"copiar_{cliente_atual}"):
-                st.toast("Texto copiado! Use o ícone de cópia da caixa preta acima.", icon="💡")
+                st.toast("Texto copiado via quadro superior!", icon="💡")
         with col_b2:
             if st.button("✅ Enviado", use_container_width=True, type="primary", key=f"enviado_{cliente_atual}"):
-                st.session_state.envios_hoje += 1  # Contabiliza no contador
+                st.session_state.envios_hoje += 1
                 st.session_state[id_excluidos].add(cliente_atual)
                 del st.session_state[id_fila][cliente_atual]
+                salvar_progresso_atual()  # Registra progresso com segurança contra quedas
                 st.rerun()
         with col_b3:
             if st.button("❌ Excluir", use_container_width=True, key=f"perma_{cliente_atual}"):
-                st.session_state.excluidos_permanente.add(cliente_atual)  # Joga na lista de exclusão permanente
+                st.session_state.excluidos_permanente.add(cliente_atual)
                 del st.session_state[id_fila][cliente_atual]
-                st.toast(f"{cliente_atual} removido de futuras listas (até que volte a comprar).")
+                salvar_progresso_atual()  # Registra progresso com segurança contra quedas
+                st.toast(f"{cliente_atual} removido.")
                 st.rerun()
 
-# 2. ABA ALERTAS DE CARTEIRA (Relatório automático para o supervisor)
+# 2. ABA ALERTAS (Correções aplicadas: Todos os clientes visíveis + Relatório minimizado)
 elif st.session_state.aba_atual == "🚨 Alertas":
-    st.subheader("🚨 Radar de Clientes Exigindo Atenção")
+    st.subheader("🚨 Radar de Clientes Pendentes")
     
     lista_alertas = []
     for cli, dados in dict_carteira.items():
-        if "SUMIDO" in dados["tags"]:
+        # CORREÇÃO: Pegando tanto sumidos quanto os não positivados do mês atual
+        if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
             lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"]})
             
     df_alertas_visuais = pd.DataFrame(lista_alertas).sort_values(by="Dias", ascending=False)
     
     if df_alertas_visuais.empty:
-        st.success("Nenhum cliente sumido!")
+        st.success("Toda a carteira está em dia!")
     else:
-        # REQUISITO ATENDIDO: Copiar lista de clientes sumidos formatada com item mais comprado
-        st.write("📋 **Relatório para enviar ao Supervisor (Clique no ícone de copiar no canto do quadro abaixo):**")
-        texto_relatorio_sup = "RELAÇÃO DE CLIENTES SUMIDOS PARA AJUSTE DE DESCONTO:\n\n"
-        for idx, row in df_alertas_visuais.iterrows():
-            c_nome = row["Cliente"]
-            df_cli_h = df_total[df_total['Cliente'] == c_nome]
-            top_item = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().idxmax() if not df_cli_h.empty else "Sem histórico"
-            texto_relatorio_sup += f"· {c_nome}\n  ↳ Sem comprar há: {row['Dias']} dias\n  ↳ Item predileto: {top_item}\n\n"
+        # CORREÇÃO: Relatório agora começa minimizado e usa text_area para copiar fácil no celular
+        with st.expander("📋 GERAR RELATÓRIO PARA O SUPERVISOR (Clique para Expandir)", expanded=False):
+            texto_relatorio_sup = "RELAÇÃO COMPLETA DE CLIENTES EXIGINDO ATENÇÃO / DESCONTO:\n\n"
+            for idx, row in df_alertas_visuais.iterrows():
+                c_nome = row["Cliente"]
+                df_cli_h = df_total[df_total['Cliente'] == c_nome]
+                
+                # REQUISITO ATENDIDO: Traz o TOP 3 itens preferidos para embasamento do supervisor
+                if not df_cli_h.empty:
+                    top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+                    fav_str = ", ".join(top_itens)
+                else:
+                    fav_str = "Sem histórico"
+                    
+                status_txt = "SUMIDO" if row["Dias"] > 30 else "NÃO POSITIVADO NO MÊS"
+                texto_relatorio_sup += f"· {c_nome}\n  ↳ Status: {status_txt} ({row['Dias']} dias sem comprar)\n  ↳ Preferidos: {fav_str}\n\n"
             
-        st.code(texto_relatorio_sup, language=None)
+            st.text_area("Toque e selecione tudo abaixo para copiar:", value=texto_relatorio_sup, height=250)
         
         st.write("---")
-        st.write("👇 **Ações individuais por cliente:**")
-        for idx, row in df_alertas_visuais.head(15).iterrows():
+        st.write(f"👇 **Lista completa de Ações ({len(df_alertas_visuais)} clientes localizados):**")
+        
+        # Exibe todos os clientes sem cortes
+        for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             with st.container():
                 st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
                 st.markdown(obter_badges_html(c_nome), unsafe_allow_html=True)
-                if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}", use_container_width=True):
+                if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}_{c_nome[:5]}", use_container_width=True):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
                     st.session_state.aba_atual = "🔍 Consulta"  
                     st.rerun()
 
-# 3. ABA CONSULTAS (Com Cross-Selling integrado na ficha)
+# 3. ABA CONSULTA (Venda Cruzada Inteligente com Clientes Parecidos + Campanhas)
 elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Selecione o tipo de consulta:", ["👤 Por Cliente", "📦 Por Produto"], horizontal=True)
     st.write("---")
@@ -373,33 +394,49 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
                 
                 df_cli = df_total[df_total['Cliente'] == c_sel]
-                st.write("**🥩 Mix de Itens mais comprados por este cliente:**")
-                rank_p = df_cli.groupby('Produto')['Faturamento Brut'].sum().nlargest(8).reset_index()
+                st.write("**🥩 Mix de Itens mais comprados por este cliente (Histórico):**")
+                rank_p = df_cli.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).reset_index()
                 for i, r in rank_p.iterrows():
                     st.markdown(f"· {r['Produto']} (Total: R$ {r['Faturamento Brut']:,.2f})")
                 
-                # REQUISITO ATENDIDO: Geração da Oferta de Venda Cruzada (Cross-Selling) na própria Ficha do Cliente
+                # --- INTELIGÊNCIA DE VENDA CRUZADA (CROSS-SELLING AVANÇADO) ---
                 st.write("---")
-                st.markdown("### 💡 Sugestão de Venda Cruzada (Cross-Selling)")
+                st.markdown("### 💡 Sugestão de Venda Cruzada Inteligente")
                 
-                item_forte = rank_p.iloc[0]['Produto'] if not rank_p.empty else "seus cortes tradicionais"
+                # 1. Identificar o produto campeão do cliente atual
+                produto_campeao = rank_p.iloc[0]['Produto'] if not rank_p.empty else None
+                produtos_ja_comprados = set(df_cli['Produto'].unique())
                 
-                # Regra: tentar buscar se o cliente tem algum item na fila ativa de ofertas para cruzar, caso contrário pega o Top 1 Geral
-                item_sugerido_cross = top_3_geral[0]
+                sugestao_similaridade = "Cortes Nobres Delly's"
+                
+                if produto_campeao:
+                    # 2. Localizar compradores semelhantes (outros clientes que também compram muito o produto campeão dele)
+                    compradores_mesmo_item = df_total[(df_total['Produto'] == produto_campeao) & (df_total['Cliente'] != c_sel)]['Cliente'].unique()
+                    
+                    if len(compradores_mesmo_item) > 0:
+                        # 3. Descobrir o que esses clientes parecidos compram, que o nosso cliente atual NUNCA comprou
+                        df_parecidos = df_total[(df_total['Cliente'].isin(compradores_mesmo_item)) & (~df_total['Produto'].isin(produtos_ja_comprados))]
+                        if not df_parecidos.empty:
+                            sugestao_similaridade = df_parecidos.groupby('Produto')['Faturamento Brut'].sum().idxmax()
+                
+                # 4. Cruzar também com itens que estão ativos nas listas de oferta digitadas hoje
+                oferta_ativa_campanha = "nossa linha de espetos e sazonais"
                 if st.session_state.fila_ofertas_dia and c_sel in st.session_state.fila_ofertas_dia:
-                    item_sugerido_cross = st.session_state.fila_ofertas_dia[c_sel][0]
+                    oferta_ativa_campanha = st.session_state.fila_ofertas_dia[c_sel][0]
                 elif st.session_state.fila_ofertas_relampago and c_sel in st.session_state.fila_ofertas_relampago:
-                    item_sugerido_cross = st.session_state.fila_ofertas_relampago[c_sel][0]
+                    oferta_ativa_campanha = st.session_state.fila_ofertas_relampago[c_sel][0]
+                else:
+                    oferta_ativa_campanha = top_3_geral[0]
                 
+                # Montagem do texto altamente persuasivo baseado em comportamento de mercado
                 msg_cross = (
                     f"Olá! Tudo bem?\n\n"
-                    f"Reparei aqui no sistema que você tem uma saída excelente de *{item_forte}* conosco.\n\n"
-                    f"Pensando em aumentar a sua margem e trazer uma novidade para o seu balcão, separei uma oportunidade especial hoje para o item *{item_sugerido_cross}*.\n\n"
-                    f"Conseguimos uma condição diferenciada para faturar junto com os seus produtos habituais de carga. O que acha de colocar um lote desse para testarmos?"
+                    f"Aproveitando que estamos montando a carga de entregas, reparei aqui no sistema que você tem uma saída excelente de *{produto_campeao if produto_campeao else 'itens tradicionais'}* conosco.\n\n"
+                    f"Fiz um estudo de mercado e notei que clientes com o mesmo perfil e volume que o seu estão tendo um lucro excelente adicionando também o item *{sugestao_similaridade}*, que tem o giro casado perfeito.\n\n"
+                    f"Além disso, hoje entrou em promoção especial na nossa lista o item *{oferta_ativa_campanha}*. Conseguimos uma condição diferenciada se encaixarmos no mesmo frete. O que acha de colocarmos um lote de teste hoje?"
                 )
                 
-                st.write("Arraste para o lado ou clique no canto para copiar a mensagem pronta:")
-                st.code(msg_cross, language=None)
+                st.text_area("Toque para copiar a mensagem de venda cruzada:", value=msg_cross, height=220)
             else:
                 st.warning("Nenhum cliente localizado.")
                 
