@@ -18,7 +18,6 @@ with col_head1:
     st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 with col_head2:
     st.write("")
-    # REQUISITO ATENDIDO: Força a limpeza do cache e recarrega os dados do Drive na hora
     if st.button("🔄 Atualizar", use_container_width=True, help="Forçar atualização dos dados do Google Drive"):
         st.cache_data.clear()
         st.toast("Limpando cache e sincronizando planilhas...", icon="🔄")
@@ -29,7 +28,7 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ANTI-QUEDA (DIÁRIO E MENSAL) ---
+# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ANTI-QUEDA ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
@@ -65,7 +64,6 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-# Gerenciamento de Expiração Diária
 if ultimo_acesso == data_hoje_str:
     if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
     if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
@@ -79,7 +77,6 @@ else:
     st.session_state.excluidos_ofertas_dia = set()
     st.session_state.excluidos_ofertas_relampago = set()
 
-# REQUISITO ATENDIDO: Gerenciamento de Expiração Mensal para Relatório do Supervisor
 if mes_ultimo_acesso == mes_atual_referencia:
     if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
 else:
@@ -215,7 +212,7 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
 
-def obter_badges_html(cliente_nome):
+def obtener_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
     for tag in info["tags"]:
@@ -226,31 +223,35 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">⚠️ SUMIDO >30D</span>'
     return html
 
-# --- 📊 INDICADORES SUPERIORES ---
+# --- 📊 INDICADORES SUPERIORES LADO A LADO ---
 st.write("---")
-c1, c2, c3, c4 = st.columns([1, 1, 1, 1.8])
+c1, c2, c3 = st.columns(3) # REQUISITO ATENDIDO: Grid 100% lado a lado sem interrupções
 
 f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
 f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
 nao_pos_mes = sum(1 for c, v in dict_carteira.items() if "NÃO POSITIVADO" in v["tags"])
 
 with c1:
-    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #00875A; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟢 Posit. FL2</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f2_pos} Cli</h4></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #0052CC; min-height: 55px;"><p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟢 Posit. FL2</p><h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f2_pos} Cli</h4></div>""", unsafe_allow_html=True)
 with c2:
-    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FF8B00; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟠 Posit. FL6</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{f6_pos} Cli</h4></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #FF8B00; min-height: 55px;"><p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟠 Posit. FL6</p><h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f6_pos} Cli</h4></div>""", unsafe_allow_html=True)
 with c3:
-    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #DE350B; min-height: 55px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🔴 Não Posit.</p><h4 style="margin:0; font-size:14px; color:#111; font-weight:bold;">{nao_pos_mes} Cli</h4></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #DE350B; min-height: 55px;"><p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🔴 Não Posit.</p><h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{nao_pos_mes} Cli</h4></div>""", unsafe_allow_html=True)
 
-with c4:
-    st.markdown("<p style='font-size:11px; margin:0 0 2px 0; color:#555; font-weight:bold;'>🏆 Ranking Geral (Todos os Meses)</p>", unsafe_allow_html=True)
-    top_3_geral = df_total.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-    for idx, p in enumerate(top_3_geral, 1):
-        st.markdown(f"<p style='font-size:11px; margin:1px 0; font-weight:bold; color:#222; line-height:1.2;'>{idx}° {p}</p>", unsafe_allow_html=True)
+# REQUISITO ATENDIDO: Ranking Realocado Abaixo com fonte de texto ampliada
+st.write("")
+st.markdown("<h4 style='font-size:15px; margin: 10px 0 5px 0; color:#111; font-weight:bold;'>🏆 Ranking Geral de Produtos (Maior Faturamento)</h4>", unsafe_allow_html=True)
+top_3_geral = df_total.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+
+col_r1, col_r2, col_r3 = st.columns(3)
+for idx, p in enumerate(top_3_geral, 1):
+    with [col_r1, col_r2, col_r3][idx-1]:
+        st.markdown(f"<div style='background-color: #fff; padding: 6px; border: 1px solid #ddd; border-radius:4px; font-size:13px; font-weight:bold; color:#222; text-align:center;'>{idx}° {p}</div>", unsafe_allow_html=True)
 
 st.write("---")
 
-# --- NAVEGAÇÃO ---
-col_nav1, col_nav2, col_nav3 = st.columns(3)
+# --- NAVEGAÇÃO LADO A LADO ---
+col_nav1, col_nav2, col_nav3 = st.columns(3) # REQUISITO ATENDIDO: Abas rigorosamente dispostas lado a lado
 with col_nav1:
     if st.button("🟢 Ofertas", use_container_width=True, type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
         st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
@@ -263,7 +264,7 @@ with col_nav3:
 
 st.write("")
 
-# --- ABAS ---
+# --- LOGIC DE INTERFACE DAS ABAS ---
 
 # 1. ABA OFERTAS
 if st.session_state.aba_atual == "🟢 Ofertas":
@@ -286,7 +287,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
-                for linha in sidelines:
+                for linha in linhas:
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
@@ -349,7 +350,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.toast(f"{cliente_atual} removido.")
                 st.rerun()
 
-# 2. ABA ALERTAS (Modificações de filtragem e envio aplicadas)
+# 2. ABA ALERTAS
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -364,23 +365,22 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     if not df_alertas_visuais.empty:
         df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
         
-    # REQUISITO ATENDIDO: Filtro de busca textual na aba de alertas
     busca_alerta = st.text_input("🔍 Filtrar por Cliente ou Código:", placeholder="Digite o nome para pesquisar...").strip()
     if busca_alerta and not df_alertas_visuais.empty:
         termo_limpo = limpar_texto(busca_alerta)
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info("Nenhum cliente pendente ou localizado com este termo.")
+        st.info("Nenhum cliente localizado ou pendente.")
     else:
         with st.expander("📋 RELATÓRIO CORRIDO PARA O SUPERVISOR (Apenas Marcados)", expanded=True):
             texto_relatorio_sup = ""
             
-            # REQUISITO ATENDIDO: Constrói a lista corrida levando em conta apenas os marcados (padrão inicial True)
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
                 
-                if not st.session_state.get(f"check_sup_{c_nome}", True):
+                # REQUISITO ATENDIDO: Filtra apenas quem o usuário marcou ativamente na tela
+                if not st.session_state.get(f"check_sup_{c_nome}", False):
                     continue
                     
                 df_cli_h = df_total[df_total['Cliente'] == c_nome]
@@ -419,12 +419,11 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 components.html(html_button_js, height=45)
                 
             with col_btn_sup2:
-                # REQUISITO ATENDIDO: Botão para consolidar o envio do mês vigente
-                if st.button("💾 Registrar Envio do Mês", use_container_width=True, help="Registrar no sistema que os clientes marcados já foram reportados"):
+                if st.button("💾 Registrar Envio do Mês", use_container_width=True):
                     cont_salvos = 0
                     for idx, row in df_alertas_visuais.iterrows():
                         c_nome = row["Cliente"]
-                        if st.session_state.get(f"check_sup_{c_nome}", True):
+                        if st.session_state.get(f"check_sup_{c_nome}", False):
                             st.session_state.enviados_supervisor_mes.add(c_nome)
                             cont_salvos += 1
                     salvar_progresso_atual()
@@ -439,13 +438,12 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             with st.container():
                 col_card1, col_card2 = st.columns([1, 8])
                 with col_card1:
-                    # REQUISITO ATENDIDO: Checkbox ao lado de cada cliente para ligar/desligar no texto superior
-                    st.checkbox("", value=True, key=f"check_sup_{c_nome}")
+                    # REQUISITO ATENDIDO: Inicia desmarcado (value=False) por padrão do requisito
+                    st.checkbox("", value=False, key=f"check_sup_{c_nome}")
                 with col_card2:
                     st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
                     
                     html_badges = obter_badges_html(c_nome)
-                    # REQUISITO ATENDIDO: Aviso visível caso já tenha sido enviado para o supervisor neste mês
                     if c_nome in st.session_state.enviados_supervisor_mes:
                         html_badges += '<span style="background-color:#FFC400; color:#172B4D; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">📅 JÁ ENVIADO AO SUP. ESTE MÊS</span>'
                     
@@ -508,7 +506,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     f"Olá! Tudo bem?\n\n"
                     f"Aproveitando que estamos montando a carga de entregas, reparei aqui no sistema que você tem uma saída excelente de *{produto_campeao if produto_campeao else 'itens tradicionais'}* conosco.\n\n"
                     f"Fiz um estudo de mercado e notei que clientes com o mesmo perfil e volume que o seu estão tendo um lucro excelente adicionando também o item *{sugestao_similaridade}*, que tem o giro casado perfeito.\n\n"
-                    f"Além disso, hoje entrou em promoção especial na nossa lista o item *{oferta_ativa_campanha}*. Conseguimos uma condição diferenciada se encaixarmos no mesmo frete. O que acha de colocarmos um lote de teste hoje?"
+                    f"Além disso, hoje entrou em promoção especial na nossa lista o item *{oferta_ativa_campanha}*. Conseguimos uma condition diferenciada se encaixarmos no mesmo frete. O que acha de colocarmos um lote de teste hoje?"
                 )
                 
                 st.text_area("Toque para copiar a mensagem de venda cruzada:", value=msg_cross, height=220)
