@@ -12,37 +12,45 @@ import streamlit.components.v1 as components
 # Configuração de tela compacta para celular
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# Cabeçalho da Marca
-st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+# --- CABEÇALHO DA MARCA E BOTÃO DE SINCRONIZAÇÃO FORÇADA ---
+col_head1, col_head2 = st.columns([3, 1])
+with col_head1:
+    st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+with col_head2:
+    st.write("")
+    # REQUISITO ATENDIDO: Força a limpeza do cache e recarrega os dados do Drive na hora
+    if st.button("🔄 Atualizar", use_container_width=True, help="Forçar atualização dos dados do Google Drive"):
+        st.cache_data.clear()
+        st.toast("Limpando cache e sincronizando planilhas...", icon="🔄")
+        st.rerun()
 
 # 📅 CONTROLE DE DATA ATUAL REAL DO CALENDÁRIO
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ANTI-QUEDA ---
+# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ANTI-QUEDA (DIÁRIO E MENSAL) ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
     if os.path.exists(ARQUIVO_PROGRESSO):
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
-                dados = json.load(f)
-            if dados.get("data_ultimo_acesso") == data_hoje_str:
-                return dados
+                return json.load(f)
         except:
             pass
-    return None
+    return {}
 
 def salvar_progresso_atual():
     dados = {
-        "data_ultimo_acesso": st.session_state.data_ultimo_acesso,
+        "data_ultimo_acesso": data_hoje_str,
         "envios_hoje": st.session_state.envios_hoje,
         "fila_ofertas_dia": st.session_state.fila_ofertas_dia,
         "fila_ofertas_relampago": st.session_state.fila_ofertas_relampago,
         "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
         "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
-        "excluidos_permanente": list(st.session_state.excluidos_permanente)
+        "excluidos_permanente": list(st.session_state.excluidos_permanente),
+        "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes)
     }
     try:
         with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
@@ -51,24 +59,36 @@ def salvar_progresso_atual():
         pass
 
 progresso_backup = carregar_progresso_salvo()
+ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
+mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-if progresso_backup:
-    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup["envios_hoje"]
-    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup["fila_ofertas_dia"]
-    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup["fila_ofertas_relampago"]
-    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup["excluidos_ofertas_dia"])
-    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup["excluidos_ofertas_relampago"])
-    if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup["excluidos_permanente"])
+# Gerenciamento de Expiração Diária
+if ultimo_acesso == data_hoje_str:
+    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
+    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
+    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
+    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
+    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
 else:
     st.session_state.envios_hoje = 0
     st.session_state.fila_ofertas_dia = None
     st.session_state.fila_ofertas_relampago = None
     st.session_state.excluidos_ofertas_dia = set()
     st.session_state.excluidos_ofertas_relampago = set()
-    st.session_state.excluidos_permanente = set()
+
+# REQUISITO ATENDIDO: Gerenciamento de Expiração Mensal para Relatório do Supervisor
+if mes_ultimo_acesso == mes_atual_referencia:
+    if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
+else:
+    st.session_state.enviados_supervisor_mes = set()
+
+if 'excluidos_permanente' not in st.session_state:
+    st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
+
+if not progresso_backup or ultimo_acesso != data_hoje_str:
     salvar_progresso_atual()
 
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
@@ -163,7 +183,7 @@ if df_total.empty:
     st.warning("Base de dados vazia.")
     st.stop()
 
-df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia[:7]]
+df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
@@ -266,7 +286,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
-                for linha in linhas:
+                for linha in sidelines:
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
@@ -329,78 +349,114 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.toast(f"{cliente_atual} removido.")
                 st.rerun()
 
-# 2. ABA ALERTAS
+# 2. ABA ALERTAS (Modificações de filtragem e envio aplicadas)
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
     lista_alertas = []
     for cli, dados in dict_carteira.items():
-        # REQUISITO ATENDIDO: Ignora nan e remove de forma estrita clientes com 0 dias sem comprar
         if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0:
             continue
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
             lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"]})
             
-    df_alertas_visuais = pd.DataFrame(lista_alertas).sort_values(by="Dias", ascending=False)
+    df_alertas_visuais = pd.DataFrame(lista_alertas)
+    if not df_alertas_visuais.empty:
+        df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
+        
+    # REQUISITO ATENDIDO: Filtro de busca textual na aba de alertas
+    busca_alerta = st.text_input("🔍 Filtrar por Cliente ou Código:", placeholder="Digite o nome para pesquisar...").strip()
+    if busca_alerta and not df_alertas_visuais.empty:
+        termo_limpo = limpar_texto(busca_alerta)
+        df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.success("Toda a carteira está em dia!")
+        st.info("Nenhum cliente pendente ou localizado com este termo.")
     else:
-        with st.expander("📋 GERAR RELATÓRIO PARA O SUPERVISOR (Clique para Expandir)", expanded=False):
-            # REQUISITO ATENDIDO: Texto com abordagem muito mais humana e vendedora
-            texto_relatorio_sup = (
-                "Fala, chefe! Beleza?\n\n"
-                "Estava mapeando aqui a minha carteira e separei essa listinha de clientes que estão um tempo sem comprar com a gente ou que ainda não negativaram o mês. "
-                "Fiz o levantamento exato do Top 3 produtos favoritos que eles costumam carregar nas cargas tradicionais.\n\n"
-                "Dá uma olhada se a gente consegue aquela condição especial ou um teto de desconto exclusivo para cada um deles. Se aprovar, já entro em contato puxando o gatilho comercial para fechar o pedido hoje mesmo. Segue a relação:\n\n"
-            )
+        with st.expander("📋 RELATÓRIO CORRIDO PARA O SUPERVISOR (Apenas Marcados)", expanded=True):
+            texto_relatorio_sup = ""
+            
+            # REQUISITO ATENDIDO: Constrói a lista corrida levando em conta apenas os marcados (padrão inicial True)
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
+                
+                if not st.session_state.get(f"check_sup_{c_nome}", True):
+                    continue
+                    
                 df_cli_h = df_total[df_total['Cliente'] == c_nome]
+                status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
+                
+                texto_relatorio_sup += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
                 
                 if not df_cli_h.empty:
                     top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                    fav_str = " / ".join(top_itens)
+                    for item in top_itens:
+                        texto_relatorio_sup += f"   ▪️ {item}\n"
                 else:
-                    fav_str = "Sem histórico recente"
-                    
-                status_txt = "Sumido da Base" if row["Dias"] > 30 else "Pendente este Mês"
-                texto_relatorio_sup += f"📌 {c_nome}\n   • Situação atual: {status_txt} ({row['Dias']} dias sem comprar)\n   • O que mais compra: {fav_str}\n\n"
+                    texto_relatorio_sup += "   ▪️ Sem histórico recente\n"
+                texto_relatorio_sup += "\n"
             
-            st.text_area("Texto gerado:", value=texto_relatorio_sup, height=220, key="txt_sup_area")
+            st.text_area("Texto pronto:", value=texto_relatorio_sup, height=200, key="txt_sup_area")
             
-            # REQUISITO ATENDIDO: Botão HTML/JS nativo para cópia instantânea no celular com feedback visual
-            html_button_js = f"""
-            <button id="copyBtn" style="width: 100%; background-color: #ff4b4b; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;">📋 Copiar Texto Completo</button>
-            <script>
-            document.getElementById('copyBtn').addEventListener('click', function() {{
-                const text = `{texto_relatorio_sup.replace('`','\\`').replace('$','\\$')}`;
-                navigator.clipboard.writeText(text);
-                this.innerText = '✅ Texto Copiado com Sucesso!';
-                this.style.backgroundColor = '#00875A';
-                setTimeout(() => {{ 
-                    this.innerText = '📋 Copiar Texto Completo'; 
-                    this.style.backgroundColor = '#ff4b4b';
-                }}, 2000);
-            }});
-            </script>
-            """
-            components.html(html_button_js, height=50)
+            col_btn_sup1, col_btn_sup2 = st.columns(2)
+            with col_btn_sup1:
+                texto_js_safe = json.dumps(texto_relatorio_sup)
+                html_button_js = f"""
+                <button id="copyBtn" style="width: 100%; background-color: #ff4b4b; color: white; border: none; padding: 11px; border-radius: 8px; font-weight: bold; font-size: 13px; cursor: pointer;">📋 Copiar Selecionados</button>
+                <script>
+                document.getElementById('copyBtn').addEventListener('click', function() {{
+                    const text = {texto_js_safe};
+                    navigator.clipboard.writeText(text);
+                    this.innerText = '✅ Copiado!';
+                    this.style.backgroundColor = '#00875A';
+                    setTimeout(() => {{ 
+                        this.innerText = '📋 Copiar Selecionados'; 
+                        this.style.backgroundColor = '#ff4b4b';
+                    }}, 2000);
+                }});
+                </script>
+                """
+                components.html(html_button_js, height=45)
+                
+            with col_btn_sup2:
+                # REQUISITO ATENDIDO: Botão para consolidar o envio do mês vigente
+                if st.button("💾 Registrar Envio do Mês", use_container_width=True, help="Registrar no sistema que os clientes marcados já foram reportados"):
+                    cont_salvos = 0
+                    for idx, row in df_alertas_visuais.iterrows():
+                        c_nome = row["Cliente"]
+                        if st.session_state.get(f"check_sup_{c_nome}", True):
+                            st.session_state.enviados_supervisor_mes.add(c_nome)
+                            cont_salvos += 1
+                    salvar_progresso_atual()
+                    st.toast(f"✅ Registrados {cont_salvos} clientes enviados!")
+                    st.rerun()
         
         st.write("---")
-        st.write(f"👇 **Lista completa de Ações ({len(df_alertas_visuais)} clientes localizados):**")
+        st.write(f"👇 **Selecione quem incluir no relatório ({len(df_alertas_visuais)}):**")
         
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             with st.container():
-                st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
-                st.markdown(obter_badges_html(c_nome), unsafe_allow_html=True)
-                # CORREÇÃO DA QUEDA: str(c_nome) garante que chaves nunca quebrem por tipos numéricos ou nulos
-                if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}_{str(c_nome)[:5]}", use_container_width=True):
-                    st.session_state.busca_direta_cliente = c_nome
-                    st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                    st.session_state.aba_atual = "🔍 Consulta"  
-                    st.rerun()
+                col_card1, col_card2 = st.columns([1, 8])
+                with col_card1:
+                    # REQUISITO ATENDIDO: Checkbox ao lado de cada cliente para ligar/desligar no texto superior
+                    st.checkbox("", value=True, key=f"check_sup_{c_nome}")
+                with col_card2:
+                    st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
+                    
+                    html_badges = obter_badges_html(c_nome)
+                    # REQUISITO ATENDIDO: Aviso visível caso já tenha sido enviado para o supervisor neste mês
+                    if c_nome in st.session_state.enviados_supervisor_mes:
+                        html_badges += '<span style="background-color:#FFC400; color:#172B4D; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">📅 JÁ ENVIADO AO SUP. ESTE MÊS</span>'
+                    
+                    st.markdown(html_badges, unsafe_allow_html=True)
+                    
+                    if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}_{str(c_nome)[:5]}", use_container_width=True):
+                        st.session_state.busca_direta_cliente = c_nome
+                        st.session_state.sub_aba_consulta = "👤 Por Cliente"
+                        st.session_state.aba_atual = "🔍 Consulta"  
+                        st.rerun()
+            st.write("")
 
 # 3. ABA CONSULTA
 elif st.session_state.aba_atual == "🔍 Consulta":
