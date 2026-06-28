@@ -10,7 +10,7 @@ import random
 # Configuração de tela para celular
 st.set_page_config(page_title="Delly's - Inteligência de Vendas", layout="centered")
 
-# 📸 CABEÇALHO VIA LINK DA INTERNET (Fundo Branco Perfeito)
+# 📸 CABEÇALHO VIA LINK DA INTERNET
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 
 # --- GERENCIAMENTO DE MEMÓRIA (SESSION STATE) ---
@@ -18,6 +18,8 @@ if 'termo_busca_cliente' not in st.session_state:
     st.session_state.termo_busca_cliente = ""
 if 'lista_fila_whatsapp' not in st.session_state:
     st.session_state.lista_fila_whatsapp = None
+if 'texto_ofertas_bruto' not in st.session_state:
+    st.session_state.texto_ofertas_bruto = ""
 
 # Função para remover acentos e padronizar textos de busca
 def limpar_texto(texto):
@@ -40,10 +42,9 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     mascara = df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))
     return df[mascara]
 
-# LIMPADOR DE TEXTO DE OFERTA: Extrai apenas o nome real do produto
+# LIMPADOR DE TEXTO DE OFERTA
 def extrair_palavras_produto(linha):
     linha_limpa = limpar_texto(linha)
-    linha_limpa = re.sub(r'[^\w\s]', ' ', line_limpa if 'line_limpa' in locals() else linha_limpa)
     linha_limpa = re.sub(r'[^\w\s]', ' ', linha_limpa)
     palavras = linha_limpa.split()
     
@@ -57,7 +58,7 @@ def extrair_palavras_produto(linha):
         palavras_validas.append(p_limpo)
     return palavras_validas
 
-# Gerador de Mensagens Humanizadas Rotativas (Evita Spam e padrão de Robô)
+# Gerador de Mensagens Humanizadas
 def gerar_mensagem_humanizada(cliente_nome, ofertas):
     saudacoes = [
         f"Olá, {cliente_nome}! Tudo bem? Veja as ofertas que separei hoje com base nos itens que você costuma comprar conosco: \n\n",
@@ -135,7 +136,7 @@ def carregar_dados_nuvem():
         df_unificado['Cliente_Busca'] = df_unificado['Cliente'].apply(limpar_texto)
         
         if 'Filial' not in df_unificado.columns:
-            df_unificado['Filial'] = "1" # Valor padrão caso não exista a coluna
+            df_unificado['Filial'] = "1"
             
         return df_unificado
         
@@ -148,11 +149,11 @@ if df_total.empty:
     st.warning("⚠️ Nenhuma planilha processada. Verifique os arquivos no Drive.")
     st.stop()
 
-# 📅 DATA ATUAL EM TEMPO REAL PARA AS TAGS (Referência Dinâmica)
+# 📅 1. REFERÊNCIA SEMPRE DO DIA ATUAL EM TEMPO REAL (Fuso Horário Local)
 data_atual_sistema = pd.Timestamp.now().normalize()
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m')
 
-# --- 🟢 PANEL DE TAGS INTELIGENTES GLOBAIS ---
+# --- CALCULADORA DE TAGS DA CARTEIRA ---
 @st.cache_data(ttl=300)
 def calcular_tags_carteira(df, mes_ref):
     mapa_tags = {}
@@ -164,30 +165,44 @@ def calcular_tags_carteira(df, mes_ref):
         
         tags_cliente = []
         if not df_mes_atual.empty:
-            tags_cliente.append("🟢 [POSITIVADO]")
-            
-            # Valida as filiais compradas no mês atual (removendo espaços e convertendo para texto)
+            tags_cliente.append("POSITIVADO")
             filiais = df_mes_atual['Filial'].astype(str).str.strip().unique()
-            if '2' in filiais or '02' in filiais:
-                tags_cliente.append("🔵 [FILIAL 2]")
-            if '6' in filiais or '06' in filiais:
-                tags_cliente.append("🟠 [FILIAL 6]")
+            if '2' in filiais or '02' in filiais: tags_cliente.append("FILIAL 2")
+            if '6' in filiais or '06' in filiais: tags_cliente.append("FILIAL 6")
         else:
-            tags_cliente.append("🔴 [NÃO POSITIVADO]")
+            tags_cliente.append("NÃO POSITIVADO")
             
-        mapa_tags[cli] = " ".join(tags_cliente)
+        mapa_tags[cli] = tags_cliente
     return mapa_tags
 
-# Dicionário global de tags por cliente
 dict_tags_clientes = calcular_tags_carteira(df_total, mes_atual_referencia)
 
-# Função auxiliar para envelopar o nome do cliente com suas respectivas tags em qualquer tela
-def formatar_nome_com_tag(nome_cliente):
-    tag = dict_tags_clientes.get(nome_cliente, "")
-    return f"{nome_cliente} {tag}"
+# 🎨 2. GERADOR DE QUADRADOS PREENCHIDOS (HTML BADGES)
+def obter_badges_html(cliente_nome):
+    tags_lista = dict_tags_clientes.get(cliente_nome, [])
+    html = ""
+    for tag in tags_lista:
+        if tag == "POSITIVADO":
+            html += '<span style="background-color: #00875A; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; margin-right: 6px; display: inline-block; border: none;">POSITIVADO</span>'
+        elif tag == "NÃO POSITIVADO":
+            html += '<span style="background-color: #DE350B; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; margin-right: 6px; display: inline-block; border: none;">NÃO POSITIVADO</span>'
+        elif tag == "FILIAL 2":
+            html += '<span style="background-color: #0052CC; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; margin-right: 6px; display: inline-block; border: none;">FILIAL 2</span>'
+        elif tag == "FILIAL 6":
+            html += '<span style="background-color: #FF8B00; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; margin-right: 6px; display: inline-block; border: none;">FILIAL 6</span>'
+    return html
 
+# Formatação limpa para componentes que não aceitam HTML (como Selectbox)
+def formatar_nome_selectbox(nome_cliente):
+    tags_lista = dict_tags_clientes.get(nome_cliente, [])
+    res = []
+    if "POSITIVADO" in tags_lista: res.append("[POS]")
+    if "NÃO POSITIVADO" in tags_lista: res.append("[⚠️NÃO_POS]")
+    if "FILIAL 2" in tags_lista: res.append("[F2]")
+    if "FILIAL 6" in tags_lista: res.append("[F6]")
+    return f"{nome_cliente} {' '.join(res)}"
 
-# --- METRICAS GLOBAIS ---
+# METRICAS
 st.write("---")
 col1, col2 = st.columns(2)
 with col1:
@@ -200,185 +215,157 @@ with col2:
 
 st.write("---")
 
-# --- AS 3 ABAS OPERACIONAIS ---
-aba1, aba2, aba3 = st.tabs(["🔍 Por Produto", "👤 Por Cliente", "📱 Ofertas p/ WhatsApp"])
+# --- 🏢 AS 4 ABAS ORGANIZADAS ---
+aba1, aba2, aba3, aba4 = st.tabs(["📱 Ofertas p/ WhatsApp", "🚨 Alertas & Oportunidades", "🔍 Consultar Produto", "👤 Consultar Cliente"])
 
-# --- ABA 1: BUSCA POR PRODUTO ---
+# --- ABA 1: WHATSAPP E FILA VIVA ---
 with aba1:
-    st.subheader("Análise de Produto")
-    palavra_chave = st.text_input("Qual produto deseja analisar?", key="prod_input").strip()
-    botao_buscar_prod = st.button("📊 Gerar Relatório de Produto", use_container_width=True)
-
-    if botao_buscar_prod and palavra_chave:
-        filtro_prod = filtrar_por_palavras(df_total, 'Produto_Busca', palavra_chave)
-        
-        if not filtro_prod.empty:
-            st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 30 dias)")
-            ultimas_compras_clientes = filtro_prod.groupby('Cliente')['Data_Datetime'].max().reset_index()
-            ultimas_compras_clientes['Dias_Sem_Comprar'] = (data_atual_sistema - ultimas_compras_clientes['Data_Datetime']).dt.days
-            clientes_sumidos = ultimas_compras_clientes[ultimas_compras_clientes['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
-            
-            if not clientes_sumidos.empty:
-                for idx, row in clientes_sumidos.head(8).iterrows():
-                    data_pt = row['Data_Datetime'].strftime('%d/%m/%Y')
-                    # Nome do cliente exibido com as Tags Globais
-                    st.error(f"⚠️ **{formatar_nome_com_tag(row['Cliente'])}** não compra este item desde **{data_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
-            else:
-                st.success("✅ Todos os clientes compraram este produto nos últimos 30 dias.")
-            
-            st.write("---")
-            st.markdown("### 📈 Evolução das Vendas deste Produto (Mês a Mês)")
-            faturamento_mensal = filtro_prod.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
-            st.line_chart(faturamento_mensal, color="#00875A")
-            
-            st.markdown("### 🏆 Ranking de Maiores Compradores deste Item")
-            ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
-            ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
-            
-            for idx, row in ranking_clientes.head(10).iterrows():
-                fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                st.markdown(f"👤 **{formatar_nome_com_tag(row['Cliente'])}** \n💰 Total Comprado: **{fat_total}**")
-                proporcao = float(row['Faturamento Brut'] / ranking_clientes['Faturamento Brut'].max())
-                st.progress(proporcao)
-        else:
-            st.warning("Nenhum produto encontrado com essas características.")
-
-# --- ABA 2: BUSCA POR CLIENTE ---
-with aba2:
-    st.subheader("Análise de Cliente")
-    input_cliente = st.text_input("Digite o nome ou parte do nome do cliente:", key="cli_input").strip()
-    botao_buscar_cli = st.button("📋 Gerar Raio-X do Cliente", use_container_width=True)
-
-    if botao_buscar_cli and input_cliente:
-        st.session_state.termo_busca_cliente = input_cliente
-
-    if st.session_state.termo_busca_cliente:
-        df_clientes_filtrados = filtrar_por_palavras(df_total, 'Cliente_Busca', st.session_state.termo_busca_cliente)
-        clientes_encontrados = df_clientes_filtrados['Cliente'].unique()
-        
-        if len(clientes_encontrados) == 0:
-            st.warning("⚠️ Nenhum cliente encontrado com esse termo.")
-            st.session_state.termo_busca_cliente = ""
-        else:
-            # Selectbox aplicando a função de formatação para exibir as tags coloridas na listagem
-            cliente_selecionado = st.selectbox(
-                f"📋 Encontramos correspondências. Selecione o correto:", 
-                clientes_encontrados, 
-                format_func=formatar_nome_com_tag
-            )
-            
-            filtro_cliente = df_total[df_total['Cliente'] == cliente_selecionado]
-            
-            st.write("---")
-            st.markdown(f"## 🏢 Ficha Completa: {formatar_nome_com_tag(cliente_selecionado)}")
-            
-            ultima_venda_geral_cliente = filtro_cliente['Data_Datetime'].max()
-            dias_total_sumido = (data_atual_sistema - ultima_venda_geral_cliente).days
-            
-            if dias_total_sumido > 30:
-                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUMA COMPRA!")
-            
-            st.markdown("### 🚨 Itens Esquecidos/Queda por este Cliente (> 30 dias)")
-            analise_produtos_cliente = filtro_cliente.groupby('Produto').agg(
-                Ultima_Compra=('Data_Datetime', 'max'),
-                Total_Faturado=('Faturamento Brut', 'sum')
-            ).reset_index()
-            
-            analise_produtos_cliente['Dias_Sem_Comprar'] = (data_atual_sistema - analise_produtos_cliente['Ultima_Compra']).dt.days
-            produtos_abandonados = analise_produtos_cliente[analise_produtos_cliente['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
-            
-            if not produtos_abandonados.empty:
-                for idx, row in produtos_abandonados.head(5).iterrows():
-                    data_prod_pt = row['Ultima_Compra'].strftime('%d/%m/%Y')
-                    st.warning(f"📉 **Item Abandonado:** Deixou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
-            else:
-                st.success("✅ Este cliente está com todo o seu mix tradicional em dia.")
-            
-            st.write("---")
-            st.markdown("### 🏆 Ranking de Produtos Mais Vendidos para este Cliente")
-            ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
-            ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
-            
-            for idx, row in ranking_produtos.head(10).iterrows():
-                fat_prod = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                st.markdown(f"🥩 **{row['Produto']}** \n💰 Volume Histórico: **{fat_prod}**")
-                proporcao_prod = float(row['Faturamento Brut'] / ranking_produtos['Faturamento Brut'].max())
-                st.progress(proporcao_prod)
-
-# --- 📱 ABA 3: TEXTO DE OFERTAS COM FILA VIVA DINÂMICA ---
-with aba3:
     st.subheader("📋 Painel de Ofertas Inteligente")
-    st.write("Cole a lista de ofertas do dia. O sistema cruzará os dados e criará uma fila de atendimento exclusiva cliente por cliente.")
     
-    texto_ofertas = st.text_area("Cole aqui a lista de ofertas do dia:", height=150, placeholder="Exemplo:\n10204 - Miolo da Alcatra Friboi KG - R$ 38,90\n9920 - Queijo Mussarela Fatiado R$ 26,00")
+    st.session_state.texto_ofertas_bruto = st.text_area("Cole aqui a lista de ofertas do dia:", value=st.session_state.texto_ofertas_bruto, height=120, placeholder="Exemplo:\n10204 - Miolo da Alcatra Friboi KG - R$ 38,90")
     botao_processar_ofertas = st.button("🚀 Processar e Criar Fila de Clientes", use_container_width=True)
     
-    if botao_processar_ofertas and texto_ofertas:
-        linhas_oferta = [l.strip() for l in texto_ofertas.split('\n') if l.strip()]
-        
+    if botao_processar_ofertas and st.session_state.texto_ofertas_bruto:
+        linhas_oferta = [l.strip() for l in st.session_state.texto_ofertas_bruto.split('\n') if l.strip()]
         prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
         produtos_unicos_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
         
         fila_clientes = {}
-        
-        with st.spinner("Mapeando histórico de consumo da carteira..."):
-            for linha in linhas_oferta:
-                palavras_chave = extrair_palavras_produto(linha)
-                if not palavras_chave:
-                    continue
+        for linha in linhas_oferta:
+            palavras_chave = extrair_palavras_produto(linha)
+            if not palavras_chave: continue
+            
+            produtos_combinados = [p_orig for p_orig, p_busca in produtos_unicos_busca.items() if all(p in p_busca for p in palavras_chave)]
+            clientes_interessados = set()
+            for prod in produtos_combinados:
+                clientes_interessados.update(prod_to_clientes[prod])
                 
-                produtos_combinados = []
-                for prod_original, prod_busca in produtos_unicos_busca.items():
-                    if all(p in prod_busca for p in palavras_chave):
-                        produtos_combinados.append(prod_original)
-                
-                clientes_interessados = set()
-                for prod in produtos_combinados:
-                    clientes_interessados.update(prod_to_clientes[prod])
-                
-                for cli in clientes_interessados:
-                    if cli not in fila_clientes:
-                        fila_clientes[cli] = []
-                    if linha not in fila_clientes[cli]:
-                        fila_clientes[cli].append(linha)
+            for cli in clientes_interessados:
+                if cli not in fila_clientes: fila_clientes[cli] = []
+                if linha not in fila_clientes[cli]: fila_clientes[cli].append(linha)
                         
         st.session_state.lista_fila_whatsapp = fila_clientes
         st.rerun()
         
-    # --- PROCESSAMENTO EXCLUSIVO DA FILA ---
     if st.session_state.lista_fila_whatsapp is not None:
         st.write("---")
-        
         if len(st.session_state.lista_fila_whatsapp) == 0:
-            st.success("🎉 **Parabéns! Todas as ofertas do dia foram enviadas e a fila foi concluída!**")
-            if st.button("🔄 Limpar e Iniciar Nova Lista"):
+            st.success("🎉 **Parabéns! Todas as propostas foram copiadas e enviadas! Fila Zerada.**")
+            if st.button("🔄 Reiniciar Nova Fila"):
                 st.session_state.lista_fila_whatsapp = None
                 st.rerun()
         else:
             total_restante = len(st.session_state.lista_fila_whatsapp)
             st.markdown(f"### 🎯 Clientes Restantes na Fila: **{total_restante}**")
             
-            # Seleciona sempre o primeiro cliente ativo na fila
             cliente_atual = list(st.session_state.lista_fila_whatsapp.keys())[0]
             ofertas_do_cliente = st.session_state.lista_fila_whatsapp[cliente_atual]
-            
-            # Gera a mensagem humanizada rotativa para este cliente
             msg_final = gerar_mensagem_humanizada(cliente_atual, ofertas_do_cliente)
             
-            # Caixa informativa destacando o cliente atual e suas tags de status
-            st.info(f"👤 **CLIENTE ATUAL:** {formatar_nome_com_tag(cliente_atual)}")
+            # Exibição do Cliente Atual usando os Quadrados Coloridos (HTML)
+            st.markdown(f"#### 👤 Cliente da Vez:")
+            st.markdown(f"<div style='font-size:18px; font-weight:bold; margin-bottom:8px;'>{cliente_atual}</div>", unsafe_allow_html=True)
+            st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
+            st.write("")
             
-            st.write("👇 Clique no ícone de prancheta **(canto superior direito da caixa abaixo)** para copiar o texto automaticamente:")
-            # Exibe o texto em bloco de código (que possui botão nativo de copiar perfeito para celular/PC)
+            st.write("👇 Copie no ícone de prancheta da caixa preta abaixo:")
             st.code(msg_final, language=None)
             
-            # Layout de botões de ação lado a lado
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                if st.button("📋 Mensagem Copiada!", use_container_width=True, type="secondary"):
-                    st.toast("Lembre-se de usar o botão interno da caixa preta acima para copiar!", icon="💡")
+                if st.button("📋 Marcar como Copiado", use_container_width=True):
+                    st.toast("Copiado com sucesso pelo botão nativo da caixa acima!", icon="👍")
             with col_b2:
-                # Esse botão retira o cliente da fila temporária e passa para o próximo
+                # 3. BOTÃO EXCLUIR DA FILA DIÁRIA (Mantém o cliente no banco de dados)
                 if st.button("❌ Concluído / Próximo Cliente", use_container_width=True, type="primary"):
                     del st.session_state.lista_fila_whatsapp[cliente_atual]
                     st.rerun()
+
+# --- ABA 2: 🚨 NOVA ABA DE ALERTAS E OPORTUNIDADES INTELIGENTES ---
+with aba2:
+    st.subheader("🚨 Radar de Oportunidades & Avisos de Giro")
+    st.write("Clientes sumidos ou não positivados este mês, cruzando o que eles mais compram com as ofertas que você cadastrou hoje.")
+    
+    # Descobre os clientes sumidos (Mais de 30 dias baseado na data de HOJE REAL)
+    ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
+    # 1. Cálculo baseado na data do dia atual real
+    ultimas_compras_geral['Dias_Inativo'] = (data_atual_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
+    
+    clientes_alerta = ultimas_compras_geral[ultimas_compras_geral['Dias_Inativo'] > 30].sort_values(by='Dias_Inativo', ascending=False)
+    
+    if clientes_alerta.empty:
+        st.success("✅ Excelente! Nenhum cliente da sua carteira está há mais de 30 dias sem comprar.")
+    else:
+        # Prepara palavras-chave das ofertas de hoje para o cruzamento inteligente
+        ofertas_hoje_texto = limpar_texto(st.session_state.texto_ofertas_bruto)
+        
+        for idx, row in clientes_alerta.head(15).iterrows():
+            cliente_alerta_nome = row['Cliente']
+            dias_inativo = row['Dias_Inativo']
+            
+            # Busca os 3 produtos mais comprados historicamente por esse cliente específico
+            df_cli_hist = df_total[df_total['Cliente'] == cliente_alerta_nome]
+            top_produtos_cliente = df_cli_hist.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+            
+            with st.container():
+                st.markdown(f"---")
+                # Nome do cliente e novos Quadrados Preenchidos em HTML
+                st.markdown(f"<span style='font-size:16px; font-weight:bold;'>🏢 {cliente_alerta_nome}</span>", unsafe_allow_html=True)
+                st.markdown(obter_badges_html(cliente_alerta_nome), unsafe_allow_html=True)
+                st.markdown(f"⚠️ **Inativo há {dias_inativo} dias** (Última compra: {row['Data_Datetime'].strftime('%d/%m/%Y')})")
+                
+                # Exibe o que ele costuma comprar
+                st.markdown(f"**🛍️ Itens mais comprados no histórico:**")
+                
+                # 3. Analisa se o produto preferido dele está nas ofertas do dia
+                for prod in top_produtos_cliente:
+                    match_oferta = False
+                    palavras_prod = extrair_palavras_produto(prod)
+                    
+                    if ofertas_hoje_texto and palavras_prod:
+                        if all(p in ofertas_hoje_texto for p in palavras_prod):
+                            match_oferta = True
+                    
+                    if match_oferta:
+                        st.markdown(f"🔥 <span style='background-color:#EAE6FF; color:#403294; padding:2px 6px; border-radius:4px; font-weight:bold;'>💡 OPORTUNIDADE:</span> O item **{prod}** está na sua lista de ofertas de hoje!", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"· {prod}")
+
+# --- ABA 3: CONSULTAR PRODUTO ---
+with aba3:
+    st.subheader("🔍 Consultar Histórico por Produto")
+    palavra_chave = st.text_input("Qual produto deseja analisar?", key="prod_input").strip()
+    if st.button("📊 Gerar Relatório de Produto", use_container_width=True) and palavra_chave:
+        filtro_prod = filtrar_por_palavras(df_total, 'Produto_Busca', palavra_chave)
+        if not filtro_prod.empty:
+            st.markdown("### Ranking de Maiores Compradores deste Item")
+            ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index().sort_values(by='Faturamento Brut', ascending=False)
+            for idx, row in ranking_clientes.head(10).iterrows():
+                fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                st.markdown(f"👤 {formatar_nome_selectbox(row['Cliente'])} | Total: **{fat_total}**")
+                st.markdown(obter_badges_html(row['Cliente']), unsafe_allow_html=True)
+        else:
+            st.warning("Nenhum produto encontrado.")
+
+# --- ABA 4: CONSULTAR CLIENTE ---
+with aba4:
+    st.subheader("👤 Raio-X Individual do Cliente")
+    input_cliente = st.text_input("Digite o nome ou parte do nome do cliente para consulta:", key="cli_input").strip()
+    if st.button("📋 Buscar Cliente", use_container_width=True) and input_cliente:
+        st.session_state.termo_busca_cliente = input_cliente
+
+    if st.session_state.termo_busca_cliente:
+        df_clientes_filtrados = filtrar_por_palavras(df_total, 'Cliente_Busca', st.session_state.termo_busca_cliente)
+        clientes_encontrados = df_clientes_filtrados['Cliente'].unique()
+        if len(clientes_encontrados) > 0:
+            cliente_selecionado = st.selectbox("Selecione o cliente:", clientes_encontrados, format_func=formatar_nome_selectbox)
+            
+            st.markdown(f"## 🏢 Ficha Completa: {cliente_selecionado}")
+            st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
+            
+            filtro_cliente = df_total[df_total['Cliente'] == cliente_selecionado]
+            st.write("---")
+            st.markdown("### 🏆 Produtos Mais Comprados por Ele")
+            ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index().sort_values(by='Faturamento Brut', ascending=False)
+            for idx, row in ranking_produtos.head(8).iterrows():
+                st.markdown(f"🥩 **{row['Produto']}** (R$ {row['Faturamento Brut']:,.2f})")
