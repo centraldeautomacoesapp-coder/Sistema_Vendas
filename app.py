@@ -16,13 +16,12 @@ st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_con
 # 📅 CONTROLE DE DATA ATUAL REAL DO CALENDÁRIO
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
-mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7] # YYYY-MM
+mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- CONTROLE E AUTO-LIMPEZA DIÁRIA DA MEMÓRIA (SESSION STATE) ---
+# --- CONTROLE E AUTO-LIMPEZA DIÁRIA DA MEMÓRIA ---
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-# 🚨 REGRA DA MEIA-NOITE: Se mudou o dia atual, zera as listas automaticamente
 if st.session_state.data_ultimo_acesso != data_hoje_str:
     st.session_state.fila_ofertas_dia = None
     st.session_state.fila_ofertas_relampago = None
@@ -30,13 +29,14 @@ if st.session_state.data_ultimo_acesso != data_hoje_str:
     st.session_state.excluidos_ofertas_relampago = set()
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-# Inicialização das variáveis caso não existam
 if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = None
 if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = None
 if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set()
 if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set()
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
+# Memória para controlar qual aba está ativa na tela
+if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 
 # Funções de padronização de texto
 def limpar_texto(texto):
@@ -56,12 +56,9 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
     return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
-# Gerador de Mensagens atemporais sem dados de robô
 def gerar_mensagem_humanizada(ofertas, tipo_lista):
     saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?", "Olá! Passando para te atualizar."]
-    
     termo_oferta = "ofertas relâmpago do dia" if tipo_lista == "relampago" else "ofertas do dia"
-    
     introducoes = [
         f"Separei aqui com exclusividade as melhores {termo_oferta} que acabaram de sair no nosso sistema:\n\n",
         f"Olha só essas condições especiais e {termo_oferta} separadas para o seu estoque:\n\n",
@@ -131,7 +128,6 @@ if df_total.empty:
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia[:7]]
 
-# --- REGRAS DE NEGÓCIO DA CARTEIRA DE CLIENTES ---
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
@@ -142,7 +138,6 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
         dt_ult = ultimas_compras.get(cli, data_hoje)
         dias_sem_compra = (data_hoje - dt_ult).days
         
-        # Regra de Positivação Semanal/Mensal integrada
         vendas_mes = df_mes[df_mes['Cliente'] == cli]
         if not vendas_mes.empty:
             tags.append("POSITIVADO")
@@ -160,7 +155,6 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
 
-# Conversores Visuais em HTML Quadrado Puro
 def obter_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
@@ -172,39 +166,68 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">⚠️ SUMIDO >30D</span>'
     return html
 
-# --- PAINEL DE MÉTRICAS COMPACTO MÓVEL ---
+# --- 📊 CARTÕES DE MÉTRICAS COMPACTOS E TEXTO INTEIRO DO RANKING (RESOLVE ISSO 1 E 2) ---
 st.write("---")
-c1, c2, c3 = st.columns(3)
+c1, c2, c3 = st.columns([1, 1, 1.8]) # Aumentado proporcionalmente o espaço do ranking
+
+f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
+f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
+
 with c1:
-    f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
-    st.metric("🟢 Posit. FL2", f"{f2_pos} Cli")
+    st.markdown(f"""
+    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #00875A; min-height: 55px;">
+        <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟢 Posit. FL2</p>
+        <h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f2_pos} Cli</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
 with c2:
-    f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
-    st.metric("🟠 Posit. FL6", f"{f6_pos} Cli")
+    st.markdown(f"""
+    <div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FF8B00; min-height: 55px;">
+        <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🟠 Posit. FL6</p>
+        <h4 style="margin:0; font-size:16px; color:#111; font-weight:bold;">{f6_pos} Cli</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
 with c3:
-    st.markdown("<p style='font-size:14px; margin-bottom:2px; color:gray;'>🏆 Ranking de Produtos</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:12px; margin:0 0 2px 0; color:#555; font-weight:bold;'>🏆 Ranking de Produtos</p>", unsafe_allow_html=True)
     top_3_mes = df_mes_atual.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
     for idx, p in enumerate(top_3_mes, 1):
-        st.markdown(f"<p style='font-size:11px; margin:0; font-weight:bold;'>{idx}° {str(p)[:12]}...</p>", unsafe_allow_html=True)
+        # Removido o corte [:12] -> O texto agora aparece inteiro e maior
+        st.markdown(f"<p style='font-size:12px; margin:1px 0; font-weight:bold; color:#222; line-height:1.2;'>{idx}° {p}</p>", unsafe_allow_html=True)
 
 st.write("---")
 
-# --- GERENCIADOR DE ABAS PRINCIPAIS (MAX 3 - CABE NO CELULAR) ---
-aba1, aba2, aba3 = st.tabs(["🟢 Ofertas WhatsApp", "🚨 Alertas", "🔍 Consulta"])
+# --- 🚀 SELETOR DE ABAS DINÂMICO VIA SESSION STATE (RESOLVE ISSO 3) ---
+# Usando botões estilizados lado a lado para garantir que a troca de abas funcione instantaneamente por código
+col_nav1, col_nav2, col_nav3 = st.columns(3)
 
-# --- TAB 1: OFERTAS WHATSAPP ---
-with aba1:
+with col_nav1:
+    if st.button("🟢 Ofertas", use_container_width=True, type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
+        st.session_state.aba_atual = "🟢 Ofertas"
+        st.rerun()
+with col_nav2:
+    if st.button("🚨 Alertas", use_container_width=True, type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
+        st.session_state.aba_atual = "🚨 Alertas"
+        st.rerun()
+with col_nav3:
+    if st.button("🔍 Consulta", use_container_width=True, type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
+        st.session_state.aba_atual = "🔍 Consulta"
+        st.rerun()
+
+st.write("")
+
+# --- INTERFACE DA ABA SELECIONADA ---
+
+# 1. ABA OFERTAS WHATSAPP
+if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
-    
-    # Seletor Duplo Isolado (Dividido em duas listas independentes)
     tipo_lista = st.radio("Selecione o Canal de Ofertas:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago do Dia"], horizontal=True)
     
-    # Define as variáveis dinamicamente baseadas na escolha do usuário
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     tipo_msg = "dia" if "☀️" in tipo_lista else "relampago"
     
-    # Caixa retrátil para cadastrar/atualizar lista sem estragar o espaço útil da tela
     with st.expander("📝 Colar / Inserir Novas Ofertas da Lista"):
         txt_novas = st.text_area("Insira o bloco de texto:", height=90, key=f"txt_{id_fila}", placeholder="Ex: 102 - Alcatra - R$ 35,00")
         if st.button("🚀 Processar e Atualizar esta Lista", use_container_width=True, key=f"btn_proc_{id_fila}"):
@@ -223,7 +246,6 @@ with aba1:
                     for c in combs: interessados.update(prod_to_clientes[c])
                     
                     for cli in interessados:
-                        # Respeita a lista de exclusão do dia corrente daquela fila específica
                         if cli in st.session_state[id_excluidos]: continue
                         if cli not in nova_fila: nova_fila[cli] = []
                         if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
@@ -232,7 +254,6 @@ with aba1:
                 st.success("Lista processada! Fila atualizada abaixo.")
                 st.rerun()
 
-    # --- PROCESSAMENTO INDEPENDENTE DA FILA SELECIONADA ---
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
@@ -257,14 +278,13 @@ with aba1:
             if st.button("📋 Copiado!", use_container_width=True, key=f"copiar_{cliente_atual}"):
                 st.toast("Texto pronto! Utilize o ícone na caixa preta acima.", icon="💡")
         with col_b2:
-            # Botão excluir remove o cliente da fila ativa e guarda na exclusão daquela lista específica
             if st.button("❌ Concluído / Próximo", use_container_width=True, type="primary", key=f"excluir_{cliente_atual}"):
                 st.session_state[id_excluidos].add(cliente_atual)
                 del st.session_state[id_fila][cliente_atual]
                 st.rerun()
 
-# --- TAB 2: ALERTAS DE CARTEIRA ---
-with aba2:
+# 2. ABA ALERTAS DE CARTEIRA
+elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Exigindo Atenção")
     
     lista_alertas = []
@@ -280,17 +300,20 @@ with aba2:
         for idx, row in df_alertas_visuais.head(15).iterrows():
             c_nome = row["Cliente"]
             with st.container():
+                st.write("---")
                 st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
                 st.markdown(obter_badges_html(c_nome), unsafe_allow_html=True)
+                st.write("")
                 
-                # Atalho Direto Inteligente para a aba de Consulta (Raio-X)
-                if st.button(f"🔍 Abrir Histórico de {str(c_nome)[:15]}...", key=f"btn_at_{idx}", use_container_width=True):
+                # REQUISITO MIGRADO: Ao clicar, muda a aba master e foca no cliente automaticamente
+                if st.button(f"🔍 Abrir Histórico", key=f"btn_at_{idx}", use_container_width=True):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                    st.toast("Gatilho carregado! Vá para a aba Consulta.")
+                    st.session_state.aba_atual = "🔍 Consulta"  # Salva a nova aba na memória
+                    st.rerun() # Executa o redirecionamento instantâneo
 
-# --- TAB 3: CONSULTAS (SUB-SELETOR INTERNO) ---
-with aba3:
+# 3. ABA CONSULTAS
+elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Selecione o tipo de consulta:", ["👤 Por Cliente", "📦 Por Produto"], horizontal=True)
     st.write("---")
     
