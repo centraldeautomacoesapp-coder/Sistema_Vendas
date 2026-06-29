@@ -67,6 +67,7 @@ def salvar_progresso_atual():
         "fila_ofertas_relampago": st.session_state.fila_ofertas_relampago,
         "memoria_ofertas_cruas_dia": st.session_state.memoria_ofertas_cruas_dia,
         "memoria_ofertas_cruas_rel": st.session_state.memoria_ofertas_cruas_rel,
+        "cidades_ativas": st.session_state.cidades_ativas,
         "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
         "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
         "excluidos_permanente": list(st.session_state.excluidos_permanente),
@@ -84,6 +85,9 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
+
+if 'cidades_ativas' not in st.session_state:
+    st.session_state.cidades_ativas = progresso_backup.get("cidades_ativas", [])
 
 if ultimo_acesso == data_hoje_str:
     if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
@@ -197,12 +201,49 @@ def carregar_dados_nuvem():
         return unificado
     return pd.DataFrame()
 
-with st.spinner("Sincronizando base de dados..."):
+# 🟢 NOVA FUNÇÃO: Carrega a Planilha Estrutural de Clientes vinculada
+@st.cache_data(ttl=600)
+def carregar_base_clientes_cadastro():
+    url = "https://docs.google.com/spreadsheets/d/1QNiwKklXLpBrc_g21p1GRFs4dfFMze6v/export?format=xlsx"
+    try:
+        df = pd.read_excel(url)
+        df.columns = df.columns.str.strip()
+        
+        # Mapeamento dinâmico inteligente das colunas informadas
+        c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower() or "nome" in str(c).lower() and "fant" not in str(c).lower()), df.columns[0])
+        c_fant = next((c for c in df.columns if "fantasia" in str(c).lower() or "nicho" in str(c).lower()), None)
+        c_cid = next((c for c in df.columns if "cidade" in str(c).lower() or "munic" in str(c).lower()), None)
+        
+        reordenar = {c_cli: 'Cliente'}
+        if c_fant: reordenar[c_fant] = 'Nome_Fantasia'
+        if c_cid: reordenar[c_cid] = 'Cidade'
+        
+        df = df.rename(columns=reordenar)
+        if 'Nome_Fantasia' not in df.columns: df['Nome_Fantasia'] = ""
+        if 'Cidade' not in df.columns: df['Cidade'] = "Não Informada"
+        
+        df['Cliente_Busca'] = df['Cliente'].apply(limpar_texto)
+        return df
+    except:
+        return pd.DataFrame(columns=['Cliente', 'Nome_Fantasia', 'Cidade', 'Cliente_Busca'])
+
+with st.spinner("Sincronizando bases de dados do Drive..."):
     df_total = carregar_dados_nuvem()
+    df_clientes = carregar_base_clientes_cadastro()
 
 if df_total.empty:
-    st.warning("Base de dados vazia.")
+    st.warning("Base de dados de vendas vazia.")
     st.stop()
+
+# Montagem de um mapa rápido de consulta cadastral do cliente para cruzar dados
+mapa_cadastro_clientes = {}
+if not df_clientes.empty:
+    for _, r in df_clientes.iterrows():
+        mapa_cadastro_clientes[r['Cliente_Busca']] = {
+            "Nome": r['Cliente'],
+            "Fantasia": str(r['Nome_Fantasia']).strip(),
+            "Cidade": str(r['Cidade']).strip()
+        }
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
@@ -266,23 +307,57 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM PILHA ---
-if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-    st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
-
-if st.button("🚨 Alertas de Clientes", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-    st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-
-if st.button("🔍 Consulta & Cruzamentos", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
-    st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
+# --- MENUS DE NAVEGAÇÃO EM PILHA (Incluindo Gerenciador de Cidades) ---
+col_nav1, col_nav2 = st.columns(2)
+with col_nav1:
+    if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
+        st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+    if st.button("🔍 Consultas", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
+        st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
+with col_nav2:
+    if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
+        st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+    if st.button("📍 Grade Cidades", type="primary" if st.session_state.aba_atual == "📍 Cidades" else "secondary"):
+        st.session_state.aba_atual = "📍 Cidades"; st.rerun()
 
 st.write("---")
 
+# --- ABA DE CONFIGURAÇÃO DE CIDADES (Fica gravado e serve como filtro mestre) ---
+if st.session_state.aba_atual == "📍 Cidades":
+    st.subheader("📍 Configuração Manual da Grade de Entrega")
+    st.write("Selecione quais cidades terão entregas ativas nos próximos dias. Os clientes das cidades **não marcadas** serão omitidos das ofertas automaticamente para poupar mensagens inúteis.")
+    
+    if df_clientes.empty:
+        st.error("⚠️ Não foi possível recuperar a lista de cidades da planilha. Verifique a conexão ou os dados.")
+    else:
+        lista_cidades_cadastro = sorted([str(c).strip() for c in df_clientes['Cidade'].dropna().unique() if str(c).strip()])
+        
+        st.markdown("### Selecione as cidades ativas:")
+        # Uso do multiselect: limpo, persistente e excelente para telas pequenas
+        escolhas_usuario = st.multiselect(
+            "Cidades com rota aberta:",
+            options=lista_cidades_cadastro,
+            default=[c for c in st.session_state.cidades_ativas if c in lista_cidades_cadastro],
+            placeholder="Escolha as cidades..."
+        )
+        
+        if st.button("💾 Salvar Grade de Entregas", type="primary"):
+            st.session_state.cidades_ativas = escolhas_usuario
+            salvar_progresso_atual()
+            st.success(f"Configuração salva! O sistema agora está restrito a {len(escolhas_usuario)} cidades.")
+            st.rerun()
+
 # --- ABA 1: OFERTAS ---
-if st.session_state.aba_atual == "🟢 Ofertas":
+elif st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
+    # Aviso explicativo da trava de cidades
+    if st.session_state.cidades_ativas:
+        st.info(f"Filtro Geográfico Ativo: Limitando envios para **{len(st.session_state.cidades_ativas)}** cidades configuradas.")
+    else:
+        st.warning("⚠️ Nenhuma cidade ativa na grade de entregas! Vá na aba '📍 Grade Cidades' para liberar os envios.")
+
     tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
@@ -294,7 +369,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines
+                st.session_state[id_memoria] = linhas # Correção do bug de atribuição original (linhas em vez de lines)
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -312,6 +387,17 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
+                        
+                        # 📍 CROSS-CHECK GEOGRÁFICO DEFINITIVO
+                        cli_limpo = limpar_texto(cli)
+                        info_cadastral = mapa_cadastro_clientes.get(cli_limpo, None)
+                        cidade_cli = info_cadastral['Cidade'] if info_cadastral else "Não Informada"
+                        
+                        # Se houver cidades ativas configuradas, barra quem não pertence à rota da semana
+                        if st.session_state.cidades_ativas:
+                            if cidade_cli not in st.session_state.cidades_ativas:
+                                continue # Ignora o cliente! Não gastará mensagem à toa.
+
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual:
                                 st.session_state.excluidos_permanente.remove(cli)
@@ -323,14 +409,14 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada!")
+                st.success("Fila vinculada e filtrada geograficamente!")
                 st.rerun()
 
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
     if fila_ativa is None or len(fila_ativa) == 0:
-        st.info("Nenhum cliente na fila.")
+        st.info("Nenhum cliente na fila de transmissão para as cidades ativas.")
     else:
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
@@ -339,7 +425,12 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         ofertas_cliente = fila_ativa[cliente_atual]
         mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
         
+        # Exibe dados cadastrais refinados no card do cliente
+        cli_l = limpar_texto(cliente_atual)
+        cad_info = mapa_cadastro_clientes.get(cli_l, {"Cidade": "Não Encontrada", "Fantasia": "Não Informado"})
+        
         st.markdown(f"**🏢 {cliente_atual}**")
+        st.markdown(f"📍 Cidade: `{cad_info['Cidade']}` | Ramo: `*{cad_info['Fantasia']}*`")
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
@@ -358,11 +449,10 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (REESTRUTURADA COM FILTROS E CONFIRMAÇÃO MANUAL TOTALMENTE INTEGRADA) ---
+# --- ABA 2: ALERTAS (INTEGRADO COM FILTRO DE CIDADES E NOME FANTASIA) ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
-    # 1. EXIBE A CAIXA DO SUPERVISOR CASO JÁ TENHA TEXTO GERADO
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
             st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
@@ -381,7 +471,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             """
             components.html(html_button_js, height=55)
             
-            # BOTÃO DE CONFIRMAÇÃO MANUAL: Aplica a tag definitiva apenas ao clicar aqui
             if st.button("💾 Marcar Selecionados como Reportados"):
                 for c_nome in st.session_state.clientes_processados_aguardando:
                     st.session_state.enviados_supervisor_mes.add(c_nome)
@@ -395,7 +484,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.rerun()
             st.write("---")
 
-    # 2. SEÇÃO DE FILTROS DA LISTA
     st.markdown("### Filtros da Lista")
     filtro_status = st.selectbox(
         "Filtrar por status de envio:",
@@ -404,18 +492,25 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     
     busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:", placeholder="Digite o nome...").strip()
 
-    # 3. MONTAGEM DA LISTA DE DADOS
     lista_alertas = []
     for cli, dados in dict_carteira.items():
         if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0:
             continue
+        
+        # Validação de rotas de entrega abertas também nos alertas
+        cli_l = limpar_texto(cli)
+        cad_info = mapa_cadastro_clientes.get(cli_l, None)
+        cidade_cli = cad_info['Cidade'] if cad_info else "Não Informada"
+        
+        if st.session_state.cidades_ativas and cidade_cli != "Não Informada":
+            if cidade_cli not in st.session_state.cidades_ativas:
+                continue
+
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
             ja_reportado = cli in st.session_state.enviados_supervisor_mes
             
-            if filtro_status == "Apenas Não Reportados" and ja_reportado:
-                continue
-            if filtro_status == "Apenas Reportados" and not ja_reportado:
-                continue
+            if filtro_status == "Apenas Não Reportados" and ja_reportado: continue
+            if filtro_status == "Apenas Reportados" and not ja_reportado: continue
                 
             lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"], "Reportado": ja_reportado})
             
@@ -427,20 +522,20 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         termo_limpo = limpar_texto(busca_alerta)
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
-    # 4. RENDERIZAÇÃO DOS CHECKBOXES
     if df_alertas_visuais.empty:
-        st.info("Nenhum cliente localizado para os filtros selecionados.")
+        st.info("Nenhum cliente em rota crítica localizado para os filtros selecionados.")
     else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes nesta lista:")
+        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes em rotas ativas:")
         
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
-            
-            if f"chk_{c_nome}" not in st.session_state:
-                st.session_state[f"chk_{c_nome}"] = False
+            if f"chk_{c_nome}" not in st.session_state: st.session_state[f"chk_{c_nome}"] = False
             
             with st.container():
-                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
+                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
+                
+                info_c = mapa_cadastro_clientes.get(limpar_texto(c_nome), {"Cidade": "Não Cadastrada", "Fantasia": ""})
+                st.caption(f"🏠 Cidade: {info_c['Cidade']} | Ramo: {info_c['Fantasia']}")
                 
                 html_badges = obter_badges_html(c_nome)
                 if row["Reportado"]:
@@ -454,12 +549,21 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     st.rerun()
             st.write("---")
         
-        # 5. BOTÃO FIXO PARA CONSTRUIR O TEXTO DO SUPERVISOR (SEM COAGIR MARCAÇÃO AUTOMÁTICA)
-        st.write("")
         if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
             novo_texto_acumulado = ""
             clientes_selecionados_na_rodada = []
             
+            regras_segmento = {
+                "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Bacon", "Molho de Tomate"], 
+                "pizza": ["Calabresa", "Muçarela", "Presunto"],
+                "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Pão"], 
+                "burguer": ["Hambúrguer", "Cheddar", "Pão"],
+                "pastelaria": ["Massa de Pastel", "Óleo de Fritura", "Carne Moída", "Queijo Prato"],
+                "pastel": ["Massa de Pastel", "Óleo de Fritura"],
+                "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], 
+                "churrasco": ["Linguiça", "Picanha", "Carvão"]
+            }
+
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
                 
@@ -471,30 +575,26 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     df_cli_h = df_total[df_total['Cliente'] == c_nome]
                     if not df_cli_h.empty:
                         top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                        novo_texto_acumulado += "   🔹 Mais Comprados pelo Cliente:\n"
-                        for item in top_itens:
-                            novo_texto_acumulado += f"      ▪️ {item}\n"
+                        novo_texto_acumulado += "    🔹 Mais Comprados pelo Cliente:\n"
+                        for item in top_itens: novo_texto_acumulado += f"       ▪️ {item}\n"
                     else:
-                        novo_texto_acumulado += "   🔹 Sem histórico recente registrado\n"
+                        novo_texto_acumulado += "    🔹 Sem histórico recente registrado\n"
                     
-                    nome_limpo_cli = limpar_texto(c_nome)
+                    # Cruzamento inteligente pelo Nome Fantasia/Nicho da nova planilha
+                    cli_limpo = limpar_texto(c_nome)
+                    info_cad = mapa_cadastro_clientes.get(cli_limpo, None)
+                    nicho_real = info_cad['Fantasia'] if info_cad else ""
+                    
+                    # Mistura o nome fantasia + nome comercial para varrer regras
+                    texto_analise_nicho = limpar_texto(nicho_real) + " " + cli_limpo
                     sugestoes_seg = []
-                    regras_segmento = {
-                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate"], 
-                        "pizza": ["Calabresa", "Muçarela", "Presunto"],
-                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese"], 
-                        "burguer": ["Hambúrguer", "Cheddar"],
-                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], 
-                        "churrasco": ["Linguiça", "Picanha", "Alcatra"]
-                    }
                     for chave, itens_sugeridos in regras_segmento.items():
-                        if chave in nome_limpo_cli: 
+                        if chave in texto_analise_nicho: 
                             sugestoes_seg.extend(itens_sugeridos)
                     
                     if congest := list(set(sugestoes_seg)):
-                        novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
-                        for sug in congest:
-                            novo_texto_acumulado += f"      ▪️ {sug}\n"
+                        novo_texto_acumulado += "    💡 Oportunidades por Nicho Comercial:\n"
+                        for sug in congest: novo_texto_acumulado += f"       ▪️ {sug}\n"
                     novo_texto_acumulado += "\n"
             
             if len(clientes_selecionados_na_rodada) > 0:
@@ -503,9 +603,9 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.toast(f"✅ Relatório pronto para conferência!", icon="🚀")
                 st.rerun()
             else:
-                st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
+                st.warning("⚠️ Marque pelo menos um Checkbox na lista acima!")
 
-# --- ABA 3: CONSULTA E VENDA CRUZADA ---
+# --- ABA 3: CONSULTA E VENDA CRUZADA (O CORAÇÃO INTELIGENTE DO SISTEMA) ---
 elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Filtro de Pesquisa:", ["👤 Por Cliente", "📦 Por Produto"], horizontal=True)
     st.write("---")
@@ -521,6 +621,10 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             if len(nomes_encontrados) > 0:
                 c_sel = st.selectbox("Selecione o Cliente:", nomes_encontrados)
                 st.markdown(f"### Ficha: {c_sel}")
+                
+                cli_limpo = limpar_texto(c_sel)
+                info_cad = mapa_cadastro_clientes.get(cli_limpo, {"Cidade": "Não Cadastrada", "Fantasia": "Não Informado"})
+                st.markdown(f"📍 Cidade: **{info_cad['Cidade']}** | Ramo de Atuação: **{info_cad['Fantasia']}**")
                 st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
                 
                 df_cli = df_total[df_total['Cliente'] == c_sel]
@@ -530,23 +634,24 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     st.markdown(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
                 
                 st.write("---")
-                st.markdown("### 💡 Venda Cruzada Inteligente")
-                
-                sugestoes_segmento = []
-                nome_limpo_cli = limpar_texto(c_sel)
+                st.markdown("### 💡 Venda Cruzada Inteligente (Sem Aleatoriedade)")
                 
                 regras_segmento = {
                     "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Bacon", "Molho de Tomate", "Azeitona"],
                     "pizza": ["Calabresa", "Muçarela", "Presunto", "Bacon", "Molho de Tomate", "Azeitona"],
                     "lanches": ["Hambúrguer", "Batata Frita", "Maionese", "Cheddar", "Pão de Hambúrguer", "Salsicha"],
                     "burguer": ["Hambúrguer", "Batata Frita", "Maionese", "Cheddar", "Pão de Hambúrguer"],
+                    "pastelaria": ["Massa de Pastel", "Óleo de Fritura", "Carne Moída", "Queijo Prato", "Caldo de Cana", "Catupiry"],
+                    "pastel": ["Massa de Pastel", "Óleo de Fritura", "Caldo de Cana"],
                     "churrascaria": ["Carvão", "Linguiça", "Picanha", "Alcatra", "Coração de Frango", "Sal Grosso"],
                     "churrasco": ["Carvão", "Linguiça", "Picanha", "Alcatra", "Coração de Frango", "Sal Grosso"],
                     "restaurante": ["Arroz", "Feijão", "Óleo", "Farinha", "Peito de Frango"]
                 }
                 
+                sugestoes_segmento = []
+                texto_nicho_completo = limpar_texto(info_cad['Fantasia']) + " " + cli_limpo
                 for chave, itens_sugeridos in regras_segmento.items():
-                    if chave in nome_limpo_cli:
+                    if chave in texto_nicho_completo:
                         sugestoes_segmento.extend(itens_sugeridos)
                 
                 produtos_ja_comprados = set(df_cli['Produto'].unique())
@@ -560,17 +665,28 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                         if not df_parecidos.empty:
                             sugestoes_similaridade = df_parecidos.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
                 
-                todas_sugestoes_brutas = list(set(sugestoes_segmento + sugestoes_similaridade))
+                # 🔥 MÁGICA DO ALGORITMO: Análise direta de comportamento do mesmo Nicho Comercial!
+                sugestoes_colegas_nicho = []
+                nicho_limpo = limpar_texto(info_cad['Fantasia'])
+                if nicho_limpo and not df_clientes.empty:
+                    # Filtra outros clientes mapeados sob o mesmo nicho fantasia
+                    colegas_mesmo_nicho = df_clientes[df_clientes['Nome_Fantasia'].apply(limpar_texto).str.contains(nicho_limpo, na=False, regex=False)]['Cliente_Busca'].unique()
+                    if len(colegas_mesmo_nicho) > 0:
+                        # Varre o histórico geral para ver o que esses caras andam comprando que este cliente ainda não comprou
+                        df_compras_nicho = df_total[df_total['Cliente_Busca'].isin(colegas_mesmo_nicho) & (~df_total['Produto'].isin(produtos_ja_comprados))]
+                        if not df_compras_nicho.empty:
+                            sugestoes_colegas_nicho = df_compras_nicho.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+
+                # Aglutinação inteligente de todas as camadas preditivas
+                todas_sugestoes_brutas = list(set(sugestoes_segmento + sugestoes_similaridade + sugestoes_colegas_nicho))
                 ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
                 
                 lista_venda_final = []
-                
                 for item in todas_sugestoes_brutas:
-                    item_limpo = limpar_texto(item)
                     achou_oferta = False
                     for of_linha in ofertas_memoria:
                         if all(p in limpar_texto(of_linha) for p in extrair_palavras_produto(item)):
-                            lista_venda_final.append(f"▪️ {of_linha} (Oferta do Dia)")
+                            lista_venda_final.append(f"▪️ {of_linha} (🔥 Em Oferta hoje)")
                             achou_oferta = True
                             break
                     if not achou_oferta and item not in produtos_ja_comprados:
@@ -580,9 +696,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     for of_linha in ofertas_memoria[:4]:
                         lista_venda_final.append(f"▪️ {of_linha} (Oferta do Dia)")
                 
-                msg_cross = f"Separei essas sugestões ideais para complementar seu pedido hoje:\n\n"
-                for item_final in lista_venda_final:
-                    msg_cross += f"{item_final}\n"
+                msg_cross = f"Separei essas sugestões ideais para complementar seu pedido e abastecer seu segmento ({info_cad['Fantasia']}) hoje:\n\n"
+                for item_final in lista_venda_final: msg_cross += f"{item_final}\n"
                 
                 st.text_area("Mensagem Enxuta para Whatsapp:", value=msg_cross, height=180)
             else:
@@ -591,14 +706,3 @@ elif st.session_state.aba_atual == "🔍 Consulta":
     elif st.session_state.sub_aba_consulta == "📦 Por Produto":
         st.subheader("Análise por Produto")
         input_prod = st.text_input("Nome do produto:").strip()
-        
-        if input_prod:
-            filtrados_p = filtrar_por_palavras(df_total, 'Produto_Busca', input_prod)
-            if not filtrados_p.empty:
-                st.write("**🏆 Maiores Compradores:**")
-                rank_c = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
-                for i, r in rank_c.iterrows():
-                    st.markdown(f"👤 {r['Cliente']} (R$ {r['Faturamento Brut']:,.2f})")
-                    st.markdown(obter_badges_html(r['Cliente']), unsafe_allow_html=True)
-            else:
-                st.warning("Produto não localizado.")
