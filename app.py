@@ -12,14 +12,32 @@ import streamlit.components.v1 as components
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# CSS simplificado para melhor ajuste em telas móveis sem forçar largura excessiva
+# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e botões robustos) ---
 st.markdown("""
     <style>
+    /* Estilização global de textos para leitura mobile */
+    html, body, [class*="css"], p, span {
+        font-size: 16px !important;
+    }
+    h3 {
+        font-size: 20px !important;
+        font-weight: bold !important;
+    }
+    h4 {
+        font-size: 18px !important;
+    }
+    /* Botões grandes e fáceis de tocar no celular */
     div.stButton > button {
         width: 100% !important;
-        padding: 10px 5px !important;
+        height: 50px !important;
+        font-size: 16px !important;
+        font-weight: bold !important;
+        margin-bottom: 10px !important;
+        border-radius: 8px !important;
+    }
+    /* Ajuste de tamanho para blocos de código/mensagens */
+    code {
         font-size: 14px !important;
-        margin-bottom: 5px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -67,7 +85,6 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-# Inicialização e Controle Diário das Ofertas e Memórias
 if ultimo_acesso == data_hoje_str:
     if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
     if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
@@ -221,16 +238,16 @@ def obter_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
     for tag in info["tags"]:
-        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">POSITIVADO</span>'
-        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">NÃO POSITIVADO</span>'
-        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">FILIAL 2</span>'
-        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">FILIAL 6</span>'
-        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">⚠️ SUMIDO</span>'
+        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
+        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
+        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
+        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
+        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
 
-# --- CABEÇALHO DA MARCA EM PILHA (UM EMBAIXO DO OUTRO) ---
+# --- CABEÇALHO DA MARCA EM PILHA ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
-if st.button("🔄 Atualizar Base de Dados"):
+if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
     st.rerun()
@@ -241,13 +258,13 @@ f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
 f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
 nao_pos_mes = sum(1 for c, v in dict_carteira.items() if "NÃO POSITIVADO" in v["tags"])
 
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 4px; border-left: 4px solid #00875A; margin-bottom:6px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟢 POSITIVADOS FILIAL 2</p><h4 style="margin:0; font-size:14px; font-weight:bold;">{f2_pos} Clientes</h4></div>""", unsafe_allow_html=True)
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 4px; border-left: 4px solid #FF8B00; margin-bottom:6px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:14px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 4px; border-left: 4px solid #DE350B; margin-bottom:6px;"><p style="margin:0; font-size:10px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:14px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #00875A; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟢 POSITIVADOS FILIAL 2</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f2_pos} Clientes</h4></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #FF8B00; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #DE350B; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM PILHA (UM EMBAIXO DO OUTRO PERFEITO PARA CELULAR) ---
+# --- MENUS DE NAVEGAÇÃO EM PILHA ---
 if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
     st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 
@@ -271,11 +288,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     tipo_msg = "dia" if "☀️" in tipo_lista else "relampago"
     
     with st.expander("📝 Inserir Bloco de Ofertas"):
-        txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=90, key=f"txt_{id_fila}")
+        txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -339,7 +356,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (CORRIGIDA COM CHECKS DESMARCADOS E TEXTO DINÂMICO) ---
+# --- ABA 2: ALERTAS (MECANISMO DE ATUALIZAÇÃO INVERTIDO E SELEÇÃO IMEDIATA) ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -362,36 +379,58 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     if df_alertas_visuais.empty:
         st.info("Nenhum cliente localizado.")
     else:
-        # Primeiro, precisamos criar os checkboxes para registrar o clique do usuário ANTES de gerar a caixa de texto superior
-        # Para que apareça no topo, fazemos uma pré-coleta dos estados salvos no session_state
+        # --- SOLUÇÃO DO FLUXO DO STREAMLIT ---
+        # Criamos uma área temporária de formulário invisível ou usamos a declaração prévia dos checks
+        # Coletamos dinamicamente os valores atuais já renderizados do session_state antes de renderizar a caixa!
         texto_relatorio_sup = ""
         
+        # Geramos a string combinada com base no que está salvo no session_state no exato momento
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
-            # REQUISITO CRUCIAL: Começam desmarcados (False) para a caixa de texto iniciar vazia!
-            if f"check_sup_{c_nome}" not in st.session_state:
-                st.session_state[f"check_sup_{c_nome}"] = False
             
-            # Se o usuário marcou o checkbox, o cliente é inserido dinamicamente na lista do supervisor
-            if st.session_state[f"check_sup_{c_nome}"]:
+            # Garante inicialização padrão como DESMARCADO (False)
+            if f"chk_{c_nome}" not in st.session_state:
+                st.session_state[f"chk_{c_nome}"] = False
+                
+            if st.session_state[f"chk_{c_nome}"]:
                 df_cli_h = df_total[df_total['Cliente'] == c_nome]
                 status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
                 texto_relatorio_sup += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
+                
+                # REQUISITO ADICIONADO: Puxar o histórico (Já Comprados) + Vendas Cruzadas Recomendadas
                 if not df_cli_h.empty:
                     top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+                    texto_relatorio_sup += "   🔹 Mais Comprados:\n"
                     for item in top_itens:
-                        texto_relatorio_sup += f"   ▪️ {item}\n"
+                        texto_relatorio_sup += f"      ▪️ {item}\n"
                 else:
-                    texto_relatorio_sup += "   ▪️ Sem histórico recente\n"
+                    texto_relatorio_sup += "   🔹 Sem histórico recente\n"
+                
+                # Regra de recomendação rápida por segmento de nome
+                nome_limpo_cli = limpar_texto(c_nome)
+                sugestoes_seg = []
+                regras_segmento = {
+                    "pizzaria": ["Calabresa", "Muçarela", "Presunto"], "pizza": ["Calabresa", "Muçarela"],
+                    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar"], "burguer": ["Hambúrguer", "Cheddar"],
+                    "churrascaria": ["Linguiça", "Picanha", "Alcatra"], "churrasco": ["Linguiça", "Picanha"]
+                }
+                for chave, itens_sugeridos in ... if True else regras_segmento.items():
+                    if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
+                
+                if sugestoes_seg:
+                    texto_relatorio_sup += "   💡 Sugestões de Venda Cruzada:\n"
+                    for sug in list(set(sugestoes_seg)):
+                        texto_relatorio_sup += f"      ▪️ {sug}\n"
+                        
                 texto_relatorio_sup += "\n"
-        
-        # EXIBIÇÃO DA CAIXA DO SUPERVISOR NO TOPO DA TELA
-        with st.expander("📋 RELATÓRIO PARA O SUPERVISOR (Apenas Selecionados)", expanded=True):
-            st.text_area("Mensagem estruturada:", value=texto_relatorio_sup, height=140, key="txt_sup_area")
+
+        # EXIBIÇÃO DA CAIXA DO SUPERVISOR ATUALIZADA EM TEMPO REAL NO TOPO
+        with st.expander("📋 RELATÓRIO PARA O SUPERVISOR (Atualiza automaticamente ao marcar)", expanded=True):
+            st.text_area("Mensagem estruturada:", value=texto_relatorio_sup, height=180, key="txt_sup_area_fix")
             
             texto_js_safe = json.dumps(texto_relatorio_sup)
             html_button_js = f"""
-            <button id=\"copyBtn\" style=\"width: 100%; background-color: #ff4b4b; color: white; border: none; padding: 12px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer;\">📋 Copiar Selecionados</button>
+            <button id=\"copyBtn\" style=\"width: 100%; background-color: #ff4b4b; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Selecionados</button>
             <script>
             document.getElementById('copyBtn').addEventListener('click', function() {{
                 const text = {texto_js_safe};
@@ -405,13 +444,13 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             }});
             </script>
             """
-            components.html(html_button_js, height=45)
+            components.html(html_button_js, height=52)
                 
             if st.button("💾 Registrar Selecionados no Mês"):
                 cont_salvos = 0
                 for idx, row in df_alertas_visuais.iterrows():
                     c_nome = row["Cliente"]
-                    if st.session_state.get(f"check_sup_{c_nome}", False):
+                    if st.session_state.get(f"chk_{c_nome}", False):
                         st.session_state.enviados_supervisor_mes.add(c_nome)
                         cont_salvos += 1
                 salvar_progresso_atual()
@@ -419,21 +458,22 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.rerun()
         
         st.write("---")
-        st.markdown("### Marque os clientes para incluir no relatório:")
+        st.markdown("### Marque os clientes abaixo:")
         
-        # EXIBIÇÃO DA LISTA DE CLIENTES COM OS CHECKBOXES
+        # EXIBIÇÃO E INTERAÇÃO COM A FILA DE CLIENTES
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             with st.container():
-                # Checkbox aciona o rerun imediato ao ser clicado para atualizar a caixa lá em cima na hora
-                st.checkbox(f"Selecionar: {c_nome} ({row['Dias']}d)", key=f"check_sup_{c_nome}", on_change=None)
+                # O parâmetro on_change=st.rerun faz a página processar o clique e preencher a caixa do supervisor no mesmo milissegundo!
+                st.checkbox(f"📍 Selecionar: {c_nome} ({row['Dias']}d)", key=f"chk_{c_nome}", on_change=st.rerun)
                 
                 html_badges = obter_badges_html(c_nome)
                 if c_nome in st.session_state.enviados_supervisor_mes:
-                    html_badges += '<span style="background-color:#FFC400; color:#111; padding:2px 4px; border-radius:4px; font-weight:bold; font-size:9px; margin-right:4px;">📅 JÁ REPORTADO</span>'
+                    html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 st.markdown(html_badges, unsafe_allow_html=True)
+                st.write("")
                 
-                if st.button(f"🔍 Histórico Completo", key=f"btn_h_{idx}"):
+                if st.button(f"🔍 Histórico de {c_nome[:15]}...", key=f"btn_h_{idx}"):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
                     st.session_state.aba_atual = "🔍 Consulta"  
