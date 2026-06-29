@@ -286,7 +286,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
-                for linha in sidelines:
+                for linha in linhas:
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
@@ -349,7 +349,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.toast(f"{cliente_atual} removido.")
                 st.rerun()
 
-# 2. ABA ALERTAS (Modificações de filtragem e envio aplicadas)
+# 2. ABA ALERTAS
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -364,7 +364,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     if not df_alertas_visuais.empty:
         df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
         
-    # REQUISITO ATENDIDO: Filtro de busca textual na aba de alertas
     busca_alerta = st.text_input("🔍 Filtrar por Cliente ou Código:", placeholder="Digite o nome para pesquisar...").strip()
     if busca_alerta and not df_alertas_visuais.empty:
         termo_limpo = limpar_texto(busca_alerta)
@@ -376,7 +375,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         with st.expander("📋 RELATÓRIO CORRIDO PARA O SUPERVISOR (Apenas Marcados)", expanded=True):
             texto_relatorio_sup = ""
             
-            # REQUISITO ATENDIDO: Constrói a lista corrida levando em conta apenas os marcados (padrão inicial True)
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
                 
@@ -419,7 +417,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 components.html(html_button_js, height=45)
                 
             with col_btn_sup2:
-                # REQUISITO ATENDIDO: Botão para consolidar o envio do mês vigente
                 if st.button("💾 Registrar Envio do Mês", use_container_width=True, help="Registrar no sistema que os clientes marcados já foram reportados"):
                     cont_salvos = 0
                     for idx, row in df_alertas_visuais.iterrows():
@@ -439,13 +436,11 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             with st.container():
                 col_card1, col_card2 = st.columns([1, 8])
                 with col_card1:
-                    # REQUISITO ATENDIDO: Checkbox ao lado de cada cliente para ligar/desligar no texto superior
                     st.checkbox("", value=True, key=f"check_sup_{c_nome}")
                 with col_card2:
                     st.markdown(f"**🏢 {c_nome}** ({row['Dias']} dias sem comprar)")
                     
                     html_badges = obter_badges_html(c_nome)
-                    # REQUISITO ATENDIDO: Aviso visível caso já tenha sido enviado para o supervisor neste mês
                     if c_nome in st.session_state.enviados_supervisor_mes:
                         html_badges += '<span style="background-color:#FFC400; color:#172B4D; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; margin-right:4px;">📅 JÁ ENVIADO AO SUP. ESTE MÊS</span>'
                     
@@ -508,7 +503,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     f"Olá! Tudo bem?\n\n"
                     f"Aproveitando que estamos montando a carga de entregas, reparei aqui no sistema que você tem uma saída excelente de *{produto_campeao if produto_campeao else 'itens tradicionais'}* conosco.\n\n"
                     f"Fiz um estudo de mercado e notei que clientes com o mesmo perfil e volume que o seu estão tendo um lucro excelente adicionando também o item *{sugestao_similaridade}*, que tem o giro casado perfeito.\n\n"
-                    f"Além disso, hoje entrou em promoção especial na nossa lista o item *{oferta_ativa_campanha}*. Conseguimos uma condição diferenciada se encaixarmos no mesmo frete. O que acha de colocarmos um lote de teste hoje?"
+                    f"Além disso, hoje entrou em promoção especial na nossa lista o item *{oferta_ativa_campanha}*. Conseguimos uma condition diferenciada se encaixarmos no mesmo frete. O que acha de colocarmos um lote de teste hoje?"
                 )
                 
                 st.text_area("Toque para copiar a mensagem de venda cruzada:", value=msg_cross, height=220)
