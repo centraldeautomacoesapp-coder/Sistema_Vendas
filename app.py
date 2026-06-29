@@ -292,7 +292,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines = linhas
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -306,7 +306,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
                     
                     interessados = set()
-                    for c in combs: interessados.update(prod_to_clientes[c])
+                    for c in combs: interested = interessados.update(prod_to_clientes[c])
                     
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
@@ -356,7 +356,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (MECANISMO DE ATUALIZAÇÃO INVERTIDO E SELEÇÃO IMEDIATA) ---
+# --- ABA 2: ALERTAS (CORRIGIDO ERRO DE SINTAXE DE SUCESSÃO) ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -379,16 +379,12 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     if df_alertas_visuais.empty:
         st.info("Nenhum cliente localizado.")
     else:
-        # --- SOLUÇÃO DO FLUXO DO STREAMLIT ---
-        # Criamos uma área temporária de formulário invisível ou usamos a declaração prévia dos checks
-        # Coletamos dinamicamente os valores atuais já renderizados do session_state antes de renderizar a caixa!
         texto_relatorio_sup = ""
         
-        # Geramos a string combinada com base no que está salvo no session_state no exato momento
+        # Leitura prévia dos estados reais guardados para processar a caixa antes
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             
-            # Garante inicialização padrão como DESMARCADO (False)
             if f"chk_{c_nome}" not in st.session_state:
                 st.session_state[f"chk_{c_nome}"] = False
                 
@@ -397,7 +393,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
                 texto_relatorio_sup += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
                 
-                # REQUISITO ADICIONADO: Puxar o histórico (Já Comprados) + Vendas Cruzadas Recomendadas
                 if not df_cli_h.empty:
                     top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
                     texto_relatorio_sup += "   🔹 Mais Comprados:\n"
@@ -406,7 +401,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 else:
                     texto_relatorio_sup += "   🔹 Sem histórico recente\n"
                 
-                # Regra de recomendação rápida por segmento de nome
+                # CORREÇÃO DA SINTAXE QUE CAUSAVA O ERRO TYPEERROR:
                 nome_limpo_cli = limpar_texto(c_nome)
                 sugestoes_seg = []
                 regras_segmento = {
@@ -414,17 +409,18 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     "lanches": ["Hambúrguer", "Batata Frita", "Cheddar"], "burguer": ["Hambúrguer", "Cheddar"],
                     "churrascaria": ["Linguiça", "Picanha", "Alcatra"], "churrasco": ["Linguiça", "Picanha"]
                 }
-                for chave, itens_sugeridos in ... if True else regras_segmento.items():
-                    if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
+                for chave, itens_sugeridos in regras_segmento.items():
+                    if chave in nome_limpo_cli: 
+                        sugestoes_seg.extend(itens_sugeridos)
                 
-                if sugestoes_seg:
+                if congest := list(set(sugestoes_seg)):
                     texto_relatorio_sup += "   💡 Sugestões de Venda Cruzada:\n"
-                    for sug in list(set(sugestoes_seg)):
+                    for sug in congest:
                         texto_relatorio_sup += f"      ▪️ {sug}\n"
                         
                 texto_relatorio_sup += "\n"
 
-        # EXIBIÇÃO DA CAIXA DO SUPERVISOR ATUALIZADA EM TEMPO REAL NO TOPO
+        # EXIBIÇÃO DA CAIXA DO SUPERVISOR NO TOPO
         with st.expander("📋 RELATÓRIO PARA O SUPERVISOR (Atualiza automaticamente ao marcar)", expanded=True):
             st.text_area("Mensagem estruturada:", value=texto_relatorio_sup, height=180, key="txt_sup_area_fix")
             
@@ -460,11 +456,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         st.write("---")
         st.markdown("### Marque os clientes abaixo:")
         
-        # EXIBIÇÃO E INTERAÇÃO COM A FILA DE CLIENTES
+        # EXIBIÇÃO DA LISTA COM GATILHO RERUN IMEDIATO
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             with st.container():
-                # O parâmetro on_change=st.rerun faz a página processar o clique e preencher a caixa do supervisor no mesmo milissegundo!
                 st.checkbox(f"📍 Selecionar: {c_nome} ({row['Dias']}d)", key=f"chk_{c_nome}", on_change=st.rerun)
                 
                 html_badges = obter_badges_html(c_nome)
