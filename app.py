@@ -29,7 +29,7 @@ st.markdown("""
     /* Botões grandes e fáceis de tocar no celular */
     div.stButton > button {
         width: 100% !important;
-        height: 50px !important;
+        height: 52px !important;
         font-size: 16px !important;
         font-weight: bold !important;
         margin-bottom: 10px !important;
@@ -116,6 +116,7 @@ if not progresso_backup or ultimo_acesso != data_hoje_str:
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
+if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
@@ -245,14 +246,14 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
 
-# --- CABEÇALHO DA MARCA EM PILHA ---
+# --- CABEÇALHO DA MARCA ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
     st.rerun()
 
-# --- 📊 INDICADORES SUPERIORES EM PILHA ---
+# --- 📊 INDICADORES SUPERIORES ---
 st.write("---")
 f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
 f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
@@ -264,7 +265,7 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM PILHA ---
+# --- MENUS DE NAVEGAÇÃO ---
 if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
     st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 
@@ -306,7 +307,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
                     
                     interessados = set()
-                    for c in combs: interested = interessados.update(prod_to_clientes[c])
+                    for c in combs: interessados.update(prod_to_clientes[c])
                     
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
@@ -356,10 +357,36 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (CORRIGIDO ERRO DE SINTAXE DE SUCESSÃO) ---
+# --- ABA 2: ALERTAS (REESTRUTURADA COM BOTÃO MANUAL DE ALTA VELOCIDADE) ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
+    # 1. EXIBE A CAIXA DO SUPERVISOR CASO JÁ TENHA TEXTO GERADO
+    if st.session_state.texto_supervisor_gerado:
+        with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
+            st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
+            
+            texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
+            html_button_js = f"""
+            <button id=\"copyBtn\" style=\"width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Relatório</button>
+            <script>
+            document.getElementById('copyBtn').addEventListener('click', function() {{
+                const text = {texto_js_safe};
+                navigator.clipboard.writeText(text);
+                this.innerText = '✅ Copiado com sucesso!';
+                setTimeout(() => {{ this.innerText = '📋 Copiar Relatório'; }}, 2000);
+            }});
+            </script>
+            """
+            components.html(html_button_js, height=55)
+            
+            if st.button("💾 Marcar Selecionados como Reportados"):
+                st.session_state.texto_supervisor_gerado = ""
+                st.toast("Progresso salvo e registrado com sucesso!")
+                st.rerun()
+            st.write("---")
+
+    # 2. SEÇÃO DE BUSCA E MONTAGEM DA LISTA DE CHECKBOXES
     lista_alertas = []
     for cli, dados in dict_carteira.items():
         if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0:
@@ -377,103 +404,88 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info("Nenhum cliente localizado.")
+        st.info("Nenhum cliente localizado nesta busca.")
     else:
-        texto_relatorio_sup = ""
+        st.markdown("### Selecione os clientes desejados:")
         
-        # Leitura prévia dos estados reais guardados para processar a caixa antes
+        # Rendereiza todos os checkboxes de forma nativa e ultra veloz (sem travar a tela)
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             
             if f"chk_{c_nome}" not in st.session_state:
                 st.session_state[f"chk_{c_nome}"] = False
-                
-            if st.session_state[f"chk_{c_nome}"]:
-                df_cli_h = df_total[df_total['Cliente'] == c_nome]
-                status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
-                texto_relatorio_sup += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
-                
-                if not df_cli_h.empty:
-                    top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                    texto_relatorio_sup += "   🔹 Mais Comprados:\n"
-                    for item in top_itens:
-                        texto_relatorio_sup += f"      ▪️ {item}\n"
-                else:
-                    texto_relatorio_sup += "   🔹 Sem histórico recente\n"
-                
-                # CORREÇÃO DA SINTAXE QUE CAUSAVA O ERRO TYPEERROR:
-                nome_limpo_cli = limpar_texto(c_nome)
-                sugestoes_seg = []
-                regras_segmento = {
-                    "pizzaria": ["Calabresa", "Muçarela", "Presunto"], "pizza": ["Calabresa", "Muçarela"],
-                    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar"], "burguer": ["Hambúrguer", "Cheddar"],
-                    "churrascaria": ["Linguiça", "Picanha", "Alcatra"], "churrasco": ["Linguiça", "Picanha"]
-                }
-                for chave, itens_sugeridos in regras_segmento.items():
-                    if chave in nome_limpo_cli: 
-                        sugestoes_seg.extend(itens_sugeridos)
-                
-                if congest := list(set(sugestoes_seg)):
-                    texto_relatorio_sup += "   💡 Sugestões de Venda Cruzada:\n"
-                    for sug in congest:
-                        texto_relatorio_sup += f"      ▪️ {sug}\n"
-                        
-                texto_relatorio_sup += "\n"
-
-        # EXIBIÇÃO DA CAIXA DO SUPERVISOR NO TOPO
-        with st.expander("📋 RELATÓRIO PARA O SUPERVISOR (Atualiza automaticamente ao marcar)", expanded=True):
-            st.text_area("Mensagem estruturada:", value=texto_relatorio_sup, height=180, key="txt_sup_area_fix")
             
-            texto_js_safe = json.dumps(texto_relatorio_sup)
-            html_button_js = f"""
-            <button id=\"copyBtn\" style=\"width: 100%; background-color: #ff4b4b; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Selecionados</button>
-            <script>
-            document.getElementById('copyBtn').addEventListener('click', function() {{
-                const text = {texto_js_safe};
-                navigator.clipboard.writeText(text);
-                this.innerText = '✅ Copiado!';
-                this.style.backgroundColor = '#00875A';
-                setTimeout(() => {{ 
-                    this.innerText = '📋 Copiar Selecionados'; 
-                    this.style.backgroundColor = '#ff4b4b';
-                }}, 2000);
-            }});
-            </script>
-            """
-            components.html(html_button_js, height=52)
-                
-            if st.button("💾 Registrar Selecionados no Mês"):
-                cont_salvos = 0
-                for idx, row in df_alertas_visuais.iterrows():
-                    c_nome = row["Cliente"]
-                    if st.session_state.get(f"chk_{c_nome}", False):
-                        st.session_state.enviados_supervisor_mes.add(c_nome)
-                        cont_salvos += 1
-                salvar_progresso_atual()
-                st.toast(f"✅ Salvo {cont_salvos} itens")
-                st.rerun()
-        
-        st.write("---")
-        st.markdown("### Marque os clientes abaixo:")
-        
-        # EXIBIÇÃO DA LISTA COM GATILHO RERUN IMEDIATO
-        for idx, row in df_alertas_visuais.iterrows():
-            c_nome = row["Cliente"]
             with st.container():
-                st.checkbox(f"📍 Selecionar: {c_nome} ({row['Dias']}d)", key=f"chk_{c_nome}", on_change=st.rerun)
+                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
                 
                 html_badges = obter_badges_html(c_nome)
                 if c_nome in st.session_state.enviados_supervisor_mes:
                     html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 st.markdown(html_badges, unsafe_allow_html=True)
-                st.write("")
                 
-                if st.button(f"🔍 Histórico de {c_nome[:15]}...", key=f"btn_h_{idx}"):
+                if st.button(f"🔍 Histórico de {c_nome[:12]}...", key=f"btn_h_{idx}"):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
                     st.session_state.aba_atual = "🔍 Consulta"  
                     st.rerun()
             st.write("---")
+        
+        # 3. BOTÃO FIXO DE ALTA VELOCIDADE PARA CONSTRUIR O TEXTO DO SUPERVISOR
+        st.write("")
+        if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
+            novo_texto_acumulado = ""
+            contador_selecionados = 0
+            
+            for idx, row in df_alertas_visuais.iterrows():
+                c_nome = row["Cliente"]
+                
+                # Se o usuário marcou este cliente específico
+                if st.session_state.get(f"chk_{c_nome}", False):
+                    contador_selecionados += 1
+                    status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
+                    novo_texto_acumulado += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
+                    
+                    # Regra dos Itens Mais Comprados (Histórico do Cliente)
+                    df_cli_h = df_total[df_total['Cliente'] == c_nome]
+                    if not df_cli_h.empty:
+                        top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+                        novo_texto_acumulado += "   🔹 Mais Comprados pelo Cliente:\n"
+                        for item in top_itens:
+                            novo_texto_acumulado += f"      ▪️ {item}\n"
+                    else:
+                        novo_texto_acumulado += "   🔹 Sem histórico recente registrado\n"
+                    
+                    # Regra das Vendas Cruzadas Inteligentes (Por segmento de nome)
+                    nome_limpo_cli = limpar_texto(c_nome)
+                    sugestoes_seg = []
+                    regras_segmento = {
+                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate"], 
+                        "pizza": ["Calabresa", "Muçarela", "Presunto"],
+                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese"], 
+                        "burguer": ["Hambúrguer", "Cheddar"],
+                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], 
+                        "churrasco": ["Linguiça", "Picanha", "Alcatra"]
+                    }
+                    for chave, itens_sugeridos in regras_segmento.items():
+                        if chave in nome_limpo_cli: 
+                            sugestoes_seg.extend(itens_sugeridos)
+                    
+                    if congest := list(set(sugestoes_seg)):
+                        novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
+                        for sug in congest:
+                            novo_texto_acumulado += f"      ▪️ {sug}\n"
+                    novo_texto_acumulado += "\n"
+                    
+                    # Registra na memória do mês que este cliente foi incluído
+                    st.session_state.enviados_supervisor_mes.add(c_nome)
+            
+            if contador_selecionados > 0:
+                st.session_state.texto_supervisor_gerado = novo_texto_acumulado
+                salvar_progresso_atual()
+                st.toast(f"✅ Sucesso! {contador_selecionados} Clientes processados.", icon="🚀")
+                st.rerun()
+            else:
+                st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # --- ABA 3: CONSULTA E VENDA CRUZADA ---
 elif st.session_state.aba_atual == "🔍 Consulta":
