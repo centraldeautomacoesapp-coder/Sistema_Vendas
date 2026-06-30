@@ -163,52 +163,65 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
     return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
-# --- 🚀 ENGINE INTELIGENTE DE VENDA CRUZADA (CROSS-SELLING) ---
-def recomendar_venda_cruzada(cliente, ofertas_atuais_cliente, todas_ofertas_disponiveis, df_total, top_n=2):
-    if not todas_ofertas_disponiveis or not ofertas_atuais_cliente:
-        return []
-        
-    # Isolar as ofertas que o cliente NÃO recebe por padrão
-    ofertas_cross_disponiveis = [l for l in todas_ofertas_disponiveis if l not in ofertas_atuais_cliente]
-    if not ofertas_cross_disponiveis:
-        return []
-        
-    # Mapear o histórico do cliente atual
-    produtos_historicos_cliente = set(df_total[df_total['Cliente'] == cliente]['Produto'].unique())
-    if not produtos_historicos_cliente:
-        return ofertas_cross_disponiveis[:top_n] # Fallback simples se o cliente for novo
-        
-    # Encontrar outros compradores dos mesmos produtos do cliente (Afinidade de Base)
-    compradores_similares = df_total[df_total['Produto'].isin(produtos_historicos_cliente)]['Cliente'].unique()
+# --- 🚀 ENGINE COMPLETA E AVANÇADA DE VENDA CRUZADA (CROSS-SELLING) ---
+def recomendar_venda_cruzada_avancada(cliente, df_total, df_clientes, todas_ofertas_disponiveis=None, top_n=3):
+    # 1. Mapeia os produtos que o cliente atual já compra
+    produtos_historicos = set(df_total[df_total['Cliente'] == cliente]['Produto'].unique())
     
-    # Ver quais OUTROS produtos esses mesmos compradores consomem frequentemente
-    df_afinidade = df_total[df_total['Cliente'].isin(compradores_similares) & (~df_total['Produto'].isin(produtos_historicos_cliente))]
+    # 2. Descobre o nicho comercial do cliente analisando Razão Social e Nome Fantasia
+    info_c = obter_info_cliente(cliente)
+    texto_perfil = limpar_texto(cliente) + " " + limpar_texto(info_c.get('Fantasia', ''))
     
-    if df_afinidade.empty:
-        produtos_sugeridos = df_total['Produto'].value_counts().index.tolist()
-    else:
-        produtos_sugeridos = df_afinidade['Produto'].value_counts().index.tolist()
-        
-    # Cruzar os produtos mais quentes com as linhas de oferta disponíveis
-    ofertas_selecionadas_cross = []
-    for prod_sug in produtos_sugeridos:
-        prod_sug_limpo = limpar_texto(prod_sug)
-        for linha in ofertas_cross_disponiveis:
-            chaves = extrair_palavras_produto(linha)
-            if chaves and all(c in prod_sug_limpo for c in chaves):
-                if linha not in ofertas_selecionadas_cross:
-                    ofertas_selecionadas_cross.append(linha)
-                if len(ofertas_selecionadas_cross) >= top_n:
-                    return ofertas_selecionadas_cross
-                    
-    # Fallback caso os filtros não preencham a cota estipulada
-    for linha in ofertas_cross_disponiveis:
-        if linha not in ofertas_selecionadas_cross:
-            ofertas_selecionadas_cross.append(linha)
-        if len(ofertas_selecionadas_cross) >= top_n:
+    palavras_nicho = ['pizza', 'burger', 'hamburguer', 'restaurante', 'lanche', 'padaria', 'confeitaria', 'pastel', 'sushi', 'comida', 'bar', 'mercado', 'supermercado', 'açougue', 'buffet', 'hotel', 'pizzaria']
+    nicho_cliente = None
+    for p in palavras_nicho:
+        if p in texto_perfil:
+            nicho_cliente = p
             break
             
-    return ofertas_selecionadas_cross
+    clientes_similares = set()
+    
+    # Regra A: Encontrar parceiros de nicho comercial no cadastro de clientes
+    if nicho_cliente and not df_clientes.empty:
+        for _, r in df_clientes.iterrows():
+            texto_outro = limpar_texto(r['Cliente']) + " " + limpar_texto(r['Nome_Fantasia'])
+            if nicho_cliente in texto_outro:
+                clientes_similares.add(r['Cliente'])
+                
+    # Regra B: Encontrar parceiros de compra por afinidade de produtos do histórico
+    if produtos_historicos:
+        compradores_mesmo_item = df_total[df_total['Produto'].isin(produtos_historicos)]['Cliente'].unique()
+        clientes_similares.update(compradores_mesmo_item)
+        
+    if cliente in clientes_similares:
+        clientes_similares.remove(cliente)
+        
+    # 3. Listar os produtos mais quentes que esse nicho consome, mas o cliente atual NUNCA comprou
+    if clientes_similares:
+        df_filtrado = df_total[df_total['Cliente'].isin(clientes_similares) & (~df_total['Produto'].isin(produtos_historicos))]
+        if not df_filtrado.empty:
+            produtos_sugeridos = df_filtrado['Produto'].value_counts().index.tolist()
+        else:
+            produtos_sugeridos = df_total[~df_total['Produto'].isin(produtos_historicos)]['Produto'].value_counts().index.tolist()
+    else:
+        produtos_sugeridos = df_total[~df_total['Produto'].isin(produtos_historicos)]['Produto'].value_counts().index.tolist()
+        
+    # 4. Cruzar dados: Se o escopo for o bloco de ofertas digitado, filtramos linhas de oferta compatíveis
+    if todas_ofertas_disponiveis:
+        ofertas_selecionadas = []
+        for prod_sug in produtos_sugeridos:
+            prod_sug_limpo = limpar_texto(prod_sug)
+            for linha in todas_ofertas_disponiveis:
+                chaves = extrair_palavras_produto(linha)
+                if chaves and all(c in prod_sug_limpo for c in chaves):
+                    if linha not in ofertas_selecionadas:
+                        ofertas_selecionadas.append(linha)
+                    if len(ofertas_selecionadas) >= top_n:
+                        return ofertas_selecionadas
+        return ofertas_selecionadas[:top_n]
+    else:
+        # Se for para exibição na aba interna de clientes, devolvemos os nomes brutos dos produtos sugeridos
+        return produtos_sugeridos[:top_n]
 
 # --- GERADOR DE MENSAGEM INTEGRADO COM VENDA CRUZADA ---
 def gerar_mensagem_unificada_venda(ofertas_normais, ofertas_cross, tipo_lista):
@@ -627,10 +640,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         ofertas_cliente = fila_ativa[cliente_atual]
         todas_ofertas_bloco = st.session_state[id_memoria]
         
-        # 🧠 Executa inteligência de venda cruzada de forma dinâmica
-        ofertas_venda_cruzada = recomendar_venda_cruzada(cliente_atual, ofertas_cliente, todas_ofertas_bloco, df_total)
+        # 🧠 Executa inteligência avançada de venda cruzada filtrando para não repetir o que ele já ganha na oferta regular
+        ofertas_cross_disponiveis = [l for l in todas_ofertas_bloco if l not in ofertas_cliente]
+        ofertas_venda_cruzada = recomendar_venda_cruzada_avancada(cliente_atual, df_total, df_clientes, ofertas_cross_disponiveis, top_n=2)
         
-        # 📝 Gera a mensagem unificada unindo Mix Atual + Cross-Selling
+        # 📝 Gera a mensagem unificada unindo Mix Atual + Cross-Selling Segmentado
         mensagem_pronta = gerar_mensagem_unificada_venda(ofertas_cliente, ofertas_venda_cruzada, tipo_msg)
         cad_info = obter_info_cliente(cliente_atual)
         
@@ -757,6 +771,33 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             top_p = df_cli.groupby('Produto')['Faturamento Brut'].agg(['sum', 'count']).nlargest(5, 'sum')
             top_p.columns = ['Faturamento (R$)', 'Pedidos']
             st.dataframe(top_p, use_container_width=True)
+            
+            # --- 🚨 EXCLUSIVO: DETECTAR SE ITENS HISTÓRICOS ESTÃO NAS OFERTAS DE HOJE ---
+            produtos_totais_cliente = df_cli['Produto'].unique()
+            ofertas_dia = st.session_state.get("memoria_ofertas_cruas_dia", [])
+            ofertas_rel = st.session_state.get("memoria_ofertas_cruas_rel", [])
+            todas_ofertas_atendidas = (ofertas_dia or []) + (ofertas_rel or [])
+            
+            itens_encontrados_em_oferta = []
+            for prod in produtos_totais_cliente:
+                prod_limpo = limpar_texto(prod)
+                for of in todas_ofertas_atendidas:
+                    chaves = extrair_palavras_produto(of)
+                    if chaves and all(c in prod_limpo for c in chaves):
+                        itens_encontrados_em_oferta.append({"Produto que o Cliente Usa": prod, "Oferta Ativa do Sistema": of})
+                        break
+                        
+            if itens_encontrados_em_oferta:
+                st.markdown("#### 🚨 Itens Usuais deste Cliente Disponíveis em Oferta Hoje!")
+                st.dataframe(pd.DataFrame(itens_encontrados_em_oferta), use_container_width=True)
+            
+            # --- ✨ EXCLUSIVO: PRODUTOS DE VENDA CRUZADA EM DESTAQUE ---
+            sugestoes_cross = recomendar_venda_cruzada_avancada(c_sel, df_total, df_clientes, top_n=5)
+            if congestoes_cross := sugestoes_cross:
+                st.markdown("#### ✨ Sugestões de Venda Cruzada para o Perfil")
+                st.markdown("<p style='font-size:13px; color:#555;'>Estes produtos têm altíssima afinidade com o nicho comercial dele e são comprados por clientes similares, mas ele ainda não consome:</p>", unsafe_allow_html=True)
+                for item_suggerido in congestoes_cross:
+                    st.markdown(f"🔹 **{item_suggerido}**")
 
 # --- 📦 ABA 4: CONSULTA PRODUTO ---
 elif st.session_state.aba_atual == "📦 Produto":
