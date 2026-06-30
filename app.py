@@ -42,7 +42,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 📅 CONTROLE DE DATA AJUSTADO PARA O HORÁRIO DE BRASÍLIA (Resolve o erro do dia trocado à noite)
+# 📅 CONTROLE DE DATA AJUSTADO PARA O HORÁRIO DE BRASÍLIA
 MAPA_DIAS_ING_PORT = {
     0: "Segunda-feira",
     1: "Terça-feira",
@@ -52,7 +52,6 @@ MAPA_DIAS_ING_PORT = {
     5: "Sábado",
     6: "Domingo"
 }
-DIAS_SEMANA = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"]
 
 data_atual_sistema = pd.Timestamp.now(tz='America/Sao_Paulo').tz_localize(None).normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
@@ -79,7 +78,6 @@ def salvar_progresso_atual():
         "fila_ofertas_relampago": st.session_state.fila_ofertas_relampago,
         "memoria_ofertas_cruas_dia": st.session_state.memoria_ofertas_cruas_dia,
         "memoria_ofertas_cruas_rel": st.session_state.memoria_ofertas_cruas_rel,
-        "cidades_ativas": st.session_state.cidades_ativas,
         "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
         "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
         "excluidos_permanente": list(st.session_state.excluidos_permanente),
@@ -97,12 +95,6 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
-
-if 'cidades_ativas' not in st.session_state:
-    st.session_state.cidades_ativas = progresso_backup.get("cidades_ativas", {dia: [] for dia in DIAS_SEMANA})
-
-if isinstance(st.session_state.cidades_ativas, list):
-    st.session_state.cidades_ativas = {dia: [] for dia in DIAS_SEMANA}
 
 if ultimo_acesso == data_hoje_str:
     if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
@@ -240,7 +232,7 @@ def carregar_base_clientes_cadastro():
     except:
         return pd.DataFrame(columns=['Cliente', 'Nome_Fantasia', 'Cidade', 'Cliente_Busca'])
 
-with st.spinner("Sincronizando bases de dados do Drive..."):
+with st.spinner("Sincronizando bases de dados..."):
     df_total = carregar_dados_nuvem()
     df_clientes = carregar_base_clientes_cadastro()
 
@@ -320,66 +312,24 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 st.write("---")
 
 # --- MENUS DE NAVEGAÇÃO ---
-col_nav1, col_nav2 = st.columns(2)
+col_nav1, col_nav2, col_nav3 = st.columns(3)
 with col_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
         st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+with col_nav2:
     if st.button("🔍 Consultas", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
         st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-with col_nav2:
+with col_nav3:
     if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
         st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-    if st.button("📍 Grade Cidades", type="primary" if st.session_state.aba_atual == "📍 Cidades" else "secondary"):
-        st.session_state.aba_atual = "📍 Cidades"; st.rerun()
 
 st.write("---")
 
-# ---📍 GRADE DE CIDADES ---
-if st.session_state.aba_atual == "📍 Cidades":
-    st.subheader("📍 Configuração Manual da Grade de Entrega por Dia")
-    st.write(f"Hoje é **{dia_semana_hoje}** (Horário de Brasília).")
-    
-    if df_clientes.empty:
-        st.error("⚠️ Não foi possível recuperar a lista de cidades da planilha.")
-    else:
-        lista_cidades_cadastro = sorted([str(c).strip() for c in df_clientes['Cidade'].dropna().unique() if str(c).strip()])
-        
-        st.markdown("### Selecione as cidades correspondentes a cada dia:")
-        
-        abas_dias = st.tabs(DIAS_SEMANA)
-        novas_configuracoes = {}
-        
-        for idx, dia in enumerate(DIAS_SEMANA):
-            with abas_dias[idx]:
-                st.markdown(f"#### Rota de {dia}")
-                valores_padrao = st.session_state.cidades_ativas.get(dia, []) if isinstance(st.session_state.cidades_ativas, dict) else []
-                
-                escolhas_dia = st.multiselect(
-                    f"Cidades com rota aberta na {dia}:",
-                    options=lista_cidades_cadastro,
-                    default=[c for c in valores_padrao if c in lista_cidades_cadastro],
-                    key=f"multiselect_{dia}"
-                )
-                novas_configuracoes[dia] = escolhas_dia
-        
-        if st.button("💾 Salvar Grade Semanal", type="primary"):
-            st.session_state.cidades_ativas = novas_configuracoes
-            salvar_progresso_atual()
-            st.success("Grade semanal de entregas salva com sucesso!")
-            st.rerun()
-
 # --- 🟢 ABA 1: OFERTAS ---
-elif st.session_state.aba_atual == "🟢 Ofertas":
+if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
     st.markdown(f"🗓️ Hoje é **{dia_semana_hoje}** | Envia hoje: **{st.session_state.envios_hoje}** listas")
     
-    cidades_hoje = st.session_state.cidades_ativas.get(dia_semana_hoje, []) if isinstance(st.session_state.cidades_ativas, dict) else []
-    
-    if cidades_hoje:
-        st.info(f"Filtro Geográfico Ativo: Rota aberta hoje para **{len(cidades_hoje)}** cidades.")
-    else:
-        st.warning(f"⚠️ Nenhuma cidade ativa cadastrada para {dia_semana_hoje}! Adicione cidades na aba '📍 Grade Cidades'.")
-
     tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
@@ -398,7 +348,6 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                 
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
-                cidades_hoje_limpas = [limpar_texto(c) for c in cidades_hoje]
                 
                 for linha in linhas:
                     chaves = extrair_palavras_produto(linha)
@@ -411,17 +360,6 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
                         
-                        cli_limpo = limpar_texto(cli)
-                        info_cadastral = mapa_cadastro_clientes.get(cli_limpo, None)
-                        cidade_cli = info_cadastral['Cidade'] if info_cadastral else "Não Informada"
-                        cidade_cli_limpa = limpar_texto(cidade_cli)
-                        
-                        if cidades_hoje_limpas:
-                            if cidade_cli_limpa not in cidades_hoje_limpas:
-                                continue
-                        else:
-                            continue
-
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual:
                                 st.session_state.excluidos_permanente.remove(cli)
@@ -433,14 +371,14 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success(f"Fila vinculada e filtrada para {dia_semana_hoje}!")
+                st.success(f"Fila vinculada com sucesso!")
                 st.rerun()
 
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
     if fila_ativa is None or len(fila_ativa) == 0:
-        st.info(f"Nenhum cliente na fila de transmissão para {dia_semana_hoje}.")
+        st.info(f"Nenhum cliente na fila de transmissão para envio.")
     else:
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
@@ -479,10 +417,6 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
 # --- 🚨 ABA 2: ALERTAS ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
-    st.write(f"Filtrando rotas críticas para **{dia_semana_hoje}**.")
-    
-    cidades_hoje = st.session_state.cidades_ativas.get(dia_semana_hoje, []) if isinstance(st.session_state.cidades_ativas, dict) else []
-    cidades_hoje_limpas = [limpar_texto(c) for c in cidades_hoje]
     
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
@@ -527,15 +461,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     for cli, dados in dict_carteira.items():
         if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0:
             continue
-        
-        cli_l = limpar_texto(cli)
-        cad_info = mapa_cadastro_clientes.get(cli_l, None)
-        cidade_cli = cad_info['Cidade'] if cad_info else "Não Informada"
-        cidade_cli_limpa = limpar_texto(cidade_cli)
-        
-        if cidades_hoje_limpas and cidade_cli != "Não Informada":
-            if cidade_cli_limpa not in cidades_hoje_limpas:
-                continue
 
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
             ja_reportado = cli in st.session_state.enviados_supervisor_mes
@@ -543,7 +468,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             if filtro_status == "Apenas Não Reportados" and ja_reportado: continue
             if filtro_status == "Apenas Reportados" and not ja_reportado: continue
                 
-            # CORRIGIDO: Estrutura explícita em várias linhas para evitar erros de compilação/sintaxe
             lista_alertas.append({
                 "Cliente": cli,
                 "Dias": dados["dias"],
@@ -560,9 +484,9 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info(f"Nenhum cliente em rota crítica localizado para hoje.")
+        st.info(f"Nenhum cliente em rota crítica localizado.")
     else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes:")
+        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes em atraso:")
         
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
