@@ -116,7 +116,7 @@ def identificar_nicho_cliente(nome_cliente, nome_fantasia=""):
     if any(k in texto for k in ['restaurante', 'buffet', 'comida', 'churrascaria', 'grill', 'cozinha', 'marmita']): return 'restaurante'
     return 'geral'
 
-# --- 🧠 ENGINE DE INTELIGÊNCIA ARTIFICIAL DE BACKGROUND (GEMINI PRO GRATUITO VIA API) ---
+# --- 🧠 ENGINE DE INTELIGÊNCIA ARTIFICIAL DE BACKGROUND (GEMINI PRO VIA API) ---
 def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixou_de_comprar, bloco_ofertas, tipo_canal="dia"):
     chave_cache = f"{cliente}_{len(bloco_ofertas)}_{tipo_canal}_v2"
     if chave_cache in st.session_state.cache_ia_gemini:
@@ -177,7 +177,7 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
             "caixa_venda_cruzada": "🔥 *SUGESTÕES DE VENDA CRUZADA VIA IA:*\n\n" + "\n\n".join([f"✨ {l}" for l in bloco_ofertas[-3:]])
         }
 
-# --- CARREGAMENTO DE DADOS (CORRIGIDO PARA EVITAR KEYERROR) ---
+# --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=600)
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
@@ -219,7 +219,6 @@ def carregar_dados_nuvem():
         if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return unificado
     
-    # SE FALHAR OU RETORNAR VAZIO, CRIA A ESTRUTURA COM AS COLUNAS CORRETAS PARA NÃO QUEBRAR
     return pd.DataFrame(columns=['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut', 'Filial', 'Data_Datetime', 'Ano_Mes', 'Produto_Busca', 'Cliente_Busca'])
 
 @st.cache_data(ttl=600)
@@ -263,9 +262,14 @@ def obter_info_cliente(nome_vendas):
     if Bureau := mapa_cadastro_clientes.get(vendas_limpo): return Bureau
     return {"Nome": nome_vendas, "Fantasia": "Não Localizado", "Cidade": "Não Localizada"}
 
+# --- 🔥 PROTEÇÃO IMPLEMENTADA AQUI PARA EVITAR O KEYERROR ---
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
-mask_lebon_g = df_mes_atual['Produto_Busca'].apply(lambda x: any(kw in str(x) for kw in ["lebon", "seara", "doriana", "frangosul"]))
-clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
+
+if not df_mes_atual.empty:
+    mask_lebon_g = df_mes_atual['Produto_Busca'].str.contains("lebon|seara|doriana|frangosul", na=False)
+    clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
+else:
+    clientes_grupo_lebon = set()
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
@@ -380,7 +384,8 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    with St.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
+    # 📸 Corrigido para st.expander minúsculo
+    with st.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
         st.markdown("**Selecione uma ou mais imagens (tabelas, prints, panfletos) das ofertas:**")
         arquivos_imagens = st.file_uploader("Escolher imagens:", type=["png", "jpg", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
         
@@ -412,14 +417,14 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 if texto_extraido_acumulado:
                     texto_final_bruto = "\n".join(texto_extraido_acumulado)
                     linhas = [l.strip() for l in texto_final_bruto.split('\n') if l.strip()]
-                    st.session_state[id_memoria] = linhas
+                    st.session_state[id_memoria] = lines
                     
                     nova_fila = {}
                     todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
                     
                     for cli in todos_clientes_validos:
                         if cli in st.session_state.excluidos_permanente or cli in st.session_state[id_excluidos]: continue
-                        nova_fila[cli] = linhas
+                        nova_fila[cli] = lines
                     
                     st.session_state[id_fila] = nova_fila
                     salvar_progresso_atual()
@@ -444,7 +449,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         bloco_total_ofertas = st.session_state.get(id_memoria, [])
         
-        with st.spinner("O Gemini Pro está avaliando o melhor mix de ofertas..."):
+        with st.spinner("O Gemini Pro está evaluando o melhor mix de ofertas..."):
             resultado_ia = executar_analise_inteligente_gemini(
                 cli_corrente, info_c, produtos_usuario, deixou_de_comprar, bloco_total_ofertas, "relampago" if "⚡" in tipo_lista else "dia"
             )
