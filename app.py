@@ -401,20 +401,21 @@ st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO REORGANIZADOS (3 NO TOPO, 2 ABAIXO) ---
-col_row1_1, col_row1_2, col_row1_3 = st.columns(3)
-with col_row1_1:
+# --- MENUS DE NAVEGAÇÃO REORGANIZADOS (3 POR LINHA NO GRID) ---
+col_nav1, col_nav2, col_nav3 = st.columns(3)
+with col_nav1:
     st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
-with col_row1_2:
+with col_nav2:
     st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
-with col_row1_3:
+with col_nav3:
     st.button("⭐ Marcas", type="primary" if st.session_state.aba_atual == "⭐ Marcas" else "secondary", on_click=navegar_para_aba, args=("⭐ Marcas",))
 
-col_row2_1, col_row2_2 = st.columns(2)
-with col_row2_1:
+col_nav4, col_nav5, col_nav6 = st.columns(3)
+with col_nav4:
     st.button("🔍 Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary", on_click=navegar_para_aba, args=("🔍 Cliente",))
-with col_row2_2:
+with col_nav5:
     st.button("📦 Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary", on_click=navegar_para_aba, args=("📦 Produto",))
+# col_nav6 fica vazio para manter o alinhamento de grid 3x3 perfeito
 
 st.write("---")
 
@@ -681,37 +682,64 @@ elif st.session_state.aba_atual == "⭐ Marcas":
     st.subheader("⭐ Oportunidades de Marcas Foco")
     st.markdown("Selecione uma marca abaixo para ver quais clientes ativos **NÃO COMPRARAM** dela neste mês corrente:")
     
-    # Grid de botões 4x2 para escolha rápida da marca no celular
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    marcas_colunas = [col_m1, col_m2, col_m3, col_m4, col_m1, col_m2, col_m3, col_m4]
-    
-    for idx, m in enumerate(MARCAS_FOCO):
-        with marcas_colunas[idx]:
-            if st.button(m, type="primary" if st.session_state.marca_filtro == m else "secondary", key=f"btn_aba_m_{m}"):
-                st.session_state.marca_filtro = m
-                st.rerun()
+    # Grid de botões reconfigurado dinamicamente para 3 por linha
+    for i in range(0, len(MARCAS_FOCO), 3):
+        cols = st.columns(3)
+        for j in range(3):
+            if i + j < len(MARCAS_FOCO):
+                m = MARCAS_FOCO[i + j]
+                with cols[j]:
+                    if st.button(m, type="primary" if st.session_state.marca_filtro == m else "secondary", key=f"btn_aba_m_{m}"):
+                        st.session_state.marca_filtro = m
+                        st.rerun()
                 
     marca_selecionada_aba = st.session_state.marca_filtro
-    st.markdown(f"🎯 Clientes que **NÃO** compraram a marca **{marca_selecionada_aba}** no mês:")
+    st.write("---")
     
-    # Algoritmo de busca reversa de compradores da marca alvo
-    clientes_compradores_da_marca = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False)]['Cliente'].unique()
+    # 🔍 Algoritmo de busca reversa e cruzamento histórico
+    clientes_compradores_da_marca_mes = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False)]['Cliente'].unique()
+    clientes_compradores_historicos = df_total[df_total['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False)]['Cliente'].unique()
     todos_clientes_carteira = sorted([c for c in dict_carteira.keys() if pd.notna(c)])
     
-    clientes_nao_compradores = [c for c in todos_clientes_carteira if c not in clientes_compradores_da_marca]
+    # Aqueles que já compraram no mês NÃO aparecem na visualização
+    clientes_nao_compradores_mes = [c for c in todos_clientes_carteira if c not in clientes_compradores_da_marca_mes]
     
-    if not clientes_nao_compradores:
-        st.success(f"🔥 Incrível! Todos os clientes ativos da sua carteira já compraram {marca_selecionada_aba} este mês!")
-    else:
-        st.caption(f"Exibindo {len(clientes_nao_compradores)} clientes para oferecer {marca_selecionada_aba}:")
+    # Separação em duas categorias distintas
+    clientes_deixou_de_comprar = [c for c in clientes_nao_compradores_mes if c in clientes_compradores_historicos]
+    clientes_nunca_compraram = [c for c in clientes_nao_compradores_mes if c not in clientes_compradores_historicos]
+    
+    # Filtro de busca de texto unificado para as sublistas
+    busca_nao_comprador = st.text_input("🔍 Filtrar cliente por nome nesta aba:", key="busca_nc").strip()
+    if busca_nao_comprador:
+        termo_nc = limpar_texto(busca_nao_comprador)
+        clientes_deixou_de_comprar = [c for c in clientes_deixou_de_comprar if termo_nc in limpar_texto(c)]
+        clientes_nunca_compraram = [c for c in clientes_nunca_compraram if termo_nc in limpar_texto(c)]
         
-        # Filtro de busca simples na aba para agilizar
-        busca_nao_comprador = st.text_input("🔍 Filtrar cliente por nome:", key="busca_nc").strip()
-        if busca_nao_comprador:
-            termo_nc = limpar_texto(busca_nao_comprador)
-            clientes_nao_compradores = [c for c in clientes_nao_compradores if termo_nc in limpar_texto(c)]
-            
-        for cli_nc in clientes_nao_compradores[:40]: # Limite de 40 para performance mobile fluida
+    # --- SEÇÃO 1: DEIXOU DE COMPRAR (DESTAQUE CRÍTICO) ---
+    st.markdown(f"### 🛑 Já Compraram e Não Compram Mais ({len(clientes_deixou_de_comprar)})")
+    st.caption(f"Clientes que já consumiram a marca **{marca_selecionada_aba}** no histórico geral, mas interromperam o consumo no mês atual.")
+    
+    if not clientes_deixou_de_comprar:
+        st.info("Nenhum cliente mapeado como ex-comprador recente desta marca.")
+    else:
+        for cli_nc in clientes_deixou_de_comprar[:30]: # Otimização de performance mobile
+            info_nc = obter_info_cliente(cli_nc)
+            with st.container():
+                st.markdown(f"**🏢 {cli_nc}** <span style='background-color:#DE350B; color:white; padding:1px 4px; border-radius:3px; font-size:10px; font-weight:bold; vertical-align:middle; margin-left:5px;'>⚠️ RECUPERAR BRAND CHURN</span>", unsafe_allow_html=True)
+                if info_nc['Fantasia'] and info_nc['Fantasia'] not in ["Não Localizado", "Não Informado"]:
+                    st.markdown(f"*Fantasia: {info_nc['Fantasia']}*")
+                st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; display: inline-block;">📍 {info_nc["Cidade"]}</div>', unsafe_allow_html=True)
+                st.markdown(obter_badges_html(cli_nc), unsafe_allow_html=True)
+                st.write("---")
+
+    # --- SEÇÃO 2: AINDA NÃO COMPRARAM / SEM HISTÓRICO ---
+    st.markdown(f"### 🛒 Ainda Não Compraram no Mês Atual ({len(clientes_nunca_compraram)})")
+    st.caption(f"Clientes ativos da carteira que não possuem registro de faturamento para a marca **{marca_selecionada_aba}**.")
+    
+    if not clientes_nunca_compraram:
+        st.success(f"🔥 Excelente! Todos os demais clientes ativos já compraram {marca_selecionada_aba}!")
+    else:
+        for cli_nc in clientes_nunca_compraram[:30]:
             info_nc = obter_info_cliente(cli_nc)
             with st.container():
                 st.markdown(f"**🏢 {cli_nc}**")
@@ -719,4 +747,4 @@ elif st.session_state.aba_atual == "⭐ Marcas":
                     st.markdown(f"*Fantasia: {info_nc['Fantasia']}*")
                 st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; display: inline-block;">📍 {info_nc["Cidade"]}</div>', unsafe_allow_html=True)
                 st.markdown(obter_badges_html(cli_nc), unsafe_allow_html=True)
-                st.write("")
+                st.write("---")
