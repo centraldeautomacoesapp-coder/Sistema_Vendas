@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e colunas horizontais fixas) ---
+# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Grade 2x2 perfeita sem rolagem lateral) ---
 st.markdown("""
     <style>
     /* Estilização global de textos para leitura mobile */
@@ -26,13 +26,14 @@ st.markdown("""
     h4 {
         font-size: 18px !important;
     }
-    /* Botões otimizados para visualização em grade de 2 colunas no celular */
+    
+    /* Botões otimizados para preencher 100% da sua respectiva coluna */
     div.stButton > button {
         width: 100% !important;
         height: 46px !important;
         font-size: 13px !important;
         font-weight: bold !important;
-        margin-bottom: 6px !important;
+        margin: 0 !important;
         border-radius: 8px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -42,13 +43,24 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* IMPEDIR QUE AS COLUNAS DO STREAMLIT QUEBREM EM LINHAS VERTICAIS NO CELULAR */
-    div[data-testid="stHorizontalBlock"] {
+    /* CORREÇÃO DO ESPAÇAMENTO E DA LARGURA DOS BOTÕES (LADO A LADO) */
+    /* Alvo: Apenas blocos horizontais que contêm botões e não possuem textos de cabeçalho */
+    div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) {
+        display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
+        width: 100% !important;
+        gap: 8px !important; /* Espaço ideal e controlado entre os dois botões */
+        padding: 0 !important;
     }
-    div[data-testid="stHorizontalBlock"] > div {
-        width: unset !important;
+    
+    /* Forçar cada coluna de botão a ter exatamente metade da tela menos o espaço do meio */
+    div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) > div {
+        width: calc(50% - 4px) !important;
+        flex: 1 1 calc(50% - 4px) !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -88,7 +100,6 @@ def salvar_progresso_atual():
         "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
         "excluidos_permanente": list(st.session_state.excluidos_permanente),
         "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes),
-        # Persistência das Metas Manuais
         "meta_pos_f2": st.session_state.get("meta_pos_f2", 0),
         "meta_pos_f6": st.session_state.get("meta_pos_f6", 0),
         "meta_rob_f2": st.session_state.get("meta_rob_f2", 0.0),
@@ -132,7 +143,6 @@ else:
 if 'excluidos_permanente' not in st.session_state:
     st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
 
-# Inicialização das metas da memória
 if 'meta_pos_f2' not in st.session_state: st.session_state.meta_pos_f2 = progresso_backup.get("meta_pos_f2", 0)
 if 'meta_pos_f6' not in st.session_state: st.session_state.meta_pos_f6 = progresso_backup.get("meta_pos_f6", 0)
 if 'meta_rob_f2' not in st.session_state: st.session_state.meta_rob_f2 = progresso_backup.get("meta_rob_f2", 0.0)
@@ -255,7 +265,6 @@ if df_total.empty:
     st.warning("Base de dados de vendas vazia.")
     st.stop()
 
-# Mapeamento do Drive
 mapa_cadastro_clientes = {}
 if not df_clientes.empty:
     for _, r in df_clientes.iterrows():
@@ -266,7 +275,7 @@ if not df_clientes.empty:
         info_dict = {
             "Nome": cli_nome,
             "Fantasia": fantasia if fantasia.lower() != "nan" else "",
-            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
+            "Cidade": city if cidade.lower() != "nan" else "Não Informada"
         }
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
         if fantasia:
@@ -288,7 +297,7 @@ def obter_info_cliente(nome_vendas):
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-# --- 🚀 COMPUTAÇÃO DO GRUPO UNIFICADO LEBON & MARCAS ---
+# --- COMPUTAÇÃO DA CARTEIRA LEBON & MARCAS ---
 mask_lebon_g = df_mes_atual['Produto_Busca'].apply(lambda x: any(kw in str(x) for kw in ["lebon", "seara", "doriana", "frangosul"]))
 clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
 
@@ -346,7 +355,7 @@ def obter_badges_html(cliente_nome):
 # --- CABEÇALHO DA MARCA ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 
-# --- 📊 NOVO CABEÇALHO COMPACTO FIXADO EM LINHAS LADO A LADO ---
+# --- CABEÇALHO DE INDICADORES ---
 st.write("---")
 
 col_tit_meta, col_btn_meta = st.columns([4, 2])
@@ -363,11 +372,9 @@ with col_btn_meta:
             st.session_state.modo_edicao_metas = True
             st.rerun()
 
-# Filtros por filial
 mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0'])
 mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0'])
 
-# Cálculos de Positivações
 real_pos_f2 = df_mes_atual[mask_f2]['Cliente'].nunique()
 real_pos_f6 = df_mes_atual[mask_f6]['Cliente'].nunique()
 real_pos_geral = df_mes_atual[mask_f2 | mask_f6]['Cliente'].nunique()
@@ -380,7 +387,6 @@ perf_pos_f2 = (real_pos_f2 / meta_pos_f2 * 100) if meta_pos_f2 > 0 else 0.0
 perf_pos_f6 = (real_pos_f6 / meta_pos_f6 * 100) if meta_pos_f6 > 0 else 0.0
 perf_pos_geral = (real_pos_geral / meta_pos_geral * 100) if meta_pos_geral > 0 else 0.0
 
-# Cálculos do ROB (Faturamento)
 real_rob_f2 = df_mes_atual[mask_f2]['Faturamento Brut'].sum()
 real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum()
 real_rob_geral = real_rob_f2 + real_rob_f6
@@ -403,7 +409,6 @@ if st.session_state.modo_edicao_metas:
         st.session_state.meta_rob_f2 = st.number_input("Meta ROB Filial 2 (R$)", value=meta_rob_f2, step=1000.0)
         st.session_state.meta_rob_f6 = st.number_input("Meta ROB Filial 6 (R$)", value=meta_rob_f6, step=1000.0)
 else:
-    # Injeção CSS + Flexbox nativo estável contra quebras verticais em telas mobile
     html_painel = f"""
     <style>
         .titulo-secao {{
@@ -467,7 +472,7 @@ else:
     """
     st.markdown(html_painel, unsafe_allow_html=True)
 
-# Seção Marcas Parceiras compactada estritamente em 3 Colunas Fixas
+# Seção Marcas Parceiras
 st.markdown("<p style='font-size:13px; font-weight:bold; color:#111; margin-top:4px; margin-bottom:3px; text-transform: uppercase;'>🤝 Marcas Parceiras (Foco)</p>", unsafe_allow_html=True)
 dict_marcas_foco = calcular_marcas_foco(df_mes_atual)
 m_keys = list(dict_marcas_foco.keys())
@@ -494,22 +499,26 @@ st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 📱 MENUS DE NAVEGAÇÃO COMPACTADOS EM GRADE HORIZONTAL 2X2 NO CELULAR ---
+# --- 📱 BOTÕES DE NAVEGAÇÃO CORRIGIDOS (GRADE FIXA 2 COLUNAS) ---
 c_nav1, c_nav2 = st.columns(2)
 with c_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-        st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+        st.session_state.aba_atual = "🟢 Ofertas"
+        st.rerun()
 with c_nav2:
     if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-        st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+        st.session_state.aba_atual = "🚨 Alertas"
+        st.rerun()
 
 c_nav3, c_nav4 = st.columns(2)
 with c_nav3:
     if st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary"):
-        st.session_state.aba_atual = "🔍 Cliente"; st.rerun()
+        st.session_state.aba_atual = "🔍 Cliente"
+        st.rerun()
 with c_nav4:
     if st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary"):
-        st.session_state.aba_atual = "📦 Produto"; st.rerun()
+        st.session_state.aba_atual = "📦 Produto"
+        st.rerun()
 
 st.write("---")
 
