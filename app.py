@@ -151,7 +151,7 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
 
     Retorne estritamente um JSON válido (sem markdown, sem ```json):
     {{
-      "mensagem_transmissao": "Mensagem de abordagem comercial personalizada para o WhatsApp. Deve saudar o cliente pelo nome fantasia (se houver), destacar de 3 a 5 ofertas de hoje que tenham relação lógica com o histórico dele ou itens que ele deixou de comprar, e adicionar sugestões agressivas de venda cruzada ideais para o nicho {nicho}.",
+      "mensagem_transmissao": "Mensagem de abordagem comercial personalizada para o WhatsApp. Deve saudar o cliente pelo nome fantasia (se houver), destacar de 3 a 5 ofertas de hoje que tenham relação lógica com o histórico dele ou itens que ele deixou de comprar, e adicionar sugestões agressivas de venda cruzada ideias para o nicho {nicho}.",
       "caixa_historico_ofertas": "📢 *OPORTUNIDADES DO SEU HISTÓRICO DE COMPRAS:*\\n\\nListe aqui (com ✅) as ofertas de hoje compatíveis com o que ele já conhece ou costumava comprar. Espaçamento duplo \\n\\n.",
       "caixa_venda_cruzada": "🔥 *SUGESTÕES EXCLUSIVAS PARA SEU NICHO DO DIA:*\\n\\nListe aqui (com ✨) as ofertas de hoje que ele NUNCA comprou, mas que são perfeitas para uma {nicho}. Seja generoso nas sugestões baseando-se na lista de ofertas brutas."
     }}
@@ -262,7 +262,6 @@ def obter_info_cliente(nome_vendas):
     if Bureau := mapa_cadastro_clientes.get(vendas_limpo): return Bureau
     return {"Nome": nome_vendas, "Fantasia": "Não Localizado", "Cidade": "Não Localizada"}
 
-# --- 🔥 PROTEÇÃO IMPLEMENTADA AQUI PARA EVITAR O KEYERROR ---
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
 if not df_mes_atual.empty:
@@ -307,7 +306,7 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
     return html
 
-# --- HEADER E METAS ---
+# --- HEADER E METAS (CORRIGIDO LINK DE MARCDOWN DENTRO DA STRING) ---
 st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
 st.write("---")
 
@@ -376,7 +375,7 @@ with c_nav5:
 
 st.write("---")
 
-# --- ABA 1: PAINEL DE OFERTAS ---
+# --- ABA 1: PAINEL DE OFERTAS (CONVERTIDO DE OCR PARA CAMPO DE TEXTO COLADO) ---
 if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
     tipo_lista = st.radio("Canal Ativo:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
@@ -384,54 +383,29 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # 📸 Corrigido para st.expander minúsculo
-    with st.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
-        st.markdown("**Selecione uma ou mais imagens (tabelas, prints, panfletos) das ofertas:**")
-        arquivos_imagens = st.file_uploader("Escolher imagens:", type=["png", "jpg", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
+    # Substituído file_uploader por text_area tradicional para digitação estável e direta
+    with st.expander("📝 Inserir / Atualizar Bloco de Ofertas (Colar Texto)", expanded=False):
+        st.markdown("**Cole aqui o texto ou lista das novas ofertas (uma por linha):**")
+        texto_ofertas_colado = st.text_area("Lista de Produtos:", value="\n".join(st.session_state.get(id_memoria, [])), height=180, label_visibility="collapsed")
         
-        if st.button("🚀 Processar Imagens com IA"):
-            if arquivos_imagens:
-                texto_extraido_acumulado = []
-                model_flash = genai.GenerativeModel("gemini-1.5-flash")
+        if st.button("🚀 Processar e Atualizar Fila"):
+            if texto_ofertas_colado.strip():
+                linhas_limpas = [l.strip() for l in texto_ofertas_colado.split('\n') if l.strip()]
+                st.session_state[id_memoria] = linhas_limpas
                 
-                with st.spinner("A IA está fazendo a leitura detalhada das suas imagens... Aguarde."):
-                    for arquivo in arquivos_imagens:
-                        dados_imagem = {
-                            "mime_type": arquivo.type,
-                            "data": arquivo.getvalue()
-                        }
-                        
-                        prompt_ocr = """
-                        Você é um assistente de OCR focado em tabelas de vendas comerciais.
-                        Analise esta imagem de ofertas da distribuidora e extraia de forma limpa TODOS os produtos listados.
-                        Retorne o resultado linha por linha no formato: PRODUTO - EMBALAGEM - VALOR (R$).
-                        Se houver alguma regra importante visível (ex: quantidade mínima ou validade), anote na mesma linha do item.
-                        Importante: Não invente dados, apenas transcreva rigorosamente o que estiver legível.
-                        """
-                        try:
-                            resposta_ia = model_flash.generate_content([prompt_ocr, dados_imagem])
-                            texto_extraido_acumulado.append(resposta_ia.text.strip())
-                        except Exception as e:
-                            st.error(f"Ocorreu um erro ao processar a imagem '{arquivo.name}': {e}")
+                nova_fila = {}
+                todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
                 
-                if texto_extraido_acumulado:
-                    texto_final_bruto = "\n".join(texto_extraido_acumulado)
-                    linhas = [l.strip() for l in texto_final_bruto.split('\n') if l.strip()]
-                    st.session_state[id_memoria] = lines
-                    
-                    nova_fila = {}
-                    todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
-                    
-                    for cli in todos_clientes_validos:
-                        if cli in st.session_state.excluidos_permanente or cli in st.session_state[id_excluidos]: continue
-                        nova_fila[cli] = lines
-                    
-                    st.session_state[id_fila] = nova_fila
-                    salvar_progresso_atual()
-                    st.success(f"Sucesso! {len(arquivos_imagens)} imagem(ns) lida(s) e fila comercial gerada.")
-                    st.rerun()
+                for cli in todos_clientes_validos:
+                    if cli in st.session_state.excluidos_permanente or cli in st.session_state[id_excluidos]: continue
+                    nova_fila[cli] = linhas_limpas
+                
+                st.session_state[id_fila] = nova_fila
+                salvar_progresso_atual()
+                st.success(f"Sucesso! {len(linhas_limpas)} itens salvos. Fila de transmissão atualizada.")
+                st.rerun()
             else:
-                st.warning("Nenhuma imagem selecionada. Por favor, adicione os arquivos primeiro.")
+                st.warning("Insira algum texto antes de atualizar.")
 
     fila_ativa = st.session_state.get(id_fila)
     if not fila_ativa:
@@ -449,7 +423,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         bloco_total_ofertas = st.session_state.get(id_memoria, [])
         
-        with st.spinner("O Gemini Pro está evaluando o melhor mix de ofertas..."):
+        with st.spinner("O Gemini Pro está avaliando o melhor mix de ofertas..."):
             resultado_ia = executar_analise_inteligente_gemini(
                 cli_corrente, info_c, produtos_usuario, deixou_de_comprar, bloco_total_ofertas, "relampago" if "⚡" in tipo_lista else "dia"
             )
