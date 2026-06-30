@@ -536,7 +536,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         cidade_cli = cad_info['Cidade'] if cad_info else "Não Informada"
         
         # Alertas também passam pelo cruzamento inteligente do dia da semana atual
-        if cidades_hoje and cigarette_cli != "Não Informada":
+        if cidades_hoje and cidade_cli != "Não Informada":
             if cidade_cli not in cidades_hoje:
                 continue
 
