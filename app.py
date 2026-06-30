@@ -326,7 +326,38 @@ def obter_badges_html(cliente_nome, ja_reportado=False):
     html += '</div>'
     return html
 
-# 💡 DICIONÁRIO EXPANDIDO DE REGRAS DE VENDA CRUZADA (NICHO / PALAVRAS-CHAVE)
+# 👑 MARCAS ALVO PARA ANÁLISE DE CROSS-SELLING
+MARCAS_FOCO = ["Frivatti", "Lebon", "Doriana", "Frangosul", "McCain", "Confrescor", "Brasa", "Ceratti"]
+
+def calcular_marcas_nao_compradas(cliente_nome):
+    vendas_c = df_mes_atual[df_mes_atual['Cliente'] == cliente_nome]
+    if vendas_c.empty:
+        return MARCAS_FOCO
+    
+    nao_compradas = []
+    for m in MARCAS_FOCO:
+        if not vendas_c['Produto_Busca'].str.contains(m.lower(), na=False).any():
+            nao_compradas.append(m)
+    return nao_compradas
+
+def renderizar_alerta_marcas_html(cliente_nome):
+    nao_compradas = calcular_marcas_nao_compradas(cliente_nome)
+    if nao_compradas:
+        return f"""
+        <div style="background-color: #FFF0B3; border-left: 5px solid #FFAB00; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;">
+            <strong style="color: #172B4D; font-size: 13px;">🛒 OPORTUNIDADE (Não comprou no mês):</strong><br>
+            <span style="color: #A54800; font-size: 14px; font-weight: bold;">{', '.join(nao_compradas)}</span>
+        </div>
+        """
+    else:
+        return """
+        <div style="background-color: #E3FCEF; border-left: 5px solid #36B37E; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;">
+            <strong style="color: #006644; font-size: 13px;">🎯 CLIENTE TOP MARCAS:</strong><br>
+            <span style="color: #006644; font-size: 13px; font-weight: bold;">Já positivou todas as 8 marcas foco este mês!</span>
+        </div>
+        """
+
+# 💡 DICIONÁRIO DE REGRAS DE VENDA CRUZADA (NICHO)
 REGRAS_VENDA_CRUZADA = {
     "pizzaria": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido", "Bacon Defumado", "Molho de Tomate Pouch"], 
     "pizza": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido"],
@@ -366,6 +397,23 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #FF8B00; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #DE350B; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
 
+# 📈 NOVO BLOCO: POSITIVAÇÃO DE MARCAS FOCO (MÊS CORRENTE)
+st.markdown("<p style='font-size:13px; font-weight:bold; color:#172B4D; margin-top:15px; margin-bottom:6px;'>📈 POSITIVAÇÃO DE MARCAS FOCO (MÊS ATUAL)</p>", unsafe_allow_html=True)
+dict_marcas_contagem = {}
+for m in MARCAS_FOCO:
+    dict_marcas_contagem[m] = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(m.lower(), na=False)]['Cliente'].nunique()
+
+html_marcas = '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px;">'
+for m in MARCAS_FOCO:
+    html_marcas += f"""
+    <div style="background-color: #f8f9fa; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #4D4D4D;">
+        <p style="margin:0; font-size:11px; color:#666; font-weight:bold; text-transform: uppercase;">{m}</p>
+        <h5 style="margin:0; font-size:14px; font-weight:bold; color:#111;">{dict_marcas_contagem[m]} Clis</h5>
+    </div>
+    """
+html_marcas += '</div>'
+st.markdown(html_marcas, unsafe_allow_html=True)
+
 st.write("---")
 
 # --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 ---
@@ -385,7 +433,7 @@ st.write("---")
 
 # --- 🟢 ABA 1: OFERTAS ---
 if st.session_state.aba_atual == "🟢 Ofertas":
-    st.subheader("📋 Painel de Transmissão (Sem Filtros Geográficos)")
+    st.subheader("📋 Painel de Transmissão")
     st.markdown(f"🗓️ Hoje é **{dia_semana_hoje}** | Envia hoje: **{st.session_state.envios_hoje}** listas")
     
     tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
@@ -471,6 +519,9 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
+        
+        # 🚨 RADAR DE MARCAS NÃO COMPRADAS NA TELA DE TRANSMISSÃO
+        st.markdown(renderizar_alerta_marcas_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
         st.code(mensagem_pronta, language=None)
@@ -506,6 +557,9 @@ elif st.session_state.aba_atual == "🔍 Cliente":
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
+        
+        # 🚨 RADAR DE MARCAS NÃO COMPRADAS NA TELA DE CONSULTA DE CLIENTE
+        st.markdown(renderizar_alerta_marcas_html(cliente_selecionado), unsafe_allow_html=True)
         st.write("")
         
         df_cli = df_total[df_total['Cliente'] == cliente_selecionado]
@@ -523,7 +577,6 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             top_produtos.columns = ['Faturamento Acumulado (R$)', 'Qtd Pedidos']
             st.dataframe(top_produtos, use_container_width=True)
             
-            # 🛑 REGRA CRÍTICA ATUALIZADA: Filtra produtos sem compra há mais de 31 dias, ordenados pela Qtd de Pedidos (Top 10)
             st.markdown("#### 🛑 Top 10 Produtos sem compra há mais de 31 dias")
             df_prod_analise = df_cli.groupby('Produto').agg(
                 Ultima_Compra=('Data_Datetime', 'max'),
@@ -644,7 +697,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     if df_alertas_visuais.empty:
         st.info(f"Nenhum cliente em rota crítica localizado.")
     else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes em atraso:")
+        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes inativos/atrasados:")
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             if f"chk_{c_nome}" not in st.session_state:
