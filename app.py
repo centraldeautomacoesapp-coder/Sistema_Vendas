@@ -144,7 +144,7 @@ def limpar_texto(texto):
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    return [re.sub(r'\d+', '', p) for p in calendar_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar] if 'calendar_limpa' in globals() else [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
 def gerar_mensagem_humanizada(ofertas, tipo_lista):
     saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?"]
@@ -306,20 +306,24 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
 
-def obter_badges_html(cliente_nome):
+# --- TAGS COMPACTAS EM FLEXBOX PARA CELULAR ---
+def obter_badges_html(cliente_nome, ja_reportado=False):
     info = dict_carteira.get(cliente_nome, {"tags": []})
-    html = ""
+    html = '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center;">'
     for tag in info["tags"]:
         if tag == "POSITIVADO":
-            html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
+            html += '<span style="background-color:#00875A; color:white; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">POSITIVADO</span>'
         elif tag == "NÃO POSITIVADO":
-            html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
+            html += '<span style="background-color:#DE350B; color:white; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">NÃO POSITIVADO</span>'
         elif tag == "FILIAL 2":
-            html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
+            html += '<span style="background-color:#0052CC; color:white; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">FILIAL 2</span>'
         elif tag == "FILIAL 6":
-            html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
+            html += '<span style="background-color:#FF8B00; color:white; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">FILIAL 6</span>'
         elif tag == "SUMIDO":
-            html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
+            html += '<span style="background-color:#6554C0; color:white; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">⚠️ SUMIDO</span>'
+    if ja_reportado:
+        html += '<span style="background-color:#FFC400; color:#111; padding:2px 5px; border-radius:4px; font-weight:bold; font-size:11px; white-space:nowrap;">📅 JÁ REPORTADO</span>'
+    html += '</div>'
     return html
 
 # Regras Globais de Venda Cruzada
@@ -356,7 +360,7 @@ st.write("---")
 # --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 ---
 col_row1_1, col_row1_2 = st.columns(2)
 with col_row1_1:
-    st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navigate_to_aba if 'navigate_to_aba' in globals() else navegar_para_aba, args=("🟢 Ofertas",))
+    st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
 with col_row1_2:
     st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
 
@@ -399,7 +403,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     if not chaves:
                         continue
                     
-                    # LINHA LONGA DESMONTADA EM LOOP CURTO SEGURO CONTRA ERRO DE SINTAXE
                     combs = []
                     for orig, busca in prod_busca.items():
                         match_ok = True
@@ -450,11 +453,16 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         cad_info = obter_info_cliente(cliente_atual)
         
         st.markdown(f"### 🏢 {cliente_atual}")
-        if cad_info['Fantasia'] and cad_info['Fantasia'] != "Não Localizado" and cad_info['Fantasia'] != "Não Informado":
-            st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
         
-        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
-        st.markdown(tag_cidade_html + obter_badges_html(cliente_atual), unsafe_allow_html=True)
+        # Injeção da Cidade ao lado da Fantasia com Destaque Especial
+        html_cidade = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 13px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
+        
+        if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
+            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']} {html_cidade}", unsafe_allow_html=True)
+        else:
+            st.markdown(f"{html_cidade}", unsafe_allow_html=True)
+            
+        st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
         st.code(mensagem_pronta, language=None)
@@ -483,11 +491,16 @@ elif st.session_state.aba_atual == "🔍 Cliente":
         cad_info = obter_info_cliente(cliente_selecionado)
         
         st.markdown(f"### 🏢 {cliente_selecionado}")
-        if cad_info['Fantasia'] and cad_info['Fantasia'] != "Não Localizado" and cad_info['Fantasia'] != "Não Informado":
-            st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
+        
+        # Injeção da Cidade ao lado da Fantasia com Destaque Especial
+        html_cidade = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 13px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
+        
+        if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
+            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']} {html_cidade}", unsafe_allow_html=True)
+        else:
+            st.markdown(f"{html_cidade}", unsafe_allow_html=True)
             
-        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
-        st.markdown(tag_cidade_html + obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
+        st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
         st.write("")
         
         df_cli = df_total[df_total['Cliente'] == cliente_selecionado]
@@ -629,14 +642,17 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             with st.container():
                 st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
                 info_c = obter_info_cliente(c_nome)
-                if info_c['Fantasia'] and info_c['Fantasia'] != "Não Localizado" and info_c['Fantasia'] != "Não Informado":
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
                 
-                html_badges = obter_badges_html(c_nome)
-                if row["Reportado"]:
-                    html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
-                tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2; display: inline-block;">📍 {info_c["Cidade"]}</span>'
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{tag_cidade_alerta}{html_badges}", unsafe_allow_html=True)
+                # Injeção da Cidade ao lado da Fantasia nos Alertas
+                html_cidade_alerta = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {info_c["Cidade"]}</span>'
+                
+                if info_c['Fantasia'] and info_c['Fantasia'] not in ["Não Localizado", "Não Informado"]:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}* {html_cidade_alerta}", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{html_cidade_alerta}", unsafe_allow_html=True)
+                
+                # Renderiza os chips reduzidos e organizados
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{obter_badges_html(c_nome, row['Reportado'])}", unsafe_allow_html=True)
             st.write("---")
         
         if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
