@@ -116,7 +116,7 @@ def identificar_nicho_cliente(nome_cliente, nome_fantasia=""):
     if any(k in texto for k in ['restaurante', 'buffet', 'comida', 'churrascaria', 'grill', 'cozinha', 'marmita']): return 'restaurante'
     return 'geral'
 
-# --- 🧠 ENGINE DE INTELIGÊNCIA ARTIFICIAL DE BACKGROUND (GEMINI PRO) ---
+# --- 🧠 ENGINE DE INTELIGÊNCIA ARTIFICIAL DE BACKGROUND (GEMINI PRO GRATUITO VIA API) ---
 def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixou_de_comprar, bloco_ofertas, tipo_canal="dia"):
     chave_cache = f"{cliente}_{len(bloco_ofertas)}_{tipo_canal}_v2"
     if chave_cache in st.session_state.cache_ia_gemini:
@@ -128,12 +128,12 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
     Você é o Motor de Inteligência Comercial (Gemini Pro) da distribuidora Delly's.
     Sua função é fazer associações lógicas e comerciais flexíveis entre a lista de ofertas do dia e o histórico do cliente.
     
-    NÃO use correspondência exata de nomes. Use inteligência de mercado: se o cliente compra laticínios ou farinhas e há itens similaires em oferta, associe-os! Extrapole para garantir ótimas sugestões de venda cruzada para o nicho do cliente.
+    NÃO use correspondência exata de nomes. Use inteligência de mercado: se o cliente compra laticínios ou farinhas e há itens similares em oferta, associe-os! Extrapole para garantir ótimas sugestões de venda cruzada para o nicho do cliente.
 
     REGRAS CRÍTICAS:
     1. PROIBIDO MENCIONAR SABORES NO TEXTO: Omitir completamente palavras de sabores (Ex: Calabresa, Quatro Queijos, Chocolate, Frango, etc). Mantenha apenas o NOME BASE DO PRODUTO, o TAMANHO/EMBALAGEM (ex: UN, KG, CX) e o VALOR (R$).
     2. ZERO REPETIÇÃO: Um produto não pode aparecer em mais de uma lista.
-    3. FORMATO WHATSAPP ESPAÇADO: Use quebras de linhas duplas (\\n\\n) entre parágrafos e itens.
+    3. FORMATO WHATSAPP ESPAÇADO: Use quebras de linhas duparas (\\n\\n) entre parágrafos e itens.
 
     Dados do Cliente:
     - Razão Social: {cliente}
@@ -249,7 +249,7 @@ if not df_clientes.empty:
         cli_nome = str(r['Cliente']).strip()
         fantasia = str(r['Nome_Fantasia']).strip()
         cidade = str(r['Cidade']).strip()
-        info_dict = {"Nome": cli_nome, "Fantasia": fantasia if fantasia.lower() != "nan" else "", "Cidade": cidade if (cidade := cidade.lower()) != "nan" else "Não Informada"}
+        info_dict = {"Nome": cli_nome, "Fantasia": fantasia if fantasia.lower() != "nan" else "", "Cidade": city if (city := cidade.lower()) != "nan" else "Não Informada"}
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
 
 def obter_info_cliente(nome_vendas):
@@ -296,7 +296,7 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
     return html
 
-# --- HEADER E METAS ---
+# --- HEADER E METAS CORRIGIDO ---
 st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
 st.write("---")
 
@@ -373,7 +373,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # 📸 ATUALIZAÇÃO: ENTRADA POR UPLOAD DE IMAGEM COM LEITURA VIA GEMINI FLASH (GRATUITO)
+    # 📸 ENTRADA POR UPLOAD DE IMAGEM COM LEITURA VIA GEMINI FLASH
     with st.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
         st.markdown("**Selecione uma ou mais imagens (tabelas, prints, panfletos) das ofertas:**")
         arquivos_imagens = st.file_uploader("Escolher imagens:", type=["png", "jpg", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
@@ -381,12 +381,10 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Imagens com IA"):
             if arquivos_imagens:
                 texto_extraido_acumulado = []
-                # Usamos o Gemini Flash aqui por ser gratuito, rápido e excelente com visão/OCR
                 model_flash = genai.GenerativeModel("gemini-1.5-flash")
                 
                 with st.spinner("A IA está fazendo a leitura detalhada das suas imagens... Aguarde."):
                     for arquivo in arquivos_imagens:
-                        # Prepara a estrutura binária da imagem para enviar à API do Gemini
                         dados_imagem = {
                             "mime_type": arquivo.type,
                             "data": arquivo.getvalue()
@@ -408,9 +406,8 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 if texto_extraido_acumulado:
                     texto_final_bruto = "\n".join(texto_extraido_acumulado)
                     linhas = [l.strip() for l in texto_final_bruto.split('\n') if l.strip()]
-                    st.session_state[id_memoria] = linhas
+                    st.session_state[id_memoria] = lines
                     
-                    # Gera a fila ampla de clientes automaticamente com os produtos extraídos das imagens
                     nova_fila = {}
                     todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
                     
@@ -435,7 +432,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         info_c = obter_info_cliente(cli_corrente)
         
-        # Coleta histórico total e itens em churn (deixou de comprar)
         produtos_usuario = df_total[df_total['Cliente'] == cli_corrente]['Produto'].dropna().unique().tolist()
         produtos_mes_atual = df_mes_atual[df_mes_atual['Cliente'] == cli_corrente]['Produto'].dropna().unique().tolist()
         deixou_de_comprar = list(set(produtos_usuario) - set(produtos_mes_atual))
@@ -542,9 +538,9 @@ elif st.session_state.aba_atual == "🧠 Assistente":
     
     if opcao_ia == "💬 Resposta Rápida (Gemini Flash + Tabelas)":
         st.markdown("#### ⚡ Consultor de Estratégias e Vendas")
-        st.write("Digite suas dúvidas. O Gemini Flash analisará as planilhas do Drive em tempo real para te dar respostas instantâneas sobre clientes, produtos, ofertas e vendas cruzadas.")
+        st.write("Digite suas dúvidas. O Gemini Flash analisará as planilhas do Drive em tempo real para te dar respostas instantâneas.")
         
-        pergunta_usuario = st.text_input("Sua pergunta:", placeholder="Ex: Quais produtos o cliente X costuma comprar? Ou, dê sugestões de venda cruzada de queijos...")
+        pergunta_usuario = st.text_input("Sua pergunta:", placeholder="Ex: Quais produtos o cliente X costuma comprar?")
         
         if pergunta_usuario:
             with st.spinner("Analisando base de dados..."):
@@ -575,10 +571,4 @@ elif st.session_state.aba_atual == "🧠 Assistente":
         st.write("""
         Você não precisa executar comandos manuais aqui. O algoritmo avançado do Gemini Pro foi incorporado 
         diretamente no **Painel de Ofertas** e na **Consulta de Clientes**. 
-        
-        **O que ele faz automaticamente por você:**
-        * Lê blocos brutos de texto de ofertas sem exigir palavras idênticas.
-        * Cria a lógica das mensagens de transmissão cruzando hábitos de consumo.
-        * Força ideias de vendas cruzadas agressivas baseadas puramente no nicho comercial mapeado.
-        * Identifica tendências e produtos abandonados pelo cliente.
         """)
