@@ -275,7 +275,7 @@ if not df_clientes.empty:
         info_dict = {
             "Nome": cli_nome,
             "Fantasia": fantasia if fantasia.lower() != "nan" else "",
-            "Cidade": city if cidade.lower() != "nan" else "Não Informada"
+            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
         }
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
         if fantasia:
