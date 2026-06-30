@@ -177,7 +177,7 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
             "caixa_venda_cruzada": "🔥 *SUGESTÕES DE VENDA CRUZADA VIA IA:*\n\n" + "\n\n".join([f"✨ {l}" for l in bloco_ofertas[-3:]])
         }
 
-# --- CARREGAMENTO DE DADOS ---
+# --- CARREGAMENTO DE DADOS (CORRIGIDO PARA EVITAR KEYERROR) ---
 @st.cache_data(ttl=600)
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
@@ -218,7 +218,9 @@ def carregar_dados_nuvem():
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
         if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return unificado
-    return pd.DataFrame()
+    
+    # SE FALHAR OU RETORNAR VAZIO, CRIA A ESTRUTURA COM AS COLUNAS CORRETAS PARA NÃO QUEBRAR
+    return pd.DataFrame(columns=['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut', 'Filial', 'Data_Datetime', 'Ano_Mes', 'Produto_Busca', 'Cliente_Busca'])
 
 @st.cache_data(ttl=600)
 def carregar_base_clientes_cadastro():
@@ -268,6 +270,7 @@ clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
+    if df.empty: return mapa
     ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
     for cli in df['Cliente'].unique():
         if pd.isna(cli) or not str(cli).strip(): continue
@@ -300,7 +303,7 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
     return html
 
-# --- HEADER E METAS CORRIGIDO (URL LIMPA SEM MARKDOWN INTERNO) ---
+# --- HEADER E METAS ---
 st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
 st.write("---")
 
@@ -377,8 +380,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # 📸 ENTRADA POR UPLOAD DE IMAGEM COM LEITURA VIA GEMINI FLASH
-    with st.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
+    with St.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
         st.markdown("**Selecione uma ou mais imagens (tabelas, prints, panfletos) das ofertas:**")
         arquivos_imagens = st.file_uploader("Escolher imagens:", type=["png", "jpg", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
         
@@ -549,8 +551,8 @@ elif st.session_state.aba_atual == "🧠 Assistente":
         if pergunta_usuario:
             with st.spinner("Analisando base de dados..."):
                 try:
-                    resumo_clientes = df_total.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).to_string()
-                    produtos_mais_vendidos = df_total['Produto'].value_counts().nlargest(10).index.tolist()
+                    resumo_clientes = df_total.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).to_string() if not df_total.empty else "Sem clientes"
+                    produtos_mais_vendidos = df_total['Produto'].value_counts().nlargest(10).index.tolist() if not df_total.empty else []
                     
                     prompt_contexto = f"""
                     Você é o Assistente Ágil de Vendas da Delly's. O usuário te fez uma pergunta direta.
