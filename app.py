@@ -133,7 +133,7 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
     REGRAS CRÍTICAS:
     1. PROIBIDO MENCIONAR SABORES NO TEXTO: Omitir completamente palavras de sabores (Ex: Calabresa, Quatro Queijos, Chocolate, Frango, etc). Mantenha apenas o NOME BASE DO PRODUTO, o TAMANHO/EMBALAGEM (ex: UN, KG, CX) e o VALOR (R$).
     2. ZERO REPETIÇÃO: Um produto não pode aparecer em mais de uma lista.
-    3. FORMATO WHATSAPP ESPAÇADO: Use quebras de linhas duparas (\\n\\n) entre parágrafos e itens.
+    3. FORMATO WHATSAPP ESPAÇADO: Use quebras de linhas duplas (\\n\\n) entre parágrafos e itens.
 
     Dados do Cliente:
     - Razão Social: {cliente}
@@ -249,7 +249,11 @@ if not df_clientes.empty:
         cli_nome = str(r['Cliente']).strip()
         fantasia = str(r['Nome_Fantasia']).strip()
         cidade = str(r['Cidade']).strip()
-        info_dict = {"Nome": cli_nome, "Fantasia": fantasia if fantasia.lower() != "nan" else "", "Cidade": city if (city := cidade.lower()) != "nan" else "Não Informada"}
+        info_dict = {
+            "Nome": cli_nome, 
+            "Fantasia": fantasia if fantasia.lower() != "nan" else "", 
+            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
+        }
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
 
 def obter_info_cliente(nome_vendas):
@@ -296,7 +300,7 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
     return html
 
-# --- HEADER E METAS CORRIGIDO ---
+# --- HEADER E METAS CORRIGIDO (URL LIMPA SEM MARKDOWN INTERNO) ---
 st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
 st.write("---")
 
@@ -406,7 +410,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 if texto_extraido_acumulado:
                     texto_final_bruto = "\n".join(texto_extraido_acumulado)
                     linhas = [l.strip() for l in texto_final_bruto.split('\n') if l.strip()]
-                    st.session_state[id_memoria] = lines
+                    st.session_state[id_memoria] = linhas
                     
                     nova_fila = {}
                     todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
