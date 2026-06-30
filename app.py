@@ -27,8 +27,8 @@ st.markdown("""
     }
     div.stButton > button {
         width: 100% !important;
-        height: 50px !important;
-        font-size: 15px !important;
+        height: 45px !important;
+        font-size: 14px !important;
         font-weight: bold !important;
         margin-bottom: 5px !important;
         border-radius: 8px !important;
@@ -87,6 +87,9 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
+
+if 'marca_filtro' not in st.session_state:
+    st.session_state.marca_filtro = "Frivatti"
 
 if ultimo_acesso == data_hoje_str:
     if 'envios_hoje' not in st.session_state:
@@ -343,19 +346,9 @@ def calcular_marcas_nao_compradas(cliente_nome):
 def renderizar_alerta_marcas_html(cliente_nome):
     nao_compradas = calcular_marcas_nao_compradas(cliente_nome)
     if nao_compradas:
-        return f"""
-        <div style="background-color: #FFF0B3; border-left: 5px solid #FFAB00; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;">
-            <strong style="color: #172B4D; font-size: 13px;">🛒 OPORTUNIDADE (Não comprou no mês):</strong><br>
-            <span style="color: #A54800; font-size: 14px; font-weight: bold;">{', '.join(nao_compradas)}</span>
-        </div>
-        """
+        return f"""<div style="background-color: #FFF0B3; border-left: 5px solid #FFAB00; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;"><strong style="color: #172B4D; font-size: 13px;">🛒 OPORTUNIDADE (Não comprou no mês):</strong><br><span style="color: #A54800; font-size: 14px; font-weight: bold;">{', '.join(nao_compradas)}</span></div>"""
     else:
-        return """
-        <div style="background-color: #E3FCEF; border-left: 5px solid #36B37E; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;">
-            <strong style="color: #006644; font-size: 13px;">🎯 CLIENTE TOP MARCAS:</strong><br>
-            <span style="color: #006644; font-size: 13px; font-weight: bold;">Já positivou todas as 8 marcas foco este mês!</span>
-        </div>
-        """
+        return """<div style="background-color: #E3FCEF; border-left: 5px solid #36B37E; padding: 10px; border-radius: 6px; margin-top: 10px; margin-bottom: 5px;"><strong style="color: #006644; font-size: 13px;">🎯 CLIENTE TOP MARCAS:</strong><br><span style="color: #006644; font-size: 13px; font-weight: bold;">Já positivou todas as 8 marcas foco este mês!</span></div>"""
 
 # 💡 DICIONÁRIO DE REGRAS DE VENDA CRUZADA (NICHO)
 REGRAS_VENDA_CRUZADA = {
@@ -397,37 +390,31 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #FF8B00; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #DE350B; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
 
-# 📈 NOVO BLOCO: POSITIVAÇÃO DE MARCAS FOCO (MÊS CORRENTE)
-st.markdown("<p style='font-size:13px; font-weight:bold; color:#172B4D; margin-top:15px; margin-bottom:6px;'>📈 POSITIVAÇÃO DE MARCAS FOCO (MÊS ATUAL)</p>", unsafe_allow_html=True)
-dict_marcas_contagem = {}
+# 📈 BLOCO MINIFICADO EM LINHA ÚNICA: PREVINE ERROS VISUAIS E DIMINUI AS LETRAS NO CELULAR (2 POR LINHA)
+st.markdown("<p style='font-size:12px; font-weight:bold; color:#172B4D; margin-top:12px; margin-bottom:5px;'>📈 POSITIVAÇÃO DE MARCAS FOCO (MÊS ATUAL)</p>", unsafe_allow_html=True)
+html_marcas = '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 10px;">'
 for m in MARCAS_FOCO:
-    dict_marcas_contagem[m] = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(m.lower(), na=False)]['Cliente'].nunique()
-
-html_marcas = '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px;">'
-for m in MARCAS_FOCO:
-    html_marcas += f"""
-    <div style="background-color: #f8f9fa; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #4D4D4D;">
-        <p style="margin:0; font-size:11px; color:#666; font-weight:bold; text-transform: uppercase;">{m}</p>
-        <h5 style="margin:0; font-size:14px; font-weight:bold; color:#111;">{dict_marcas_contagem[m]} Clis</h5>
-    </div>
-    """
+    ct = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(m.lower(), na=False)]['Cliente'].nunique()
+    html_marcas += f'<div style="background-color: #f8f9fa; padding: 4px 6px; border-radius: 4px; border-left: 3px solid #4D4D4D;"><p style="margin:0; font-size:10px; color:#666; font-weight:bold; text-transform: uppercase;">{m}</p><h6 style="margin:0; font-size:12px; font-weight:bold; color:#111;">{ct} Clis</h6></div>'
 html_marcas += '</div>'
 st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 ---
-col_row1_1, col_row1_2 = st.columns(2)
+# --- MENUS DE NAVEGAÇÃO REORGANIZADOS (3 NO TOPO, 2 ABAIXO) ---
+col_row1_1, col_row1_2, col_row1_3 = st.columns(3)
 with col_row1_1:
-    st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
+    st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
 with col_row1_2:
-    st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
+    st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
+with col_row1_3:
+    st.button("⭐ Marcas", type="primary" if st.session_state.aba_atual == "⭐ Marcas" else "secondary", on_click=navegar_para_aba, args=("⭐ Marcas",))
 
 col_row2_1, col_row2_2 = st.columns(2)
 with col_row2_1:
-    st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary", on_click=navegar_para_aba, args=("🔍 Cliente",))
+    st.button("🔍 Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary", on_click=navegar_para_aba, args=("🔍 Cliente",))
 with col_row2_2:
-    st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary", on_click=navegar_para_aba, args=("📦 Produto",))
+    st.button("📦 Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary", on_click=navegar_para_aba, args=("📦 Produto",))
 
 st.write("---")
 
@@ -512,15 +499,12 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         cad_info = obter_info_cliente(cliente_atual)
         
         st.markdown(f"### 🏢 {cliente_atual}")
-        
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
             st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
             
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
-            
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
         
-        # 🚨 RADAR DE MARCAS NÃO COMPRADAS NA TELA DE TRANSMISSÃO
         st.markdown(renderizar_alerta_marcas_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
@@ -542,23 +526,17 @@ if st.session_state.aba_atual == "🟢 Ofertas":
 # --- 🔍 ABA 2: CONSULTA POR CLIENTE ---
 elif st.session_state.aba_atual == "🔍 Cliente":
     st.subheader("🔍 Consulta Detalhada do Cliente")
-    
     lista_clientes_busca = sorted(list(df_total['Cliente'].dropna().unique()))
     cliente_selecionado = st.selectbox("Selecione um cliente para analisar:", [""] + lista_clientes_busca)
     
     if cliente_selecionado:
         cad_info = obter_info_cliente(cliente_selecionado)
-        
         st.markdown(f"### 🏢 {cliente_selecionado}")
-        
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
             st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
             
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
-            
         st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
-        
-        # 🚨 RADAR DE MARCAS NÃO COMPRADAS NA TELA DE CONSULTA DE CLIENTE
         st.markdown(renderizar_alerta_marcas_html(cliente_selecionado), unsafe_allow_html=True)
         st.write("")
         
@@ -608,19 +586,15 @@ elif st.session_state.aba_atual == "🔍 Cliente":
                     st.markdown(f"🛒 Sugestão: **{sug}** (Item de alto consumo para o nicho deste cliente)")
             else:
                 st.info("Nenhuma sugestão padronizada de nicho mapeada para o nome deste cliente.")
-        else:
-            st.info("Nenhum histórico localizado.")
 
 # --- 📦 ABA 3: CONSULTA POR PRODUTO ---
 elif st.session_state.aba_atual == "📦 Produto":
-    st.subheader("📦 Consulta de Clientes por Produto (Filtro por Descrição)")
-    
+    st.subheader("📦 Consulta de Clientes por Produto")
     lista_produtos_busca = sorted(list(df_total['Produto'].dropna().unique()))
     produto_selecionado = st.selectbox("Selecione um produto abaixo para ver quem compra:", [""] + lista_produtos_busca)
     
     if produto_selecionado:
         st.markdown(f"### 📋 Clientes Compradores de: **{produto_selecionado}**")
-        
         df_prod = df_total[df_total['Produto'] == produto_selecionado]
         if not df_prod.empty:
             compradores = df_prod.groupby('Cliente')['Faturamento Brut'].agg(['sum', 'count']).reset_index()
@@ -633,30 +607,16 @@ elif st.session_state.aba_atual == "📦 Produto":
             
             compradores['📍 Cidade (Filtro Drive)'] = cidades_mapeadas
             compradores = compradores.sort_values(by='Faturamento Acumulado (R$)', ascending=False)
-            
             st.dataframe(compradores[['Cliente', '📍 Cidade (Filtro Drive)', 'Faturamento Acumulado (R$)', 'Vezes Comprado']], use_container_width=True, hide_index=True)
-        else:
-            st.info("Nenhum registro de venda para a descrição selecionada.")
 
 # --- 🚨 ABA 4: ALERTAS ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
-    
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
             st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
             texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
-            html_button_js = f"""
-            <button id=\"copyBtn\" style=\"width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Relatório</button>
-            <script>
-            document.getElementById('copyBtn').addEventListener('click', function() {{
-                const text = {texto_js_safe};
-                navigator.clipboard.writeText(text);
-                this.innerText = '✅ Copiado com sucesso!';
-                setTimeout(() => {{ this.innerText = '📋 Copiar Relatório'; }}, 2000);
-            }});
-            </script>
-            """
+            html_button_js = f"""<button id="copyBtn" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar Relatório</button><script>document.getElementById('copyBtn').addEventListener('click', function() {{const text = {texto_js_safe};navigator.clipboard.writeText(text);this.innerText = '✅ Copiado com sucesso!';setTimeout(() => {{ this.innerText = '📋 Copiar Relatório'; }}, 2000);}});</script>"""
             components.html(html_button_js, height=55)
             
             if st.button("💾 Marcar Selecionados como Reportados"):
@@ -667,13 +627,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.session_state.clientes_processados_aguardando = []
                 st.session_state.texto_supervisor_gerado = ""
                 salvar_progresso_atual()
-                st.toast("Clientes marcados como reportados!", icon="💾")
                 st.rerun()
-            st.write("---")
 
-    st.markdown("### Filtros da Lista")
     filtro_status = st.selectbox("Filtrar por status de envio:", ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"])
-    busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:", placeholder="Digite o nome...").strip()
+    busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:").strip()
 
     lista_alertas = []
     for cli, dados in dict_carteira.items():
@@ -695,61 +652,71 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info(f"Nenhum cliente em rota crítica localizado.")
+        st.info("Nenhum cliente em rota crítica localizado.")
     else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes inativos/atrasados:")
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
-            if f"chk_{c_nome}" not in st.session_state:
-                st.session_state[f"chk_{c_nome}"] = False
-            
-            with st.container():
-                st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
-                info_c = obter_info_cliente(c_nome)
-                
-                if info_c['Fantasia'] and info_c['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
-                
-                st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 2px; margin-left: 20px; white-space: nowrap;">📍 {info_c["Cidade"]}</div>', unsafe_allow_html=True)
-                
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{obter_badges_html(c_nome, row['Reportado'])}", unsafe_allow_html=True)
+            st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
+            info_c = obter_info_cliente(c_nome)
+            st.markdown(f'<div style="color:#403294; font-weight:bold; background-color:#EAE6FF; padding:2px 5px; border-radius:4px; font-size:11px; margin-left:20px; display:inline-block;">📍 {info_c["Cidade"]}</div>', unsafe_allow_html=True)
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{obter_badges_html(c_nome, row['Reportado'])}", unsafe_allow_html=True)
             st.write("---")
         
         if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
             novo_texto_acumulado = ""
             clientes_selecionados_na_rodada = []
-            
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
                 if st.session_state.get(f"chk_{c_nome}", False):
                     clientes_selecionados_na_rodada.append(c_nome)
                     status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
                     novo_texto_acumulado += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
-                    
-                    df_cli_h = df_total[df_total['Cliente'] == c_nome]
-                    if not df_cli_h.empty:
-                        top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                        novo_texto_acumulado += "    🔹 Mais Comprados pelo Cliente:\n"
-                        for item in top_itens:
-                            novo_texto_acumulado += f"        ▪️ {item}\n"
-                    else:
-                        novo_texto_acumulado += "    🔹 Sem histórico recente registrado\n"
-                    
-                    info_cad = obter_info_cliente(c_nome)
-                    texto_analise_nicho = limpar_texto(info_cad['Fantasia']) + " " + limpar_texto(c_nome)
-                    sugestoes_seg = []
-                    for chave, itens_sugeridos in REGRAS_VENDA_CRUZADA.items():
-                        if chave in texto_analise_nicho:
-                            for item in itens_sugeridos:
-                                if item not in sugestoes_seg:
-                                    sugestoes_seg.append(item)
-                    if sugestoes_seg:
-                        novo_texto_acumulado += "    💡 Itens Sugeridos p/ Prospecção:\n"
-                        for sug in sugestoes_seg[:4]:
-                            novo_texto_acumulado += f"        ▪️ {sug}\n"
-                    novo_texto_acumulado += "\n"
-            
             st.session_state.texto_supervisor_gerado = novo_texto_acumulado
             st.session_state.clientes_processados_aguardando = clientes_selecionados_na_rodada
             salvar_progresso_atual()
             st.rerun()
+
+# --- ⭐ NOVA ABA: MARCAS PRÓPRIAS (MÊS ATUAL OPORTUNIDADES) ---
+elif st.session_state.aba_atual == "⭐ Marcas":
+    st.subheader("⭐ Oportunidades de Marcas Foco")
+    st.markdown("Selecione uma marca abaixo para ver quais clientes ativos **NÃO COMPRARAM** dela neste mês corrente:")
+    
+    # Grid de botões 4x2 para escolha rápida da marca no celular
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    marcas_colunas = [col_m1, col_m2, col_m3, col_m4, col_m1, col_m2, col_m3, col_m4]
+    
+    for idx, m in enumerate(MARCAS_FOCO):
+        with marcas_colunas[idx]:
+            if st.button(m, type="primary" if st.session_state.marca_filtro == m else "secondary", key=f"btn_aba_m_{m}"):
+                st.session_state.marca_filtro = m
+                st.rerun()
+                
+    marca_selecionada_aba = st.session_state.marca_filtro
+    st.markdown(f"🎯 Clientes que **NÃO** compraram a marca **{marca_selecionada_aba}** no mês:")
+    
+    # Algoritmo de busca reversa de compradores da marca alvo
+    clientes_compradores_da_marca = df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False)]['Cliente'].unique()
+    todos_clientes_carteira = sorted([c for c in dict_carteira.keys() if pd.notna(c)])
+    
+    clientes_nao_compradores = [c for c in todos_clientes_carteira if c not in clientes_compradores_da_marca]
+    
+    if not clientes_nao_compradores:
+        st.success(f"🔥 Incrível! Todos os clientes ativos da sua carteira já compraram {marca_selecionada_aba} este mês!")
+    else:
+        st.caption(f"Exibindo {len(clientes_nao_compradores)} clientes para oferecer {marca_selecionada_aba}:")
+        
+        # Filtro de busca simples na aba para agilizar
+        busca_nao_comprador = st.text_input("🔍 Filtrar cliente por nome:", key="busca_nc").strip()
+        if busca_nao_comprador:
+            termo_nc = limpar_texto(busca_nao_comprador)
+            clientes_nao_compradores = [c for c in clientes_nao_compradores if termo_nc in limpar_texto(c)]
+            
+        for cli_nc in clientes_nao_compradores[:40]: # Limite de 40 para performance mobile fluida
+            info_nc = obter_info_cliente(cli_nc)
+            with st.container():
+                st.markdown(f"**🏢 {cli_nc}**")
+                if info_nc['Fantasia'] and info_nc['Fantasia'] not in ["Não Localizado", "Não Informado"]:
+                    st.markdown(f"*Fantasia: {info_nc['Fantasia']}*")
+                st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; display: inline-block;">📍 {info_nc["Cidade"]}</div>', unsafe_allow_html=True)
+                st.markdown(obter_badges_html(cli_nc), unsafe_allow_html=True)
+                st.write("")
