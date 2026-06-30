@@ -64,7 +64,7 @@ dia_semana_hoje = MAPA_DIAS_ING_PORT.get(pd.Timestamp.now().weekday(), "Segunda-
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
-    if os.path.exists(ARQUIVO_PROGRESSO):
+    if os.path.exists(ARQUIPO_PROGRESSO):
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -352,7 +352,6 @@ if st.session_state.aba_atual == "📍 Cidades":
         
         st.markdown("### Selecione as cidades correspondentes a cada dia:")
         
-        # Criação de abas visuais para cada dia da semana para facilitar o preenchimento no celular
         abas_dias = st.tabs(DIAS_SEMANA)
         novas_configuracoes = {}
         
@@ -408,6 +407,9 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
+                # Normaliza a lista de cidades de hoje para comparação case-insensitive infalível
+                cidades_hoje_limpas = [limpar_texto(c) for c in cidades_hoje]
+                
                 for linha in linhas:
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
@@ -419,17 +421,18 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
                         
-                        # 📍 CROSS-CHECK GEOGRÁFICO DIÁRIO AUTOMÁTICO
+                        # 📍 CROSS-CHECK GEOGRÁFICO DIÁRIO AUTOMÁTICO REFORÇADO (Sem falhas de letras maiúsculas)
                         cli_limpo = limpar_texto(cli)
                         info_cadastral = mapa_cadastro_clientes.get(cli_limpo, None)
                         cidade_cli = info_cadastral['Cidade'] if info_cadastral else "Não Informada"
+                        cidade_cli_limpa = limpar_texto(cidade_cli)
                         
-                        # Cruza com a lista de cidades configuradas especificamente para HOJE
-                        if cidades_hoje:
-                            if cidade_cli not in cidades_hoje:
-                                continue # Ignora o cliente que não pertence à rota de hoje
+                        # Se houver cidades configuradas para hoje, cruza de forma limpa.
+                        if cidades_hoje_limpas:
+                            if cidade_cli_limpa not in cidades_hoje_limpas:
+                                continue # Ignora se não pertencer à rota de hoje
                         else:
-                            continue # Se não há cidades hoje, ignora o processamento para este dia
+                            continue # Se não houver cidades configuradas hoje, barra
 
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual:
@@ -486,6 +489,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
     cidades_hoje = st.session_state.cidades_ativas.get(dia_semana_hoje, []) if isinstance(st.session_state.cidades_ativas, dict) else []
+    cidades_hoje_limpas = [limpar_texto(c) for c in cidades_hoje]
     
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
@@ -534,10 +538,11 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         cli_l = limpar_texto(cli)
         cad_info = mapa_cadastro_clientes.get(cli_l, None)
         cidade_cli = cad_info['Cidade'] if cad_info else "Não Informada"
+        cidade_cli_limpa = limpar_texto(cidade_cli)
         
-        # Alertas também passam pelo cruzamento inteligente do dia da semana atual
-        if cidades_hoje and cidade_cli != "Não Informada":
-            if cidade_cli not in cidades_hoje:
+        # Alertas também passam pelo cruzamento inteligente limpo do dia da semana atual
+        if cidades_hoje_limpas and cidade_cli != "Não Informada":
+            if cidade_cli_limpa not in cidades_hoje_limpas:
                 continue
 
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
@@ -628,7 +633,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     
                     if sugestoes_seg:
                         novo_texto_acumulado += "    💡 Itens Sugeridos p/ Prospecção:\n"
-                        for sug in suggestions_seg[:4]:
+                        for sug in sugestoes_seg[:4]:
                             novo_texto_acumulado += f"        ▪️ {sug}\n"
                     novo_texto_acumulado += "\n"
             
