@@ -15,7 +15,6 @@ st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 # --- OTIMIZAÇÃO VISUAL PARA CELULAR (Grade 2x2 perfeita sem rolagem lateral) ---
 st.markdown("""
     <style>
-    /* Estilização global de textos para leitura mobile */
     html, body, [class*="css"], p, span {
         font-size: 16px !important;
     }
@@ -27,7 +26,6 @@ st.markdown("""
         font-size: 18px !important;
     }
     
-    /* Botões otimizados para preencher 100% da sua respectiva coluna */
     div.stButton > button {
         width: 100% !important;
         height: 46px !important;
@@ -44,17 +42,15 @@ st.markdown("""
     }
     
     /* CORREÇÃO DO ESPAÇAMENTO E DA LARGURA DOS BOTÕES (LADO A LADO) */
-    /* Alvo: Apenas blocos horizontais que contêm botões e não possuem textos de cabeçalho */
     div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         width: 100% !important;
-        gap: 8px !important; /* Espaço ideal e controlado entre os dois botões */
+        gap: 8px !important;
         padding: 0 !important;
     }
     
-    /* Forçar cada coluna de botão a ter exatamente metade da tela menos o espaço do meio */
     div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) > div {
         width: calc(50% - 4px) !important;
         flex: 1 1 calc(50% - 4px) !important;
@@ -167,17 +163,69 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
     return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
-def gerar_mensagem_humanizada(ofertas, tipo_lista):
+# --- 🚀 ENGINE INTELIGENTE DE VENDA CRUZADA (CROSS-SELLING) ---
+def recomendar_venda_cruzada(cliente, ofertas_atuais_cliente, todas_ofertas_disponiveis, df_total, top_n=2):
+    if not todas_ofertas_disponiveis or not ofertas_atuais_cliente:
+        return []
+        
+    # Isolar as ofertas que o cliente NÃO recebe por padrão
+    ofertas_cross_disponiveis = [l for l in todas_ofertas_disponiveis if l not in ofertas_atuais_cliente]
+    if not ofertas_cross_disponiveis:
+        return []
+        
+    # Mapear o histórico do cliente atual
+    produtos_historicos_cliente = set(df_total[df_total['Cliente'] == cliente]['Produto'].unique())
+    if not produtos_historicos_cliente:
+        return ofertas_cross_disponiveis[:top_n] # Fallback simples se o cliente for novo
+        
+    # Encontrar outros compradores dos mesmos produtos do cliente (Afinidade de Base)
+    compradores_similares = df_total[df_total['Produto'].isin(produtos_historicos_cliente)]['Cliente'].unique()
+    
+    # Ver quais OUTROS produtos esses mesmos compradores consomem frequentemente
+    df_afinidade = df_total[df_total['Cliente'].isin(compradores_similares) & (~df_total['Produto'].isin(produtos_historicos_cliente))]
+    
+    if df_afinidade.empty:
+        produtos_sugeridos = df_total['Produto'].value_counts().index.tolist()
+    else:
+        produtos_sugeridos = df_afinidade['Produto'].value_counts().index.tolist()
+        
+    # Cruzar os produtos mais quentes com as linhas de oferta disponíveis
+    ofertas_selecionadas_cross = []
+    for prod_sug in produtos_sugeridos:
+        prod_sug_limpo = limpar_texto(prod_sug)
+        for linha in ofertas_cross_disponiveis:
+            chaves = extrair_palavras_produto(linha)
+            if chaves and all(c in prod_sug_limpo for c in chaves):
+                if linha not in ofertas_selecionadas_cross:
+                    ofertas_selecionadas_cross.append(linha)
+                if len(ofertas_selecionadas_cross) >= top_n:
+                    return ofertas_selecionadas_cross
+                    
+    # Fallback caso os filtros não preencham a cota estipulada
+    for linha in ofertas_cross_disponiveis:
+        if linha not in ofertas_selecionadas_cross:
+            ofertas_selecionadas_cross.append(linha)
+        if len(ofertas_selecionadas_cross) >= top_n:
+            break
+            
+    return ofertas_selecionadas_cross
+
+# --- GERADOR DE MENSAGEM INTEGRADO COM VENDA CRUZADA ---
+def gerar_mensagem_unificada_venda(ofertas_normais, ofertas_cross, tipo_lista):
     saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?"]
     termo_oferta = "ofertas relâmpago do dia" if tipo_lista == "relampago" else "ofertas do dia"
-    introducoes = [
-        f"Separei aqui as melhores {termo_oferta} exclusivas para você:\n\n",
-        f"Olha só as {termo_oferta} que separei hoje para o seu estoque:\n\n"
-    ]
-    fechamentos = ["\n\nMe avisa aqui se posso garantir o seu pedido antes que acabe! 👍", "\n\nQual vamos aproveitar hoje? 🚀"]
-    msg = f"{random.choice(saudacoes)} {random.choice(introducoes)}"
-    for of in ofertas:
+    
+    msg = f"{random.choice(saudacoes)}\n\n"
+    msg += f"Separei aqui as melhores {termo_oferta} exclusivas de itens que você já costuma abastecer:\n"
+    for of in ofertas_normais:
         msg += f"👉 {of}\n"
+        
+    if ofertas_cross:
+        msg += f"\n🔥 E veja também essas oportunidades de **Venda Cruzada** que separamos para o seu segmento hoje:\n"
+        for of_cz in ofertas_cross:
+            msg += f"✨ {of_cz}\n"
+            
+    fechamentos = ["\nMe avisa aqui se posso garantir o seu pedido antes que acabe! 👍", "\nQual vamos aproveitar hoje? 🚀"]
     msg += random.choice(fechamentos)
     return msg
 
@@ -499,7 +547,7 @@ st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 📱 BOTÕES DE NAVEGAÇÃO CORRIGIDOS (GRADE FIXA 2 COLUNAS) ---
+# --- 📱 BOTÕES DE NAVEGAÇÃO (GRADE FIXA E ALINHADA MOBILE) ---
 c_nav1, c_nav2 = st.columns(2)
 with c_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
@@ -577,7 +625,13 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         cliente_atual = clientes_restantes[0]
         ofertas_cliente = fila_ativa[cliente_atual]
-        mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
+        todas_ofertas_bloco = st.session_state[id_memoria]
+        
+        # 🧠 Executa inteligência de venda cruzada de forma dinâmica
+        ofertas_venda_cruzada = recomendar_venda_cruzada(cliente_atual, ofertas_cliente, todas_ofertas_bloco, df_total)
+        
+        # 📝 Gera a mensagem unificada unindo Mix Atual + Cross-Selling
+        mensagem_pronta = gerar_mensagem_unificada_venda(ofertas_cliente, ofertas_venda_cruzada, tipo_msg)
         cad_info = obter_info_cliente(cliente_atual)
         
         st.markdown(f"### 🏢 {cliente_atual}")
