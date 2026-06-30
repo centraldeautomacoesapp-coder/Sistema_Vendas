@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e botões robustos) ---
+# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e colunas horizontais fixas) ---
 st.markdown("""
     <style>
     /* Estilização global de textos para leitura mobile */
@@ -26,17 +26,29 @@ st.markdown("""
     h4 {
         font-size: 18px !important;
     }
-    /* Botões grandes e fáceis de tocar no celular */
+    /* Botões otimizados para visualização em grade de 2 colunas no celular */
     div.stButton > button {
         width: 100% !important;
-        height: 48px !important;
-        font-size: 15px !important;
+        height: 46px !important;
+        font-size: 13px !important;
         font-weight: bold !important;
-        margin-bottom: 8px !important;
+        margin-bottom: 6px !important;
         border-radius: 8px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
     code {
         font-size: 14px !important;
+    }
+    
+    /* IMPEDIR QUE AS COLUNAS DO STREAMLIT QUEBREM EM LINHAS VERTICAIS NO CELULAR */
+    div[data-testid="stHorizontalBlock"] {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div {
+        width: unset !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -455,7 +467,7 @@ else:
     """
     st.markdown(html_painel, unsafe_allow_html=True)
 
-# 3. Seção Marcas Parceiras compactada estritamente em 3 Colunas Fixas
+# Seção Marcas Parceiras compactada estritamente em 3 Colunas Fixas
 st.markdown("<p style='font-size:13px; font-weight:bold; color:#111; margin-top:4px; margin-bottom:3px; text-transform: uppercase;'>🤝 Marcas Parceiras (Foco)</p>", unsafe_allow_html=True)
 dict_marcas_foco = calcular_marcas_foco(df_mes_atual)
 m_keys = list(dict_marcas_foco.keys())
@@ -482,7 +494,7 @@ st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO MOBILE GRADE 2X2 ---
+# --- 📱 MENUS DE NAVEGAÇÃO COMPACTADOS EM GRADE HORIZONTAL 2X2 NO CELULAR ---
 c_nav1, c_nav2 = st.columns(2)
 with c_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
