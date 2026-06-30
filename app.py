@@ -261,16 +261,13 @@ def obter_info_cliente(nome_vendas):
         
     vendas_limpo = limpar_texto(nome_vendas)
     
-    # 1. Tentativa por Match Perfeito
     if vendas_limpo in mapa_cadastro_clientes:
         return mapa_cadastro_clientes[vendas_limpo]
         
-    # 2. Tentativa Limpando Prefixos Numéricos (Ex: "10254 - MERCADO" vira "MERCADO")
     vendas_sem_codigo = re.sub(r'^\d+\s*[-–_]?\s*', '', vendas_limpo).strip()
     if vendas_sem_codigo in mapa_cadastro_clientes:
         return mapa_cadastro_clientes[vendas_sem_codigo]
         
-    # 3. Tentativa por Varredura de Contenção (Se uma ponta contém a outra)
     for chave_cadastro, dados in mapa_cadastro_clientes.items():
         if chave_cadastro in vendas_limpo or vendas_limpo in chave_cadastro or chave_cadastro in vendas_sem_codigo:
             return dados
@@ -339,12 +336,15 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO ---
-col_nav1, col_nav2 = st.columns(2)
+# --- MENUS DE NAVEGAÇÃO REINTEGRADO (3 COLUNAS) ---
+col_nav1, col_nav2, col_nav3 = st.columns(3)
 with col_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
         st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 with col_nav2:
+    if st.button("🔍 Consultas", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
+        st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
+with col_nav3:
     if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
         st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
 
@@ -412,15 +412,12 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         ofertas_cliente = fila_ativa[cliente_atual]
         mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
         
-        # Chamada da correção inteligente de cadastro
         cad_info = obter_info_cliente(cliente_atual)
         
-        # Interface Visual do Cliente Selecionado
         st.markdown(f"### 🏢 {cliente_atual}")
         if cad_info['Fantasia'] and cad_info['Fantasia'] != "Não Localizado" and cad_info['Fantasia'] != "Não Informado":
             st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
         
-        # Tag da cidade unificada e visível
         tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
         st.markdown(tag_cidade_html + obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
@@ -440,7 +437,46 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- 🚨 ABA 2: ALERTAS ---
+# --- 🔍 ABA 2: CONSULTAS (RESTAURADA E COMPLETA) ---
+elif st.session_state.aba_atual == "🔍 Consulta":
+    st.subheader("🔍 Central de Consultas e Faturamento")
+    
+    lista_clientes_busca = sorted(list(df_total['Cliente'].dropna().unique()))
+    cliente_selecionado = st.selectbox("Selecione um cliente para analisar o histórico:", [""] + lista_clientes_busca)
+    
+    if cliente_selecionado:
+        cad_info = obter_info_cliente(cliente_selecionado)
+        
+        st.markdown(f"### 🏢 {cliente_selecionado}")
+        if cad_info['Fantasia'] and cad_info['Fantasia'] != "Não Localizado" and cad_info['Fantasia'] != "Não Informado":
+            st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
+            
+        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
+        st.markdown(tag_cidade_html + obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
+        st.write("")
+        
+        df_cli = df_total[df_total['Cliente'] == cliente_selecionado]
+        carteira_info = dict_carteira.get(cliente_selecionado, {"dias": 0})
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Dias sem Comprar", f"{carteira_info['dias']} dias")
+        with col2:
+            st.metric("Faturamento Histórico", f"R$ {df_cli['Faturamento Brut'].sum():,.2f}")
+            
+        st.markdown("#### 📦 Top 5 Produtos mais Comprados")
+        if not df_cli.empty:
+            top_produtos = df_cli.groupby('Produto')['Faturamento Brut'].agg(['sum', 'count']).nlargest(5, 'sum')
+            top_produtos.columns = ['Faturamento Acumulado (R$)', 'Pedidos Concluídos']
+            st.dataframe(top_produtos, use_container_width=True)
+            
+            st.markdown("#### 📅 Últimas Movimentações")
+            ultimos_pedidos = df_cli.sort_values(by='Data_Datetime', ascending=False).head(10)[['Dt. Delivery', 'Produto', 'Faturamento Brut', 'Filial']]
+            st.dataframe(ultimos_pedidos, use_container_width=True)
+        else:
+            st.info("Nenhum registro de compras localizado para este cliente.")
+
+# --- 🚨 ABA 3: ALERTAS ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -521,7 +557,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             with st.container():
                 st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
                 
-                # Chamada da correção de cadastro na visualização de alertas
                 info_c = obter_info_cliente(c_nome)
                 
                 if info_c['Fantasia'] and info_c['Fantasia'] != "Não Localizado" and info_c['Fantasia'] != "Não Informado":
@@ -531,7 +566,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 if row["Reportado"]:
                     html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 
-                tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2; display: inline-block;">📍 {info_c["Cidade"]}</span>'
+                tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2; display: inline-block;">📍 {info_c["Cidade"]}</span>'
                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{tag_cidade_alerta}{html_badges}", unsafe_allow_html=True)
             st.write("---")
         
