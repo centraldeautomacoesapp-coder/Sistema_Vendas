@@ -33,6 +33,10 @@ st.markdown("""
         margin-bottom: 5px !important;
         border-radius: 8px !important;
     }
+    /* Estilização extra para os selects no mobile */
+    div[data-baseweb="select"] {
+        margin-bottom: 10px !important;
+    }
     code {
         font-size: 14px !important;
     }
@@ -133,10 +137,6 @@ if 'texto_supervisor_gerado' not in st.session_state:
     st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state:
     st.session_state.clientes_processados_aguardando = []
-
-# --- CALLBACK PARA ALTERAÇÃO DE ABA ---
-def navegar_para_aba(nome_aba):
-    st.session_state.aba_atual = nome_aba
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
@@ -390,7 +390,7 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #FF8B00; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
 st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #DE350B; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
 
-# 📈 BLOCO MINIFICADO EM LINHA ÚNICA: PREVINE ERROS VISUAIS E DIMINUI AS LETRAS NO CELULAR (2 POR LINHA)
+# 📈 BLOCO MINIFICADO EM LINHA ÚNICA
 st.markdown("<p style='font-size:12px; font-weight:bold; color:#172B4D; margin-top:12px; margin-bottom:5px;'>📈 POSITIVAÇÃO DE MARCAS FOCO (MÊS ATUAL)</p>", unsafe_allow_html=True)
 html_marcas = '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 10px;">'
 for m in MARCAS_FOCO:
@@ -401,21 +401,20 @@ st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO REORGANIZADOS (3 POR LINHA NO GRID) ---
-col_nav1, col_nav2, col_nav3 = st.columns(3)
-with col_nav1:
-    st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
-with col_nav2:
-    st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
-with col_nav3:
-    st.button("⭐ Marcas", type="primary" if st.session_state.aba_atual == "⭐ Marcas" else "secondary", on_click=navegar_para_aba, args=("⭐ Marcas",))
+# --- 📱 NOVO MENU DE NAVEGAÇÃO INTERATIVO (PERFEITO PARA CELULAR) ---
+opcoes_menu = ["🟢 Ofertas", "🚨 Alertas", "⭐ Marcas", "🔍 Cliente", "📦 Produto"]
+idx_menu_atual = opcoes_menu.index(st.session_state.aba_atual) if st.session_state.aba_atual in opcoes_menu else 0
 
-col_nav4, col_nav5, col_nav6 = st.columns(3)
-with col_nav4:
-    st.button("🔍 Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary", on_click=navegar_para_aba, args=("🔍 Cliente",))
-with col_nav5:
-    st.button("📦 Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary", on_click=navegar_para_aba, args=("📦 Produto",))
-# col_nav6 fica vazio para manter o alinhamento de grid 3x3 perfeito
+aba_selecionada = st.selectbox(
+    "📱 Escolha a Tela do Aplicativo:",
+    opcoes_menu,
+    index=idx_menu_atual,
+    key="selectbox_navegacao_principal"
+)
+
+if aba_selecionada != st.session_state.aba_atual:
+    st.session_state.aba_atual = aba_selecionada
+    st.rerun()
 
 st.write("---")
 
@@ -677,23 +676,24 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ⭐ NOVA ABA: MARCAS PRÓPRIAS (MÊS ATUAL OPORTUNIDADES) ---
+# --- ⭐ ABA: MARCAS PRÓPRIAS (MÊS ATUAL OPORTUNIDADES) ---
 elif st.session_state.aba_atual == "⭐ Marcas":
     st.subheader("⭐ Oportunidades de Marcas Foco")
-    st.markdown("Selecione uma marca abaixo para ver quais clientes ativos **NÃO COMPRARAM** dela neste mês corrente:")
+    st.markdown("Selecione uma marca foco abaixo para analisar a carteira:")
     
-    # Grid de botões reconfigurado dinamicamente para 3 por linha
-    for i in range(0, len(MARCAS_FOCO), 3):
-        cols = st.columns(3)
-        for j in range(3):
-            if i + j < len(MARCAS_FOCO):
-                m = MARCAS_FOCO[i + j]
-                with cols[j]:
-                    if st.button(m, type="primary" if st.session_state.marca_filtro == m else "secondary", key=f"btn_aba_m_{m}"):
-                        st.session_state.marca_filtro = m
-                        st.rerun()
-                
-    marca_selecionada_aba = st.session_state.marca_filtro
+    # 📱 SUBSTITUIÇÃO DE BOTÕES POR SELECTBOX (CORRIGE ERRO VISUAL NO CELULAR)
+    idx_marca_atual = MARCAS_FOCO.index(st.session_state.marca_filtro) if st.session_state.marca_filtro in MARCAS_FOCO else 0
+    marca_selecionada_aba = st.selectbox(
+        "🏷️ Selecione a Marca Foco:",
+        MARCAS_FOCO,
+        index=idx_marca_atual,
+        key="selectbox_marca_foco"
+    )
+    
+    if marca_selecionada_aba != st.session_state.marca_filtro:
+        st.session_state.marca_filtro = marca_selecionada_aba
+        st.rerun()
+        
     st.write("---")
     
     # 🔍 Algoritmo de busca reversa e cruzamento histórico
@@ -701,10 +701,10 @@ elif st.session_state.aba_atual == "⭐ Marcas":
     clientes_compradores_historicos = df_total[df_total['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False)]['Cliente'].unique()
     todos_clientes_carteira = sorted([c for c in dict_carteira.keys() if pd.notna(c)])
     
-    # Aqueles que já compraram no mês NÃO aparecem na visualização
+    # Aqueles que já compraram no mês corrente NÃO aparecem
     clientes_nao_compradores_mes = [c for c in todos_clientes_carteira if c not in clientes_compradores_da_marca_mes]
     
-    # Separação em duas categorias distintas
+    # Separação: Apenas quem já comprou no passado entra na lista filtrada de CHURN
     clientes_deixou_de_comprar = [c for c in clientes_nao_compradores_mes if c in clientes_compradores_historicos]
     clientes_nunca_compraram = [c for c in clientes_nao_compradores_mes if c not in clientes_compradores_historicos]
     
@@ -715,17 +715,30 @@ elif st.session_state.aba_atual == "⭐ Marcas":
         clientes_deixou_de_comprar = [c for c in clientes_deixou_de_comprar if termo_nc in limpar_texto(c)]
         clientes_nunca_compraram = [c for c in clientes_nunca_compraram if termo_nc in limpar_texto(c)]
         
-    # --- SEÇÃO 1: DEIXOU DE COMPRAR (DESTAQUE CRÍTICO) ---
-    st.markdown(f"### 🛑 Já Compraram e Não Compram Mais ({len(clientes_deixou_de_comprar)})")
-    st.caption(f"Clientes que já consumiram a marca **{marca_selecionada_aba}** no histórico geral, mas interromperam o consumo no mês atual.")
+    # --- SEÇÃO 1: CHURN DE PRODUTO HISTÓRICO ---
+    st.markdown(f"### 🛑 CHURN - Deixaram de Comprar ({len(clientes_deixou_de_comprar)})")
+    st.caption(f"Clientes que já consumiram produtos da marca **{marca_selecionada_aba}** anteriormente, mas estão sem compras dela neste mês.")
     
     if not clientes_deixou_de_comprar:
         st.info("Nenhum cliente mapeado como ex-comprador recente desta marca.")
     else:
-        for cli_nc in clientes_deixou_de_comprar[:30]: # Otimização de performance mobile
+        for cli_nc in clientes_deixou_de_comprar[:30]: # Limite de amostragem para performance celular
             info_nc = obter_info_cliente(cli_nc)
+            
+            # 🔍 Extração dinâmica de quais produtos o cliente já comprou desta marca específica no passado
+            vendas_historicas_cliente_marca = df_total[
+                (df_total['Cliente'] == cli_nc) & 
+                (df_total['Produto_Busca'].str.contains(marca_selecionada_aba.lower(), na=False))
+            ]
+            produtos_comprados_historico = sorted(list(vendas_historicas_cliente_marca['Produto'].unique()))
+            produtos_formatados = ", ".join(produtos_comprados_historico) if produtos_comprados_historico else "Não identificado"
+            
             with st.container():
-                st.markdown(f"**🏢 {cli_nc}** <span style='background-color:#DE350B; color:white; padding:1px 4px; border-radius:3px; font-size:10px; font-weight:bold; vertical-align:middle; margin-left:5px;'>⚠️ RECUPERAR BRAND CHURN</span>", unsafe_allow_html=True)
+                st.markdown(f"**🏢 {cli_nc}** <span style='background-color:#DE350B; color:white; padding:1px 4px; border-radius:3px; font-size:10px; font-weight:bold; vertical-align:middle; margin-left:5px;'>⚠️ CHURN DA MARCA</span>", unsafe_allow_html=True)
+                
+                # Exibição obrigatória do produto comprado anteriormente
+                st.markdown(f"💔 **Comprava:** <span style='color:#DE350B; font-weight:500;'>{produtos_formatados}</span>", unsafe_allow_html=True)
+                
                 if info_nc['Fantasia'] and info_nc['Fantasia'] not in ["Não Localizado", "Não Informado"]:
                     st.markdown(f"*Fantasia: {info_nc['Fantasia']}*")
                 st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; display: inline-block;">📍 {info_nc["Cidade"]}</div>', unsafe_allow_html=True)
@@ -733,8 +746,8 @@ elif st.session_state.aba_atual == "⭐ Marcas":
                 st.write("---")
 
     # --- SEÇÃO 2: AINDA NÃO COMPRARAM / SEM HISTÓRICO ---
-    st.markdown(f"### 🛒 Ainda Não Compraram no Mês Atual ({len(clientes_nunca_compraram)})")
-    st.caption(f"Clientes ativos da carteira que não possuem registro de faturamento para a marca **{marca_selecionada_aba}**.")
+    st.markdown(f"### 🛒 Sem Histórico da Marca no Mês ({len(clientes_nunca_compraram)})")
+    st.caption(f"Clientes ativos da carteira que nunca registraram compras da marca **{marca_selecionada_aba}**.")
     
     if not clientes_nunca_compraram:
         st.success(f"🔥 Excelente! Todos os demais clientes ativos já compraram {marca_selecionada_aba}!")
