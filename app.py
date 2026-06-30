@@ -57,14 +57,13 @@ MAPA_DIAS_ING_PORT = {
     5: "Sábado",
     6: "Domingo"
 }
-# Identifica o dia da semana atual do sistema em formato string português
 dia_semana_hoje = MAPA_DIAS_ING_PORT.get(pd.Timestamp.now().weekday(), "Segunda-feira")
 
 # --- 📁 SISTEMA DE PERSISTÊNCIA ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
-    if os.path.exists(ARQUIVO_PROGRESSO):  # <-- CORRIGIDO AQUI!
+    if os.path.exists(ARQUIVO_PROGRESSO):
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -99,11 +98,9 @@ mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 if 'data_ultimo_acesso' not in st.session_state:
     st.session_state.data_ultimo_acesso = data_hoje_str
 
-# Inicializa as cidades ativas mapeadas por estrutura de dicionário de dias da semana
 if 'cidades_ativas' not in st.session_state:
     st.session_state.cidades_ativas = progresso_backup.get("cidades_ativas", {dia: [] for dia in DIAS_SEMANA})
 
-# Fallback caso o JSON antigo estivesse salvo no formato de lista simples
 if isinstance(st.session_state.cidades_ativas, list):
     st.session_state.cidades_ativas = {dia: [] for dia in DIAS_SEMANA}
 
@@ -219,7 +216,6 @@ def carregar_dados_nuvem():
         return unificado
     return pd.DataFrame()
 
-# 🟢 Carrega a Planilha Estrutural de Clientes vinculada
 @st.cache_data(ttl=600)
 def carregar_base_clientes_cadastro():
     url = "https://docs.google.com/spreadsheets/d/1QNiwKklXLpBrc_g21p1GRFs4dfFMze6v/export?format=xlsx"
@@ -252,7 +248,6 @@ if df_total.empty:
     st.warning("Base de dados de vendas vazia.")
     st.stop()
 
-# Montagem de um mapa rápido de consulta cadastral do cliente para cruzar dados
 mapa_cadastro_clientes = {}
 if not df_clientes.empty:
     for _, r in df_clientes.iterrows():
@@ -396,7 +391,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines
+                st.session_state[id_memoria] = linhas  # <-- CORRIGIDO AQUI (linhas em vez de lines)
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -458,9 +453,14 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
         cli_l = limpar_texto(cliente_atual)
         cad_info = mapa_cadastro_clientes.get(cli_l, {"Cidade": "Não Encontrada", "Fantasia": "Não Informado"})
         
-        st.markdown(f"**🏢 {cliente_atual}**")
-        st.markdown(f"📍 Cidade: `{cad_info['Cidade']}` | Ramo: `*{cad_info['Fantasia']}*`")
-        st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
+        # 🏢 IDENTIFICAÇÃO DO CLIENTE COM NOME FANTASIA EMBAIXO (CONFORME PEDIDO)
+        st.markdown(f"### 🏢 {cliente_atual}")
+        if cad_info['Fantasia'] and str(cad_info['Fantasia']).lower() != "nan" and str(cad_info['Fantasia']).strip() != "":
+            st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
+        
+        # 📍 TAG DA CIDADE ROXA + BADGES DE STATUS
+        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
+        st.markdown(tag_cidade_html + obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
         st.code(mensagem_pronta, language=None)
@@ -535,7 +535,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         cidade_cli_limpa = limpar_texto(cidade_cli)
         
         if cidades_hoje_limpas and cidade_cli != "Não Informada":
-            if cidade_cli_limpa not in cidades_hoje_limpas:
+            if city_clean := cidade_cli_limpa not in cidades_hoje_limpas:
                 continue
 
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
@@ -544,21 +544,4 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             if filtro_status == "Apenas Não Reportados" and ja_reportado: continue
             if filtro_status == "Apenas Reportados" and not ja_reportado: continue
                 
-            lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"], "Reportado": ja_reportado})
-            
-    df_alertas_visuais = pd.DataFrame(lista_alertas)
-    if not df_alertas_visuais.empty:
-        df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
-        
-    if busca_alerta and not df_alertas_visuais.empty:
-        termo_limpo = limpar_texto(busca_alerta)
-        df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
-    
-    if df_alertas_visuais.empty:
-        st.info(f"Nenhum cliente em rota crítica localizado.")
-    else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes:")
-        
-        for idx, row in df_alertas_visuais.iterrows():
-            c_nome = row["Cliente"]
-            if f"chk_{c_nome}" not in st.session_state: st.session_state
+            lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados
