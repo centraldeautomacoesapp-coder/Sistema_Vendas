@@ -125,7 +125,6 @@ if not progresso_backup or ultimo_acesso != data_hoje_str:
     salvar_progresso_atual()
 
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
-if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
@@ -134,14 +133,6 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 def limpar_texto(texto):
     if pd.isna(texto): return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
-
-def filtrar_por_palavras(df, coluna_busca, termo_usuario):
-    termo_limpo = limpar_texto(termo_usuario)
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'por']
-    palavras = [p for p in termo_limpo.split() if p not in ignorar and len(p) > 1]
-    if not palavras: palavras = termo_limpo.split()
-    if not palavras: return df
-    return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
@@ -215,20 +206,26 @@ def carregar_base_clientes_cadastro():
         df = pd.read_excel(url)
         df.columns = df.columns.str.strip()
         
-        c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower() or "nome" in str(c).lower() and "fant" not in str(c).lower()), df.columns[0])
-        c_fant = next((c for c in df.columns if "fantasia" in str(c).lower() or "nicho" in str(c).lower()), None)
-        c_cid = next((c for c in df.columns if "cidade" in str(c).lower() or "munic" in str(c).lower()), None)
+        c_cli, c_fant, c_cid = None, None, None
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if "cliente" in col_lower or "razao" in col_lower or "razão" in col_lower:
+                c_cli = col
+            elif "fantasia" in col_lower or "nicho" in col_lower or "nome" in col_lower:
+                c_fant = col
+            elif "cidade" in col_lower or "munic" in col_lower:
+                c_cid = col
         
-        reordenar = {c_cli: 'Cliente'}
-        if c_fant: reordenar[c_fant] = 'Nome_Fantasia'
-        if c_cid: reordenar[c_cid] = 'Cidade'
+        if not c_cli: c_cli = df.columns[0]
+        if not c_fant: c_fant = c_cli
+        if not c_cid: c_cid = df.columns[1] if len(df.columns) > 1 else df.columns[0]
         
-        df = df.rename(columns=reordenar)
-        if 'Nome_Fantasia' not in df.columns: df['Nome_Fantasia'] = ""
-        if 'Cidade' not in df.columns: df['Cidade'] = "Não Informada"
-        
-        df['Cliente_Busca'] = df['Cliente'].apply(limpar_texto)
-        return df
+        df_reordenado = pd.DataFrame()
+        df_reordenado['Cliente'] = df[c_cli].astype(str).str.strip()
+        df_reordenado['Nome_Fantasia'] = df[c_fant].astype(str).str.strip() if c_fant in df.columns else ""
+        df_reordenado['Cidade'] = df[c_cid].astype(str).str.strip() if c_cid in df.columns else "Não Informada"
+        df_reordenado['Cliente_Busca'] = df_reordenado['Cliente'].apply(limpar_texto)
+        return df_reordenado
     except:
         return pd.DataFrame(columns=['Cliente', 'Nome_Fantasia', 'Cidade', 'Cliente_Busca'])
 
@@ -240,14 +237,45 @@ if df_total.empty:
     st.warning("Base de dados de vendas vazia.")
     st.stop()
 
+# Montagem estruturada do mapa de cadastro do Drive
 mapa_cadastro_clientes = {}
 if not df_clientes.empty:
     for _, r in df_clientes.iterrows():
-        mapa_cadastro_clientes[r['Cliente_Busca']] = {
-            "Nome": r['Cliente'],
-            "Fantasia": str(r['Nome_Fantasia']).strip(),
-            "Cidade": str(r['Cidade']).strip()
+        cli_nome = str(r['Cliente']).strip()
+        fantasia = str(r['Nome_Fantasia']).strip()
+        cidade = str(r['Cidade']).strip()
+        
+        info_dict = {
+            "Nome": cli_nome,
+            "Fantasia": fantasia if fantasia.lower() != "nan" else "",
+            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
         }
+        mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
+        if fantasia:
+            mapa_cadastro_clientes[limpar_texto(fantasia)] = info_dict
+
+# 🔍 FUNÇÃO DE CORREÇÃO: Busca Inteligente (Evita falhas por códigos ou pequenas diferenças)
+def obter_info_cliente(nome_vendas):
+    if pd.isna(nome_vendas) or not str(nome_vendas).strip():
+        return {"Nome": "Desconhecido", "Fantasia": "Não Informado", "Cidade": "Não Informada"}
+        
+    vendas_limpo = limpar_texto(nome_vendas)
+    
+    # 1. Tentativa por Match Perfeito
+    if vendas_limpo in mapa_cadastro_clientes:
+        return mapa_cadastro_clientes[vendas_limpo]
+        
+    # 2. Tentativa Limpando Prefixos Numéricos (Ex: "10254 - MERCADO" vira "MERCADO")
+    vendas_sem_codigo = re.sub(r'^\d+\s*[-–_]?\s*', '', vendas_limpo).strip()
+    if vendas_sem_codigo in mapa_cadastro_clientes:
+        return mapa_cadastro_clientes[vendas_sem_codigo]
+        
+    # 3. Tentativa por Varredura de Contenção (Se uma ponta contém a outra)
+    for chave_cadastro, dados in mapa_cadastro_clientes.items():
+        if chave_cadastro in vendas_limpo or vendas_limpo in chave_cadastro or chave_cadastro in vendas_sem_codigo:
+            return dados
+            
+    return {"Nome": nome_vendas, "Fantasia": "Não Localizado", "Cidade": "Não Localizada"}
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
@@ -312,14 +340,11 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 st.write("---")
 
 # --- MENUS DE NAVEGAÇÃO ---
-col_nav1, col_nav2, col_nav3 = st.columns(3)
+col_nav1, col_nav2 = st.columns(2)
 with col_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
         st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 with col_nav2:
-    if st.button("🔍 Consultas", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
-        st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-with col_nav3:
     if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
         st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
 
@@ -327,7 +352,7 @@ st.write("---")
 
 # --- 🟢 ABA 1: OFERTAS ---
 if st.session_state.aba_atual == "🟢 Ofertas":
-    st.subheader("📋 Painel de Transmissão")
+    st.subheader("📋 Painel de Transmissão (Sem Filtros Geográficos)")
     st.markdown(f"🗓️ Hoje é **{dia_semana_hoje}** | Envia hoje: **{st.session_state.envios_hoje}** listas")
     
     tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
@@ -371,7 +396,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success(f"Fila vinculada com sucesso!")
+                st.success(f"Fila total gerada com sucesso!")
                 st.rerun()
 
     st.write("---")
@@ -387,15 +412,16 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         ofertas_cliente = fila_ativa[cliente_atual]
         mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
         
-        cli_l = limpar_texto(cliente_atual)
-        cad_info = mapa_cadastro_clientes.get(cli_l, {"Cidade": "Não Encontrada", "Fantasia": "Não Informado"})
+        # Chamada da correção inteligente de cadastro
+        cad_info = obter_info_cliente(cliente_atual)
         
         # Interface Visual do Cliente Selecionado
         st.markdown(f"### 🏢 {cliente_atual}")
-        if cad_info['Fantasia'] and str(cad_info['Fantasia']).lower() != "nan" and str(cad_info['Fantasia']).strip() != "":
+        if cad_info['Fantasia'] and cad_info['Fantasia'] != "Não Localizado" and cad_info['Fantasia'] != "Não Informado":
             st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
         
-        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
+        # Tag da cidade unificada e visível
+        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
         st.markdown(tag_cidade_html + obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
@@ -495,16 +521,17 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             with st.container():
                 st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
                 
-                info_c = mapa_cadastro_clientes.get(limpar_texto(c_nome), {"Cidade": "Não Cadastrada", "Fantasia": ""})
+                # Chamada da correção de cadastro na visualização de alertas
+                info_c = obter_info_cliente(c_nome)
                 
-                if info_c['Fantasia'] and str(info_c['Fantasia']).lower() != "nan" and str(info_c['Fantasia']).strip() != "":
+                if info_c['Fantasia'] and info_c['Fantasia'] != "Não Localizado" and info_c['Fantasia'] != "Não Informado":
                     st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
                 
                 html_badges = obter_badges_html(c_nome)
                 if row["Reportado"]:
                     html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 
-                tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px; border: 1px solid #C0B6F2;">📍 {info_c["Cidade"]}</span>'
+                tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2; display: inline-block;">📍 {info_c["Cidade"]}</span>'
                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{tag_cidade_alerta}{html_badges}", unsafe_allow_html=True)
             st.write("---")
         
@@ -539,11 +566,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     else:
                         novo_texto_acumulado += "    🔹 Sem histórico recente registrado\n"
                     
-                    cli_limpo = limpar_texto(c_nome)
-                    info_cad = mapa_cadastro_clientes.get(cli_limpo, None)
-                    nicho_real = info_cad['Fantasia'] if info_cad else ""
+                    info_cad = obter_info_cliente(c_nome)
+                    nicho_real = info_cad['Fantasia']
                     
-                    texto_analise_nicho = limpar_texto(nicho_real) + " " + cli_limpo
+                    texto_analise_nicho = limpar_texto(nicho_real) + " " + limpar_texto(c_nome)
                     sugestoes_seg = []
                     for chave, itens_sugeridos in regras_segmento.items():
                         if chave in texto_analise_nicho:
