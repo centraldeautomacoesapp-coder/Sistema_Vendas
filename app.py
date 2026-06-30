@@ -306,8 +306,12 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
     return html
 
-# --- HEADER E METAS (CORRIGIDO LINK DE MARCDOWN DENTRO DA STRING) ---
-st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
+# --- 🛡️ LOGO COM BLOCO DE PROTEÇÃO CONTRA QUEDAS ---
+try:
+    st.image("[https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg](https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg)", use_container_width=True)
+except Exception:
+    st.title("🟢 Delly's Inteligência IA")
+
 st.write("---")
 
 col_tit_meta, col_btn_meta = st.columns([4, 2])
@@ -375,7 +379,7 @@ with c_nav5:
 
 st.write("---")
 
-# --- ABA 1: PAINEL DE OFERTAS (CONVERTIDO DE OCR PARA CAMPO DE TEXTO COLADO) ---
+# --- ABA 1: PAINEL DE OFERTAS ---
 if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
     tipo_lista = st.radio("Canal Ativo:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
@@ -383,7 +387,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # Substituído file_uploader por text_area tradicional para digitação estável e direta
     with st.expander("📝 Inserir / Atualizar Bloco de Ofertas (Colar Texto)", expanded=False):
         st.markdown("**Cole aqui o texto ou lista das novas ofertas (uma por linha):**")
         texto_ofertas_colado = st.text_area("Lista de Produtos:", value="\n".join(st.session_state.get(id_memoria, [])), height=180, label_visibility="collapsed")
