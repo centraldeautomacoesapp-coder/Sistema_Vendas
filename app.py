@@ -117,6 +117,10 @@ if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofert
 if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
 
+# --- CALLBACK PARA ALTERAÇÃO DE ABA (Evita telas em branco) ---
+def navegar_para_aba(nome_aba):
+    st.session_state.aba_atual = nome_aba
+
 # --- AUXILIARES ---
 def limpar_texto(texto):
     if pd.isna(texto): return ""
@@ -226,7 +230,7 @@ if not df_clientes.empty:
         info_dict = {
             "Nome": cli_nome,
             "Fantasia": fantasia if fantasia.lower() != "nan" else "",
-            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
+            "Cidade": city if cidade.lower() != "nan" else "Não Informada"
         }
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
         if fantasia: mapa_cadastro_clientes[limpar_texto(fantasia)] = info_dict
@@ -292,7 +296,7 @@ REGRAS_VENDA_CRUZADA = {
 
 # --- CABEÇALHO DA MARCA ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
-if st.button("🔄 Sincronizar Sistema"):
+if st.button("🔄 Sincronizar Base Geral"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
     st.rerun()
@@ -309,22 +313,18 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 (MOBILE FRIENDLY) ---
+# --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 (COM CALLBACKS SEGUROS) ---
 col_row1_1, col_row1_2 = st.columns(2)
 with col_row1_1:
-    if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-        st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+    st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
 with col_row1_2:
-    if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-        st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+    st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary", on_click=navegar_para_aba, args=("🚨 Alertas",))
 
 col_row2_1, col_row2_2 = st.columns(2)
 with col_row2_1:
-    if st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary"):
-        st.session_state.aba_atual = "🔍 Cliente"; st.rerun()
+    st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary", on_click=navegar_para_aba, args=("🔍 Cliente",))
 with col_row2_2:
-    if st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary"):
-        st.session_state.aba_atual = "📦 Produto"; st.rerun()
+    st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary", on_click=navegar_para_aba, args=("📦 Produto",))
 
 st.write("---")
 
@@ -344,7 +344,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -361,5 +361,4 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     for c in combs: interessados.update(prod_to_clientes[c])
                     
                     for cli in interessados:
-                        if pd.isna(cli) or str(cli).lower() == 'nan': continue
-            
+           
