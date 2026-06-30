@@ -277,7 +277,6 @@ def obter_info_cliente(nome_vendas):
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
 # --- 🚀 COMPUTAÇÃO DO GRUPO UNIFICADO LEBON & MARCAS ---
-# Lebon, Seara, Doriana e Frangosul formam um único cálculo chamado LEBON
 mask_lebon_g = df_mes_atual['Produto_Busca'].apply(lambda x: any(kw in str(x) for kw in ["lebon", "seara", "doriana", "frangosul"]))
 clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
 
@@ -322,7 +321,6 @@ dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_si
 def obter_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
-    # Tag Estratégica do Grupo Lebon
     if cliente_nome in clientes_grupo_lebon:
         html += '<span style="background-color:#E3FCEF; color:#006644; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">LEBON</span>'
     for tag in info["tags"]:
@@ -336,12 +334,12 @@ def obter_badges_html(cliente_nome):
 # --- CABEÇALHO DA MARCA ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 
-# --- 📊 NOVO CABEÇALHO ESTRUTURADO DE METAS (FONTES MENORES DE REFERÊNCIA) ---
+# --- 📊 NOVO CABEÇALHO COMPACTO FIXADO EM LINHAS LADO A LADO ---
 st.write("---")
 
 col_tit_meta, col_btn_meta = st.columns([4, 2])
 with col_tit_meta:
-    st.markdown("### 📊 Indicadores Gerais do Mês")
+    st.markdown("### 📊 Indicadores Gerais")
 with col_btn_meta:
     if st.session_state.modo_edicao_metas:
         if st.button("💾 Salvar Metas", key="meta_salvar_btn"):
@@ -353,87 +351,134 @@ with col_btn_meta:
             st.session_state.modo_edicao_metas = True
             st.rerun()
 
-# Filtragens de Filiais para os cálculos
+# Filtros por filial
 mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0'])
 mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0'])
 
-# 1. Seção POSITIVAÇÕES
-st.markdown("<p style='font-size:14px; font-weight:bold; color:#111; margin-bottom:5px; text-transform: uppercase; letter-spacing: 0.5px;'>📌 POSITIVAÇÕES</p>", unsafe_allow_html=True)
+# Cálculos de Positivações
 real_pos_f2 = df_mes_atual[mask_f2]['Cliente'].nunique()
 real_pos_f6 = df_mes_atual[mask_f6]['Cliente'].nunique()
+real_pos_geral = df_mes_atual[mask_f2 | mask_f6]['Cliente'].nunique()
 
-c_p1, c_p2, c_p3 = st.columns(3)
-with c_p1:
-    if st.session_state.modo_edicao_metas:
-        st.session_state.meta_pos_f2 = st.number_input("Filial 2 Meta (Clis)", value=int(st.session_state.meta_pos_f2), step=1)
-    else:
-        st.markdown(f"<span style='font-size:13px; color:#444;'>Filial 2 Meta: <b>{st.session_state.meta_pos_f2}</b></span>", unsafe_allow_html=True)
-with c_p2:
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Realizado: <b>{real_pos_f2} clis</b></span>", unsafe_allow_html=True)
-with c_p3:
-    perf_p2 = (real_pos_f2 / st.session_state.meta_pos_f2 * 100) if st.session_state.meta_pos_f2 > 0 else 0.0
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Perf: <b>{perf_p2:.1f}%</b></span>", unsafe_allow_html=True)
+meta_pos_f2 = int(st.session_state.meta_pos_f2)
+meta_pos_f6 = int(st.session_state.meta_pos_f6)
+meta_pos_geral = meta_pos_f2 + meta_pos_f6
 
-c_p4, c_p5, c_p6 = st.columns(3)
-with c_p4:
-    if st.session_state.modo_edicao_metas:
-        st.session_state.meta_pos_f6 = st.number_input("Filial 6 Meta (Clis)", value=int(st.session_state.meta_pos_f6), step=1)
-    else:
-        st.markdown(f"<span style='font-size:13px; color:#444;'>Filial 6 Meta: <b>{st.session_state.meta_pos_f6}</b></span>", unsafe_allow_html=True)
-with c_p5:
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Realizado: <b>{real_pos_f6} clis</b></span>", unsafe_allow_html=True)
-with c_p6:
-    perf_p6 = (real_pos_f6 / st.session_state.meta_pos_f6 * 100) if st.session_state.meta_pos_f6 > 0 else 0.0
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Perf: <b>{perf_p6:.1f}%</b></span>", unsafe_allow_html=True)
+perf_pos_f2 = (real_pos_f2 / meta_pos_f2 * 100) if meta_pos_f2 > 0 else 0.0
+perf_pos_f6 = (real_pos_f6 / meta_pos_f6 * 100) if meta_pos_f6 > 0 else 0.0
+perf_pos_geral = (real_pos_geral / meta_pos_geral * 100) if meta_pos_geral > 0 else 0.0
 
-st.write("") # Linha em branco separadora
-
-# 2. Seção ROB (Faturamento)
-st.markdown("<p style='font-size:14px; font-weight:bold; color:#111; margin-bottom:5px; text-transform: uppercase; letter-spacing: 0.5px;'>💰 ROB (Faturamento)</p>", unsafe_allow_html=True)
+# Cálculos do ROB (Faturamento)
 real_rob_f2 = df_mes_atual[mask_f2]['Faturamento Brut'].sum()
 real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum()
+real_rob_geral = real_rob_f2 + real_rob_f6
 
-c_r1, c_r2, c_r3 = st.columns(3)
-with c_r1:
-    if st.session_state.modo_edicao_metas:
-        st.session_state.meta_rob_f2 = st.number_input("Filial 2 ROB Meta (R$)", value=float(st.session_state.meta_rob_f2), step=1000.0)
-    else:
-        st.markdown(f"<span style='font-size:13px; color:#444;'>Filial 2 Meta: <b>R$ {st.session_state.meta_rob_f2:,.2f}</b></span>", unsafe_allow_html=True)
-with c_r2:
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Realizado: <b>R$ {real_rob_f2:,.2f}</b></span>", unsafe_allow_html=True)
-with c_r3:
-    perf_r2 = (real_rob_f2 / st.session_state.meta_rob_f2 * 100) if st.session_state.meta_rob_f2 > 0 else 0.0
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Perf: <b>{perf_r2:.1f}%</b></span>", unsafe_allow_html=True)
+meta_rob_f2 = float(st.session_state.meta_rob_f2)
+meta_rob_f6 = float(st.session_state.meta_rob_f6)
+meta_rob_geral = meta_rob_f2 + meta_rob_f6
 
-c_r4, c_r5, c_r6 = st.columns(3)
-with c_r4:
-    if st.session_state.modo_edicao_metas:
-        st.session_state.meta_rob_f6 = st.number_input("Filial 6 ROB Meta (R$)", value=float(st.session_state.meta_rob_f6), step=1000.0)
-    else:
-        st.markdown(f"<span style='font-size:13px; color:#444;'>Filial 6 Meta: <b>R$ {st.session_state.meta_rob_f6:,.2f}</b></span>", unsafe_allow_html=True)
-with c_r5:
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Realizado: <b>R$ {real_rob_f6:,.2f}</b></span>", unsafe_allow_html=True)
-with c_r6:
-    perf_r6 = (real_rob_f6 / st.session_state.meta_rob_f6 * 100) if st.session_state.meta_rob_f6 > 0 else 0.0
-    st.markdown(f"<span style='font-size:13px; color:#444;'>Perf: <b>{perf_r6:.1f}%</b></span>", unsafe_allow_html=True)
+perf_rob_f2 = (real_rob_f2 / meta_rob_f2 * 100) if meta_rob_f2 > 0 else 0.0
+perf_rob_f6 = (real_rob_f6 / meta_rob_f6 * 100) if meta_rob_f6 > 0 else 0.0
+perf_rob_geral = (real_rob_geral / meta_rob_geral * 100) if meta_rob_geral > 0 else 0.0
 
-st.write("") # Linha em branco separadora
+if st.session_state.modo_edicao_metas:
+    st.markdown("<b style='font-size:13px;'>✏️ DIGITE AS METAS DO MÊS:</b>", unsafe_allow_html=True)
+    c_ed1, c_ed2 = st.columns(2)
+    with c_ed1:
+        st.session_state.meta_pos_f2 = st.number_input("Meta Pos. Filial 2", value=meta_pos_f2, step=1)
+        st.session_state.meta_pos_f6 = st.number_input("Meta Pos. Filial 6", value=meta_pos_f6, step=1)
+    with c_ed2:
+        st.session_state.meta_rob_f2 = st.number_input("Meta ROB Filial 2 (R$)", value=meta_rob_f2, step=1000.0)
+        st.session_state.meta_rob_f6 = st.number_input("Meta ROB Filial 6 (R$)", value=meta_rob_f6, step=1000.0)
+else:
+    # Injeção CSS + Flexbox nativo estável contra quebras verticais em telas mobile
+    html_painel = f"""
+    <style>
+        .titulo-secao {{
+            font-size: 13px; font-weight: bold; color: #111; margin-top: 10px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.3px;
+        }}
+        .bloco-container {{
+            display: flex; flex-direction: column; gap: 2px; background: #fafafa; padding: 5px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #eee;
+        }}
+        .linha-dados {{
+            display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 3px 2px; border-bottom: 1px dashed #eee;
+        }}
+        .linha-dados:last-child {{ border-bottom: none; }}
+        .c-col-alvo {{ flex: 1.1; text-align: left; font-weight: bold; color: #444; }}
+        .c-col-valores {{ flex: 2.5; text-align: left; color: #555; }}
+        .c-col-porcento {{ flex: 1; text-align: right; font-weight: bold; color: #0052CC; }}
+        
+        .destaque-geral {{
+            background-color: #f1f3f9; border-radius: 4px; font-weight: bold; padding: 3px 4px;
+        }}
+        .destaque-geral .c-col-alvo {{ color: #000; }}
+        .destaque-geral .c-col-porcento {{ color: #00875A; }}
+    </style>
 
-# 3. Seção Marcas Parceiras
-st.markdown("<p style='font-size:14px; font-weight:bold; color:#111; margin-bottom:5px; text-transform: uppercase; letter-spacing: 0.5px;'>🤝 Marcas Parceiras (Foco)</p>", unsafe_allow_html=True)
+    <div class="titulo-secao">📌 POSITIVAÇÕES</div>
+    <div class="bloco-container">
+        <div class="linha-dados destaque-geral">
+            <div class="c-col-alvo">GERAL</div>
+            <div class="c-col-valores">Meta: {meta_pos_geral} | Real: {real_pos_geral} clis</div>
+            <div class="c-col-porcento">{perf_pos_geral:.1f}%</div>
+        </div>
+        <div class="linha-dados">
+            <div class="c-col-alvo">Filial 2</div>
+            <div class="c-col-valores">Meta: {meta_pos_f2} | Real: {real_pos_f2} clis</div>
+            <div class="c-col-porcento">{perf_pos_f2:.1f}%</div>
+        </div>
+        <div class="linha-dados">
+            <div class="c-col-alvo">Filial 6</div>
+            <div class="c-col-valores">Meta: {meta_pos_f6} | Real: {real_pos_f6} clis</div>
+            <div class="c-col-porcento">{perf_pos_f6:.1f}%</div>
+        </div>
+    </div>
+
+    <div class="titulo-secao">💰 ROB (Faturamento)</div>
+    <div class="bloco-container">
+        <div class="linha-dados destaque-geral">
+            <div class="c-col-alvo">GERAL</div>
+            <div class="c-col-valores">Meta: R$ {meta_rob_geral:,.2f} | Real: R$ {real_rob_geral:,.2f}</div>
+            <div class="c-col-porcento">{perf_rob_geral:.1f}%</div>
+        </div>
+        <div class="linha-dados">
+            <div class="c-col-alvo">Filial 2</div>
+            <div class="c-col-valores">Meta: R$ {meta_rob_f2:,.2f} | Real: R$ {real_rob_f2:,.2f}</div>
+            <div class="c-col-porcento">{perf_rob_f2:.1f}%</div>
+        </div>
+        <div class="linha-dados">
+            <div class="c-col-alvo">Filial 6</div>
+            <div class="c-col-valores">Meta: R$ {meta_rob_f6:,.2f} | Real: R$ {real_rob_f6:,.2f}</div>
+            <div class="c-col-porcento">{perf_rob_f6:.1f}%</div>
+        </div>
+    </div>
+    """
+    st.markdown(html_painel, unsafe_allow_html=True)
+
+# 3. Seção Marcas Parceiras compactada estritamente em 3 Colunas Fixas
+st.markdown("<p style='font-size:13px; font-weight:bold; color:#111; margin-top:4px; margin-bottom:3px; text-transform: uppercase;'>🤝 Marcas Parceiras (Foco)</p>", unsafe_allow_html=True)
 dict_marcas_foco = calcular_marcas_foco(df_mes_atual)
-
-c_m1, c_m2, c_m3 = st.columns(3)
 m_keys = list(dict_marcas_foco.keys())
-with c_m1:
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[0]}: <b>{dict_marcas_foco[m_keys[0]]} Clis</b></span>", unsafe_allow_html=True)
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[1]}: <b>{dict_marcas_foco[m_keys[1]]} Clis</b></span>", unsafe_allow_html=True)
-with c_m2:
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[2]}: <b>{dict_marcas_foco[m_keys[2]]} Clis</b></span>", unsafe_allow_html=True)
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[3]}: <b>{dict_marcas_foco[m_keys[3]]} Clis</b></span>", unsafe_allow_html=True)
-with c_m3:
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[4]}: <b>{dict_marcas_foco[m_keys[4]]} Clis</b></span>", unsafe_allow_html=True)
-    st.markdown(f"<span style='font-size:12px; color:#555;'>▪️ {m_keys[5]}: <b>{dict_marcas_foco[m_keys[5]]} Clis</b></span>", unsafe_allow_html=True)
+
+html_marcas = f"""
+<style>
+    .grade-marcas {{
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: 10.5px; background: #fafafa; padding: 5px; border-radius: 4px; border: 1px solid #eee;
+    }}
+    .item-marca {{
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #444; font-weight: 500;
+    }}
+</style>
+<div class="grade-marcas">
+    <div class="item-marca">▪️ LEBON: <b>{dict_marcas_foco[m_keys[0]]}</b></div>
+    <div class="item-marca">▪️ FRIVATTI: <b>{dict_marcas_foco[m_keys[1]]}</b></div>
+    <div class="item-marca">▪️ MCCAIN: <b>{dict_marcas_foco[m_keys[2]]}</b></div>
+    <div class="item-marca">▪️ CONFRES.: <b>{dict_marcas_foco[m_keys[3]]}</b></div>
+    <div class="item-marca">▪️ BRASA: <b>{dict_marcas_foco[m_keys[4]]}</b></div>
+    <div class="item-marca">▪️ CERATTI: <b>{dict_marcas_foco[m_keys[5]]}</b></div>
+</div>
+"""
+st.markdown(html_marcas, unsafe_allow_html=True)
 
 st.write("---")
 
@@ -472,7 +517,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines = linhas
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
