@@ -144,7 +144,7 @@ def limpar_texto(texto):
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    return [re.sub(r'\d+', '', p) for p in calendar_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar] if 'calendar_limpa' in globals() else [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
 def gerar_mensagem_humanizada(ofertas, tipo_lista):
     saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?"]
@@ -388,7 +388,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines if 'lines' in globals() else linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {}
@@ -454,13 +454,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         st.markdown(f"### 🏢 {cliente_atual}")
         
-        # Injeção da Cidade ao lado da Fantasia com Destaque Especial
-        html_cidade = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 13px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
-        
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']} {html_cidade}", unsafe_allow_html=True)
-        else:
-            st.markdown(f"{html_cidade}", unsafe_allow_html=True)
+            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
+            
+        # Ajuste Crítico: Força a tag de cidade a ficar embaixo em bloco sem quebrar o nome ao meio
+        st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
@@ -492,13 +490,11 @@ elif st.session_state.aba_atual == "🔍 Cliente":
         
         st.markdown(f"### 🏢 {cliente_selecionado}")
         
-        # Injeção da Cidade ao lado da Fantasia com Destaque Especial
-        html_cidade = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 13px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {cad_info["Cidade"]}</span>'
-        
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']} {html_cidade}", unsafe_allow_html=True)
-        else:
-            st.markdown(f"{html_cidade}", unsafe_allow_html=True)
+            st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
+            
+        # Ajuste Crítico: Cidade embaixo de forma limpa e visível
+        st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
         st.write("")
@@ -643,13 +639,11 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
                 info_c = obter_info_cliente(c_nome)
                 
-                # Injeção da Cidade ao lado da Fantasia nos Alertas
-                html_cidade_alerta = f'<span style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; margin-left: 6px; border: 1px solid #C0B6F2;">📍 {info_c["Cidade"]}</span>'
-                
                 if info_c['Fantasia'] and info_c['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}* {html_cidade_alerta}", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{html_cidade_alerta}", unsafe_allow_html=True)
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
+                
+                # Ajuste Crítico no Alerta: Mantém o recuo e empurra a tag de cidade para baixo da Fantasia de forma inline-block
+                st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 2px; margin-left: 20px; white-space: nowrap;">📍 {info_c["Cidade"]}</div>', unsafe_allow_html=True)
                 
                 # Renderiza os chips reduzidos e organizados
                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{obter_badges_html(c_nome, row['Reportado'])}", unsafe_allow_html=True)
