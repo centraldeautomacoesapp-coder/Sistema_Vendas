@@ -626,7 +626,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                                 if item not in sugestoes_seg:
                                     sugestoes_seg.append(item)
                     
-                    if編sugestoes_seg:
+                    if sugestoes_seg:
                         novo_texto_acumulado += "    💡 Itens Sugeridos p/ Prospecção:\n"
                         for sug in suggestions_seg[:4]:
                             novo_texto_acumulado += f"        ▪️ {sug}\n"
