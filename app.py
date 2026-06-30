@@ -326,16 +326,27 @@ def obter_badges_html(cliente_nome, ja_reportado=False):
     html += '</div>'
     return html
 
-# Regras Globais de Venda Cruzada
+# 💡 DICIONÁRIO EXPANDIDO DE REGRAS DE VENDA CRUZADA (NICHO / PALAVRAS-CHAVE)
 REGRAS_VENDA_CRUZADA = {
     "pizzaria": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido", "Bacon Defumado", "Molho de Tomate Pouch"], 
     "pizza": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido"],
     "lanches": ["Hambúrguer Bovino", "Batata Frita Pré-Frita", "Queijo Cheddar", "Maionese Balde", "Pão de Hambúrguer"], 
     "burguer": ["Hambúrguer Bovino", "Queijo Cheddar", "Pão de Hambúrguer"],
+    "burger": ["Hambúrguer Bovino", "Queijo Cheddar", "Pão de Hambúrguer"],
     "pastelaria": ["Massa de Pastel Rolo", "Óleo de Fritura Coamo", "Carne Moída Confeccionada", "Queijo Prato"],
     "pastel": ["Massa de Pastel Rolo", "Óleo de Fritura Coamo"],
     "churrascaria": ["Linguiça Toscana", "Picanha Importada", "Alcatra Completa", "Carvão Vegetal"], 
-    "churrasco": ["Linguiça Toscana", "Picanha Importada", "Carvão Vegetal"]
+    "churrasco": ["Linguiça Toscana", "Picanha Importada", "Carvão Vegetal"],
+    "restaurante": ["Arroz Agulhinha", "Feijão Preto", "Óleo de Fritura Coamo", "Muçarela Bloco", "Presunto Cozido", "Alcatra Completa"],
+    "bar": ["Batata Frita Pré-Frita", "Calabresa Montadas", "Bacon Defumado", "Queijo Cheddar"],
+    "gastrobar": ["Batata Frita Pré-Frita", "Calabresa Montadas", "Bacon Defumado", "Queijo Cheddar", "Hambúrguer Bovino"],
+    "lanchonete": ["Hambúrguer Bovino", "Batata Frita Pré-Frita", "Queijo Cheddar", "Maionese Balde", "Pão de Hambúrguer"],
+    "padaria": ["Farinha de Trigo", "Muçarela Bloco", "Presunto Cozido", "Açúcar Refinado", "Margariana Bolo"],
+    "confeitaria": ["Açúcar Refinado", "Leite Condensado", "Creme de Leite", "Farinha de Trigo"],
+    "mercado": ["Óleo de Soja", "Arroz Agulhinha", "Feijão Preto", "Açúcar Refinado"],
+    "mercearia": ["Óleo de Soja", "Arroz Agulhinha", "Feijão Preto", "Açúcar Refinado"],
+    "dog": ["Salsicha Hot Dog", "Maionese Balde", "Batata Palha", "Molho de Tomate Pouch"],
+    "pub": ["Batata Frita Pré-Frita", "Bacon Defumado", "Hambúrguer Bovino", "Queijo Cheddar"]
 }
 
 # --- CABEÇALHO DA MARCA ---
@@ -388,7 +399,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines if 'lines' in globals() else linhas
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {}
@@ -457,7 +468,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
             st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
             
-        # Ajuste Crítico: Força a tag de cidade a ficar embaixo em bloco sem quebrar o nome ao meio
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
@@ -493,7 +503,6 @@ elif st.session_state.aba_atual == "🔍 Cliente":
         if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
             st.markdown(f"⭐ **Fantasia:** {cad_info['Fantasia']}")
             
-        # Ajuste Crítico: Cidade embaixo de forma limpa e visível
         st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 4px; white-space: nowrap;">📍 {cad_info["Cidade"]}</div>', unsafe_allow_html=True)
             
         st.markdown(obter_badges_html(cliente_selecionado), unsafe_allow_html=True)
@@ -514,17 +523,23 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             top_produtos.columns = ['Faturamento Acumulado (R$)', 'Qtd Pedidos']
             st.dataframe(top_produtos, use_container_width=True)
             
-            produtos_historicos = set(df_cli['Produto'].dropna().unique())
-            produtos_mes_atual = set(df_mes_atual[df_mes_atual['Cliente'] == cliente_selecionado]['Produto'].dropna().unique())
-            deixou_de_comprar = produtos_historicos - produtos_mes_atual
+            # 🛑 REGRA CRÍTICA ATUALIZADA: Filtra produtos sem compra há mais de 31 dias, ordenados pela Qtd de Pedidos (Top 10)
+            st.markdown("#### 🛑 Top 10 Produtos sem compra há mais de 31 dias")
+            df_prod_analise = df_cli.groupby('Produto').agg(
+                Ultima_Compra=('Data_Datetime', 'max'),
+                Faturamento=('Faturamento Brut', 'sum'),
+                Qtd_Compra=('Faturamento Brut', 'count')
+            ).reset_index()
             
-            st.markdown("#### 🛑 Produtos que o cliente deixou de comprar no mês atual")
-            if deixou_de_comprar:
-                df_importancia = df_cli[df_cli['Produto'].isin(deixou_de_comprar)].groupby('Produto')['Faturamento Brut'].sum().sort_values(ascending=False)
-                for prod_item, fat_item in df_importancia.items():
-                    st.markdown(f"💔 **{prod_item}** *(Faturamento histórico interno: R$ {fat_item:,.2f})*")
+            df_prod_analise['Dias_Sem_Comprar'] = (data_atual_sistema - df_prod_analise['Ultima_Compra']).dt.days
+            df_deixou_comprar = df_prod_analise[df_prod_analise['Dias_Sem_Comprar'] > 31]
+            df_deixou_comprar = df_deixou_comprar.sort_values(by='Qtd_Compra', ascending=False).head(10)
+            
+            if not df_deixou_comprar.empty:
+                for _, r in df_deixou_comprar.iterrows():
+                    st.markdown(f"💔 **{r['Produto']}** | Pedidos históricos: **{r['Qtd_Compra']}** | Sem compra há: **{r['Dias_Sem_Comprar']} dias** *(Fat: R$ {r['Faturamento']:,.2f})*")
             else:
-                st.success("✅ Excelente! O cliente comprou todos os seus principais produtos históricos neste mês.")
+                st.success("✅ Excelente! O cliente comprou todos os seus principais produtos históricos nos últimos 31 dias.")
                 
             st.markdown("#### 💡 Recomendações de Venda Cruzada")
             texto_busca_nicho = limpar_texto(cad_info['Fantasia']) + " " + limpar_texto(cliente_selecionado)
@@ -642,10 +657,8 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 if info_c['Fantasia'] and info_c['Fantasia'] not in ["Não Localizado", "Não Informado"]:
                     st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
                 
-                # Ajuste Crítico no Alerta: Mantém o recuo e empurra a tag de cidade para baixo da Fantasia de forma inline-block
                 st.markdown(f'<div style="color: #403294; font-weight: bold; background-color: #EAE6FF; padding: 2px 5px; border-radius: 4px; font-size: 11px; border: 1px solid #C0B6F2; display: inline-block; margin-top: 2px; margin-bottom: 2px; margin-left: 20px; white-space: nowrap;">📍 {info_c["Cidade"]}</div>', unsafe_allow_html=True)
                 
-                # Renderiza os chips reduzidos e organizados
                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{obter_badges_html(c_nome, row['Reportado'])}", unsafe_allow_html=True)
             st.write("---")
         
