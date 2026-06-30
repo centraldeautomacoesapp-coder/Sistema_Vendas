@@ -128,7 +128,7 @@ def executar_analise_inteligente_gemini(cliente, info_c, produtos_usuario, deixo
     Você é o Motor de Inteligência Comercial (Gemini Pro) da distribuidora Delly's.
     Sua função é fazer associações lógicas e comerciais flexíveis entre a lista de ofertas do dia e o histórico do cliente.
     
-    NÃO use correspondência exata de nomes. Use inteligência de mercado: se o cliente compra laticínios ou farinhas e há itens similares em oferta, associe-os! Extrapole para garantir ótimas sugestões de venda cruzada para o nicho do cliente.
+    NÃO use correspondência exata de nomes. Use inteligência de mercado: se o cliente compra laticínios ou farinhas e há itens similaires em oferta, associe-os! Extrapole para garantir ótimas sugestões de venda cruzada para o nicho do cliente.
 
     REGRAS CRÍTICAS:
     1. PROIBIDO MENCIONAR SABORES NO TEXTO: Omitir completamente palavras de sabores (Ex: Calabresa, Quatro Queijos, Chocolate, Frango, etc). Mantenha apenas o NOME BASE DO PRODUTO, o TAMANHO/EMBALAGEM (ex: UN, KG, CX) e o VALOR (R$).
@@ -249,7 +249,7 @@ if not df_clientes.empty:
         cli_nome = str(r['Cliente']).strip()
         fantasia = str(r['Nome_Fantasia']).strip()
         cidade = str(r['Cidade']).strip()
-        info_dict = {"Nome": cli_nome, "Fantasia": fantasia if fantasia.lower() != "nan" else "", "Cidade": city if (city := cidade.lower()) != "nan" else "Não Informada"}
+        info_dict = {"Nome": cli_nome, "Fantasia": fantasia if fantasia.lower() != "nan" else "", "Cidade": cidade if (cidade := cidade.lower()) != "nan" else "Não Informada"}
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
 
 def obter_info_cliente(nome_vendas):
@@ -373,25 +373,57 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    with st.expander("📝 Colar Novas Ofertas da Distribuidora", expanded=False):
-        st.markdown("**Insira o bloco textual bruto das ofertas:**")
-        txt_novas = st.text_area("Cole o bloco de ofertas:", height=110, label_visibility="collapsed")
-        if st.button("🚀 Processar e Gerar Fila Ampla"):
-            if txt_novas.strip():
-                linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+    # 📸 ATUALIZAÇÃO: ENTRADA POR UPLOAD DE IMAGEM COM LEITURA VIA GEMINI FLASH (GRATUITO)
+    with st.expander("📸 Carregar Imagens das Ofertas (Leitura Óptica por IA)", expanded=False):
+        st.markdown("**Selecione uma ou mais imagens (tabelas, prints, panfletos) das ofertas:**")
+        arquivos_imagens = st.file_uploader("Escolher imagens:", type=["png", "jpg", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
+        
+        if st.button("🚀 Processar Imagens com IA"):
+            if arquivos_imagens:
+                texto_extraido_acumulado = []
+                # Usamos o Gemini Flash aqui por ser gratuito, rápido e excelente com visão/OCR
+                model_flash = genai.GenerativeModel("gemini-1.5-flash")
                 
-                # ABORDAGEM FLEXÍVEL: Em vez de travar por palavra exata, adicionamos à fila qualquer
-                # cliente ativo na carteira que possua compras registradas. O Gemini Pro decide o match em tempo de execução.
-                nova_fila = {}
-                todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
+                with st.spinner("A IA está fazendo a leitura detalhada das suas imagens... Aguarde."):
+                    for arquivo in arquivos_imagens:
+                        # Prepara a estrutura binária da imagem para enviar à API do Gemini
+                        dados_imagem = {
+                            "mime_type": arquivo.type,
+                            "data": arquivo.getvalue()
+                        }
+                        
+                        prompt_ocr = """
+                        Você é um assistente de OCR focado em tabelas de vendas comerciais.
+                        Analise esta imagem de ofertas da distribuidora e extraia de forma limpa TODOS os produtos listados.
+                        Retorne o resultado linha por linha no formato: PRODUTO - EMBALAGEM - VALOR (R$).
+                        Se houver alguma regra importante visível (ex: quantidade mínima ou validade), anote na mesma linha do item.
+                        Importante: Não invente dados, apenas transcreva rigorosamente o que estiver legível.
+                        """
+                        try:
+                            resposta_ia = model_flash.generate_content([prompt_ocr, dados_imagem])
+                            texto_extraido_acumulado.append(resposta_ia.text.strip())
+                        except Exception as e:
+                            st.error(f"Ocorreu um erro ao processar a imagem '{arquivo.name}': {e}")
                 
-                for cli in todos_clientes_validos:
-                    if cli in st.session_state.excluidos_permanente or cli in st.session_state[id_excluidos]: continue
-                    # Filtra apenas clientes que têm alguma atividade recente no ano para não poluir
-                    nova_fila[cli] = linhas
-                
-                st.session_state[id_fila] = nova_fila; salvar_progresso_atual(); st.rerun()
+                if texto_extraido_acumulado:
+                    texto_final_bruto = "\n".join(texto_extraido_acumulado)
+                    linhas = [l.strip() for l in texto_final_bruto.split('\n') if l.strip()]
+                    st.session_state[id_memoria] = linhas
+                    
+                    # Gera a fila ampla de clientes automaticamente com os produtos extraídos das imagens
+                    nova_fila = {}
+                    todos_clientes_validos = sorted(list(df_total['Cliente'].dropna().unique()))
+                    
+                    for cli in todos_clientes_validos:
+                        if cli in st.session_state.excluidos_permanente or cli in st.session_state[id_excluidos]: continue
+                        nova_fila[cli] = linhas
+                    
+                    st.session_state[id_fila] = nova_fila
+                    salvar_progresso_atual()
+                    st.success(f"Sucesso! {len(arquivos_imagens)} imagem(ns) lida(s) e fila comercial gerada.")
+                    st.rerun()
+            else:
+                st.warning("Nenhuma imagem selecionada. Por favor, adicione os arquivos primeiro.")
 
     fila_ativa = st.session_state.get(id_fila)
     if not fila_ativa:
@@ -500,7 +532,7 @@ elif st.session_state.aba_atual == "📦 Produto":
         st.markdown("#### Maiores Compradores:")
         st.dataframe(df_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(5))
 
-# --- ABA 5: ASSISTENTE IA (LÓGICA E CONTEXTO REORGANIZADOS) ---
+# --- ABA 5: ASSISTENTE IA ---
 elif st.session_state.aba_atual == "🧠 Assistente":
     st.subheader("🧠 Assistente de Inteligência Artificial Integrado")
     
@@ -517,7 +549,6 @@ elif st.session_state.aba_atual == "🧠 Assistente":
         if pergunta_usuario:
             with st.spinner("Analisando base de dados..."):
                 try:
-                    # Amostra estruturada para não estourar o limite de tokens da IA instantânea
                     resumo_clientes = df_total.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).to_string()
                     produtos_mais_vendidos = df_total['Produto'].value_counts().nlargest(10).index.tolist()
                     
