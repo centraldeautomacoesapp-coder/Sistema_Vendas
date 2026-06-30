@@ -12,10 +12,9 @@ import streamlit.components.v1 as components
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e botões robustos) ---
+# --- OTIMIZAÇÃO VISUAL PARA CELULAR ---
 st.markdown("""
     <style>
-    /* Estilização global de textos para leitura mobile */
     html, body, [class*="css"], p, span {
         font-size: 16px !important;
     }
@@ -26,7 +25,6 @@ st.markdown("""
     h4 {
         font-size: 18px !important;
     }
-    /* Botões grandes dispostos em bloco para toque fácil */
     div.stButton > button {
         width: 100% !important;
         height: 50px !important;
@@ -60,7 +58,8 @@ def carregar_progresso_salvo():
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except: pass
+        except Exception:
+            pass
     return {}
 
 def salvar_progresso_atual():
@@ -79,22 +78,31 @@ def salvar_progresso_atual():
     try:
         with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
             json.dump(dados, f, ensure_ascii=False, indent=4)
-    except: pass
+    except Exception:
+        pass
 
 progresso_backup = carregar_progresso_salvo()
 ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
 mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
-if 'data_ultimo_acesso' not in st.session_state: st.session_state.data_ultimo_acesso = data_hoje_str
+if 'data_ultimo_acesso' not in st.session_state:
+    st.session_state.data_ultimo_acesso = data_hoje_str
 
 if ultimo_acesso == data_hoje_str:
-    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
-    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
-    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
-    if 'memoria_ofertas_cruas_dia' not in st.session_state: st.session_state.memoria_ofertas_cruas_dia = progresso_backup.get("memoria_ofertas_cruas_dia", [])
-    if 'memoria_ofertas_cruas_rel' not in st.session_state: st.session_state.memoria_ofertas_cruas_rel = progresso_backup.get("memoria_ofertas_cruas_rel", [])
-    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
-    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
+    if 'envios_hoje' not in st.session_state:
+        st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
+    if 'fila_ofertas_dia' not in st.session_state:
+        st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
+    if 'fila_ofertas_relampago' not in st.session_state:
+        st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
+    if 'memoria_ofertas_cruas_dia' not in st.session_state:
+        st.session_state.memoria_ofertas_cruas_dia = progresso_backup.get("memoria_ofertas_cruas_dia", [])
+    if 'memoria_ofertas_cruas_rel' not in st.session_state:
+        st.session_state.memoria_ofertas_cruas_rel = progresso_backup.get("memoria_ofertas_cruas_rel", [])
+    if 'excluidos_ofertas_dia' not in st.session_state:
+        st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
+    if 'excluidos_ofertas_relampago' not in st.session_state:
+        st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
 else:
     st.session_state.envios_hoje = 0
     st.session_state.fila_ofertas_dia = None
@@ -105,25 +113,32 @@ else:
     st.session_state.excluidos_ofertas_relampago = set()
 
 if mes_ultimo_acesso == mes_atual_referencia:
-    if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
+    if 'enviados_supervisor_mes' not in st.session_state:
+        st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
 else:
     st.session_state.enviados_supervisor_mes = set()
 
-if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
+if 'excluidos_permanente' not in st.session_state:
+    st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
 
-if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
+if not progresso_backup or ultimo_acesso != data_hoje_str:
+    salvar_progresso_atual()
 
-if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
-if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
-if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
+if 'aba_atual' not in st.session_state:
+    st.session_state.aba_atual = "🟢 Ofertas"
+if 'texto_supervisor_gerado' not in st.session_state:
+    st.session_state.texto_supervisor_gerado = ""
+if 'clientes_processados_aguardando' not in st.session_state:
+    st.session_state.clientes_processados_aguardando = []
 
-# --- CALLBACK PARA ALTERAÇÃO DE ABA (Evita telas em branco) ---
+# --- CALLBACK PARA ALTERAÇÃO DE ABA ---
 def navegar_para_aba(nome_aba):
     st.session_state.aba_atual = nome_aba
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
-    if pd.isna(texto): return ""
+    if pd.isna(texto):
+        return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
 
 def extrair_palavras_produto(linha):
@@ -137,7 +152,8 @@ def gerar_mensagem_humanizada(ofertas, tipo_lista):
     introducoes = [f"Separei aqui as melhores {termo_oferta} exclusivas para você:\n\n", f"Olha só as {termo_oferta} que separei hoje para o seu estoque:\n\n"]
     fechamentos = ["\n\nMe avisa aqui se posso garantir o seu pedido antes que acabe! 👍", "\n\nQual vamos aproveitar hoje? 🚀"]
     msg = f"{random.choice(saudacoes)} {random.choice(introducoes)}"
-    for of in ofertas: msg += f"👉 {of}\n"
+    for of in ofertas:
+        msg += f"👉 {of}\n"
     msg += random.choice(fechamentos)
     return msg
 
@@ -146,9 +162,12 @@ def gerar_mensagem_humanizada(ofertas, tipo_lista):
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
-    if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
-    try: gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
-    except: pass
+    if not os.path.exists(pasta_destino):
+        os.makedirs(pasta_destino)
+    try:
+        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
+    except Exception:
+        pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
     lista_dfs = []
@@ -174,7 +193,8 @@ def carregar_dados_nuvem():
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
-        except: continue
+        except Exception:
+            continue
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'].notna()]
@@ -182,7 +202,8 @@ def carregar_dados_nuvem():
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
         unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
-        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
+        if 'Filial' not in unificado.columns:
+            unificado['Filial'] = "1"
         return unificado
     return pd.DataFrame()
 
@@ -195,13 +216,19 @@ def carregar_base_clientes_cadastro():
         c_cli, c_fant, c_cid = None, None, None
         for col in df.columns:
             col_lower = str(col).lower()
-            if "cliente" in col_lower or "razao" in col_lower or "razão" in col_lower: c_cli = col
-            elif "fantasia" in col_lower or "nicho" in col_lower or "nome" in col_lower: c_fant = col
-            elif "cidade" in col_lower or "munic" in col_lower: c_cid = col
+            if "cliente" in col_lower or "razao" in col_lower or "razão" in col_lower:
+                c_cli = col
+            elif "fantasia" in col_lower or "nicho" in col_lower or "nome" in col_lower:
+                c_fant = col
+            elif "cidade" in col_lower or "munic" in col_lower:
+                c_cid = col
         
-        if not c_cli: c_cli = df.columns[0]
-        if not c_fant: c_fant = c_cli
-        if not c_cid: c_cid = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+        if not c_cli:
+            c_cli = df.columns[0]
+        if not c_fant:
+            c_fant = c_cli
+        if not c_cid:
+            c_cid = df.columns[1] if len(df.columns) > 1 else df.columns[0]
         
         df_reordenado = pd.DataFrame()
         df_reordenado['Cliente'] = df[c_cli].astype(str).str.strip()
@@ -209,7 +236,7 @@ def carregar_base_clientes_cadastro():
         df_reordenado['Cidade'] = df[c_cid].astype(str).str.strip() if c_cid in df.columns else "Não Informada"
         df_reordenado['Cliente_Busca'] = df_reordenado['Cliente'].apply(limpar_texto)
         return df_reordenado
-    except:
+    except Exception:
         return pd.DataFrame(columns=['Cliente', 'Nome_Fantasia', 'Cidade', 'Cliente_Busca'])
 
 with st.spinner("Sincronizando bases de dados..."):
@@ -230,18 +257,21 @@ if not df_clientes.empty:
         info_dict = {
             "Nome": cli_nome,
             "Fantasia": fantasia if fantasia.lower() != "nan" else "",
-            "Cidade": city if cidade.lower() != "nan" else "Não Informada"
+            "Cidade": cidade if cidade.lower() != "nan" else "Não Informada"
         }
         mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
-        if fantasia: mapa_cadastro_clientes[limpar_texto(fantasia)] = info_dict
+        if fantasia:
+            mapa_cadastro_clientes[limpar_texto(fantasia)] = info_dict
 
 def obter_info_cliente(nome_vendas):
     if pd.isna(nome_vendas) or not str(nome_vendas).strip():
         return {"Nome": "Desconhecido", "Fantasia": "Não Informado", "Cidade": "Não Informada"}
     vendas_limpo = limpar_texto(nome_vendas)
-    if vendas_limpo in mapa_cadastro_clientes: return mapa_cadastro_clientes[vendas_limpo]
+    if vendas_limpo in mapa_cadastro_clientes:
+        return mapa_cadastro_clientes[vendas_limpo]
     vendas_sem_codigo = re.sub(r'^\d+\s*[-–_]?\s*', '', vendas_limpo).strip()
-    if vendas_sem_codigo in mapa_cadastro_clientes: return mapa_cadastro_clientes[vendas_sem_codigo]
+    if vendas_sem_codigo in mapa_cadastro_clientes:
+        return mapa_cadastro_clientes[vendas_sem_codigo]
     for chave_cadastro, dados in mapa_cadastro_clientes.items():
         if chave_cadastro in vendas_limpo or vendas_limpo in chave_cadastro or chave_cadastro in vendas_sem_codigo:
             return dados
@@ -254,7 +284,8 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
     ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
     for cli in df['Cliente'].unique():
-        if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip(): continue
+        if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip():
+            continue
         tags = []
         dt_ult = ultimas_compras.get(cli, data_hoje)
         dias_sem_compra = (data_hoje - dt_ult).days
@@ -262,10 +293,14 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
         if not vendas_mes.empty:
             tags.append("POSITIVADO")
             filiais = vendas_mes['Filial'].astype(str).str.strip().unique()
-            if any(f in filiais for f in ['2', '02', '2.0']): tags.append("FILIAL 2")
-            if any(f in filiais for f in ['6', '06', '6.0']): tags.append("FILIAL 6")
-        else: tags.append("NÃO POSITIVADO")
-        if dias_sem_compra > 30: tags.append("SUMIDO")
+            if any(f in filiais for f in ['2', '02', '2.0']):
+                tags.append("FILIAL 2")
+            if any(f in filiais for f in ['6', '06', '6.0']):
+                tags.append("FILIAL 6")
+        else:
+            tags.append("NÃO POSITIVADO")
+        if dias_sem_compra > 30:
+            tags.append("SUMIDO")
         mapa[cli] = {"tags": tags, "dias": dias_sem_compra, "data_ult": dt_ult}
     return mapa
 
@@ -275,14 +310,19 @@ def obter_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
     for tag in info["tags"]:
-        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
-        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
-        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
-        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
-        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
+        if tag == "POSITIVADO":
+            html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
+        elif tag == "NÃO POSITIVADO":
+            html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
+        elif tag == "FILIAL 2":
+            html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
+        elif tag == "FILIAL 6":
+            html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
+        elif tag == "SUMIDO":
+            html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
 
-# Regras Globais de Venda Cruzada baseadas no nicho
+# Regras Globais de Venda Cruzada
 REGRAS_VENDA_CRUZADA = {
     "pizzaria": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido", "Bacon Defumado", "Molho de Tomate Pouch"], 
     "pizza": ["Calabresa Montadas", "Muçarela Bloco", "Presunto Cozido"],
@@ -313,7 +353,7 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 (COM CALLBACKS SEGUROS) ---
+# --- MENUS DE NAVEGAÇÃO EM GRADE 2x2 ---
 col_row1_1, col_row1_2 = st.columns(2)
 with col_row1_1:
     st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary", on_click=navegar_para_aba, args=("🟢 Ofertas",))
@@ -344,7 +384,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -354,11 +394,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 for linha in linhas:
                     chaves = extrair_palavras_produto(linha)
-                    if not chaves: continue
-                    combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
-                    
-                    interessados = set()
-                    for c in combs: interessados.update(prod_to_clientes[c])
-                    
-                    for cli in interessados:
-           
+                    if not chaves:
+                        continue
+                    combs = [orig for orig, busca in prod_
