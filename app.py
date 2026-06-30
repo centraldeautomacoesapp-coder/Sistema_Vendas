@@ -64,7 +64,7 @@ dia_semana_hoje = MAPA_DIAS_ING_PORT.get(pd.Timestamp.now().weekday(), "Segunda-
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
-    if os.path.exists(ARQUIPO_PROGRESSO):
+    if os.path.exists(ARQUIVO_PROGRESSO):  # <-- CORRIGIDO AQUI!
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -219,7 +219,7 @@ def carregar_dados_nuvem():
         return unificado
     return pd.DataFrame()
 
-# 🟢 NOVA FUNÇÃO: Carrega a Planilha Estrutural de Clientes vinculada
+# 🟢 Carrega a Planilha Estrutural de Clientes vinculada
 @st.cache_data(ttl=600)
 def carregar_base_clientes_cadastro():
     url = "https://docs.google.com/spreadsheets/d/1QNiwKklXLpBrc_g21p1GRFs4dfFMze6v/export?format=xlsx"
@@ -227,7 +227,6 @@ def carregar_base_clientes_cadastro():
         df = pd.read_excel(url)
         df.columns = df.columns.str.strip()
         
-        # Mapeamento dinâmico inteligente das colunas informadas
         c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower() or "nome" in str(c).lower() and "fant" not in str(c).lower()), df.columns[0])
         c_fant = next((c for c in df.columns if "fantasia" in str(c).lower() or "nicho" in str(c).lower()), None)
         c_cid = next((c for c in df.columns if "cidade" in str(c).lower() or "munic" in str(c).lower()), None)
@@ -340,13 +339,13 @@ with col_nav2:
 
 st.write("---")
 
-# --- ABA DE CONFIGURAÇÃO DE CIDADES (VINCULADA AOS DIAS DA SEMANA) ---
+# --- ABA DE CONFIGURAÇÃO DE CIDADES ---
 if st.session_state.aba_atual == "📍 Cidades":
     st.subheader("📍 Configuração Manual da Grade de Entrega por Dia")
-    st.write(f"Hoje é **{dia_semana_hoje}**. Vincule as cidades para os dias específicos da semana para realizar o cruzamento automático.")
+    st.write(f"Hoje é **{dia_semana_hoje}**. Vincule as cidades para os dias específicos da semana.")
     
     if df_clientes.empty:
-        st.error("⚠️ Não foi possível recuperar a lista de cidades da planilha. Verifique a conexão ou os dados.")
+        st.error("⚠️ Não foi possível recuperar a lista de cidades da planilha.")
     else:
         lista_cidades_cadastro = sorted([str(c).strip() for c in df_clientes['Cidade'].dropna().unique() if str(c).strip()])
         
@@ -379,10 +378,8 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
-    # Captura a lista de cidades do dia da semana atual
     cidades_hoje = st.session_state.cidades_ativas.get(dia_semana_hoje, []) if isinstance(st.session_state.cidades_ativas, dict) else []
     
-    # Aviso explicativo do cruzamento do dia atual
     if cidades_hoje:
         st.info(f"Filtro Geográfico Ativo: Hoje é **{dia_semana_hoje}**, limitando envios para as **{len(cidades_hoje)}** cidades vinculadas a este dia.")
     else:
@@ -399,7 +396,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -407,7 +404,6 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
-                # Normaliza a lista de cidades de hoje para comparação case-insensitive infalível
                 cidades_hoje_limpas = [limpar_texto(c) for c in cidades_hoje]
                 
                 for linha in linhas:
@@ -421,18 +417,16 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
                         
-                        # 📍 CROSS-CHECK GEOGRÁFICO DIÁRIO AUTOMÁTICO REFORÇADO (Sem falhas de letras maiúsculas)
                         cli_limpo = limpar_texto(cli)
                         info_cadastral = mapa_cadastro_clientes.get(cli_limpo, None)
                         cidade_cli = info_cadastral['Cidade'] if info_cadastral else "Não Informada"
                         cidade_cli_limpa = limpar_texto(cidade_cli)
                         
-                        # Se houver cidades configuradas para hoje, cruza de forma limpa.
                         if cidades_hoje_limpas:
                             if cidade_cli_limpa not in cidades_hoje_limpas:
-                                continue # Ignora se não pertencer à rota de hoje
+                                continue
                         else:
-                            continue # Se não houver cidades configuradas hoje, barra
+                            continue
 
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual:
@@ -484,7 +478,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (INTEGRADO COM FILTRO DE CIDADES E NOME FANTASIA) ---
+# --- ABA 2: ALERTAS ---
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     
@@ -540,7 +534,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         cidade_cli = cad_info['Cidade'] if cad_info else "Não Informada"
         cidade_cli_limpa = limpar_texto(cidade_cli)
         
-        # Alertas também passam pelo cruzamento inteligente limpo do dia da semana atual
         if cidades_hoje_limpas and cidade_cli != "Não Informada":
             if cidade_cli_limpa not in cidades_hoje_limpas:
                 continue
@@ -562,82 +555,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info(f"Nenhum cliente em rota crítica localizado para os filtros da rota de {dia_semana_hoje}.")
+        st.info(f"Nenhum cliente em rota crítica localizado.")
     else:
-        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes em rotas ativas de hoje:")
+        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes:")
         
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
-            if f"chk_{c_nome}" not in st.session_state: st.session_state[f"chk_{c_nome}"] = False
-            
-            with st.container():
-                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
-                
-                info_c = mapa_cadastro_clientes.get(limpar_texto(c_nome), {"Cidade": "Não Cadastrada", "Fantasia": ""})
-                st.caption(f"🏠 Cidade: {info_c['Cidade']} | Ramo: {info_c['Fantasia']}")
-                
-                html_badges = obter_badges_html(c_nome)
-                if row["Reportado"]:
-                    html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
-                st.markdown(html_badges, unsafe_allow_html=True)
-                
-                if st.button(f"🔍 Histórico de {c_nome[:12]}...", key=f"btn_h_{idx}"):
-                    st.session_state.busca_direta_cliente = c_nome
-                    st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                    st.session_state.aba_atual = "🔍 Consulta"  
-                    st.rerun()
-            st.write("---")
-        
-        if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
-            novo_texto_acumulado = ""
-            clientes_selecionados_na_rodada = []
-            
-            regras_segmento = {
-                "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Bacon", "Molho de Tomate"], 
-                "pizza": ["Calabresa", "Muçarela", "Presunto"],
-                "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Pão"], 
-                "burguer": ["Hambúrguer", "Cheddar", "Pão"],
-                "pastelaria": ["Massa de Pastel", "Óleo de Fritura", "Carne Moída", "Queijo Prato"],
-                "pastel": ["Massa de Pastel", "Óleo de Fritura"],
-                "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], 
-                "churrasco": ["Linguiça", "Picanha", "Carvão"]
-            }
-
-            for idx, row in df_alertas_visuais.iterrows():
-                c_nome = row["Cliente"]
-                
-                if st.session_state.get(f"chk_{c_nome}", False):
-                    clientes_selecionados_na_rodada.append(c_nome)
-                    status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
-                    novo_texto_acumulado += f"📌 {c_nome} ({status_txt} - {row['Dias']} dias sem comprar)\n"
-                    
-                    df_cli_h = df_total[df_total['Cliente'] == c_nome]
-                    if not df_cli_h.empty:
-                        top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                        novo_texto_acumulado += "    🔹 Mais Comprados pelo Cliente:\n"
-                        for item in top_itens: novo_texto_acumulado += f"        ▪️ {item}\n"
-                    else:
-                        novo_texto_acumulado += "    🔹 Sem histórico recente registrado\n"
-                    
-                    cli_limpo = limpar_texto(c_nome)
-                    info_cad = mapa_cadastro_clientes.get(cli_limpo, None)
-                    nicho_real = info_cad['Fantasia'] if info_cad else ""
-                    
-                    texto_analise_nicho = limpar_texto(nicho_real) + " " + cli_limpo
-                    sugestoes_seg = []
-                    for chave, itens_sugeridos in regras_segmento.items():
-                        if chave in texto_analise_nicho:
-                            for item in itens_sugeridos:
-                                if item not in sugestoes_seg:
-                                    sugestoes_seg.append(item)
-                    
-                    if sugestoes_seg:
-                        novo_texto_acumulado += "    💡 Itens Sugeridos p/ Prospecção:\n"
-                        for sug in sugestoes_seg[:4]:
-                            novo_texto_acumulado += f"        ▪️ {sug}\n"
-                    novo_texto_acumulado += "\n"
-            
-            st.session_state.texto_supervisor_gerado = novo_texto_acumulado
-            st.session_state.clientes_processados_aguardando = clientes_selecionados_na_rodada
-            salvar_progresso_atual()
-            st.rerun()
+            if f"chk_{c_nome}" not in st.session_state: st.session_state
