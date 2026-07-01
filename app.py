@@ -6,15 +6,12 @@ import glob
 import unicodedata
 
 # Configuração de tela para celular
-st.set_page_config(page_title="Delly's - Painel de Vendas", layout="centered")
+st.set_page_config(page_title="Delly's - Inteligência de Vendas", layout="centered")
 
-# 📸 CABEÇALHO PREMIUM: Carrega o banner da Delly's se ele existir no GitHub
-if os.path.exists("logo.jpg"):
-    st.image("logo.jpg", use_container_width=True)
-else:
-    st.title("📊 Delly's - Sistema de Vendas Histórico")
+# 📸 CABEÇALHO VIA LINK DA INTERNET (Fundo Branco Perfeito)
+st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 
-# Função para remover acentos e padronizar textos
+# Função para remover acentos e padronizar textos de busca
 def limpar_texto(texto):
     if pd.isna(texto):
         return ""
@@ -64,8 +61,7 @@ def carregar_dados_nuvem():
             
     if lista_dfs:
         df_unificado = pd.concat(lista_dfs, ignore_index=True)
-        # Converte a data para um formato real do Python para podermos criar os gráficos mensais
-        df_unificado['Data_Datetime'] = pd.to_datetime(df_unificado['Dt. Delivery'], errors='coerce')
+        df_unificado['Data_Datetime'] = pd.to_datetime(df_unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
         df_unificado['Ano_Mes'] = df_unificado['Data_Datetime'].dt.strftime('%Y-%m')
         
         df_unificado['Produto_Busca'] = df_unificado['Produto'].apply(limpar_texto)
@@ -74,30 +70,48 @@ def carregar_dados_nuvem():
         
     return pd.DataFrame()
 
-with st.spinner("Atualizando banco de dados Delly's..."):
+with st.spinner("Atualizando base de dados Delly's..."):
     df_total = carregar_dados_nuvem()
 
 if df_total.empty:
     st.warning("⚠️ Nenhuma planilha processada. Aguarde 10 segundos e atualize a página.")
     st.stop()
 
-# --- 📊 IDEIA 1: METRICAS GLOBAIS NO TOPO (KPIs) ---
+# Data de referência mais recente do sistema
+data_maxima_sistema = df_total['Data_Datetime'].max()
+
+# --- METRICAS GLOBAIS NO TOPO ---
 st.write("---")
 col1, col2 = st.columns(2)
-
 with col1:
     faturamento_geral = df_total['Faturamento Brut'].sum()
     fat_formatado = f"R$ {faturamento_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    st.metric(label="💰 Faturamento Histórico Total", value=fat_formatado)
-
+    st.metric(label="💰 Faturamento Total Unificado", value=fat_formatado)
 with col2:
     top_produto_nome = df_total.groupby('Produto')['Faturamento Brut'].sum().idxmax()
-    # Corta o nome se for muito longo para não quebrar o layout do celular
-    st.metric(label="🥩 Produto Campeão de Vendas", value=str(top_produto_nome)[:18] + "...")
+    st.metric(label="🥩 Campeão Geral de Vendas", value=str(top_produto_nome)[:18] + "...")
+
+# 🚨 NOVA GAVETA DE ALERTAS: CLIENTES TOTALMENTE INATIVOS (> 30 DIAS)
+st.write("")
+with st.expander("🚨 ALERTA: Clientes Totalmente Inativos (> 30 dias sem comprar NADA)"):
+    # Calcula a última compra de QUALQUER item por cliente
+    ultimas_compras_geral = df_total.groupby('Cliente')['Data_Datetime'].max().reset_index()
+    ultimas_compras_geral['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_geral['Data_Datetime']).dt.days
+    
+    # Filtra os completamente sumidos há mais de 30 dias
+    clientes_totalmente_sumidos = ultimas_compras_geral[ultimas_compras_geral['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
+    
+    if not clientes_totalmente_sumidos.empty:
+        st.write("Os clientes abaixo compravam com você e não fazem nenhum pedido há mais de um mês:")
+        for idx, row in clientes_totalmente_sumidos.iterrows():
+            dt_com_pt = row['Data_Datetime'].strftime('%d/%m/%Y')
+            st.markdown(f"🔴 **{row['Cliente']}** — Está há **{row['Dias_Sem_Comprar']} dias** sem comprar nada. (Última compra: {dt_com_pt})")
+    else:
+        st.success("✅ Que sucesso! Nenhum cliente da base está há mais de 30 dias sem comprar.")
 
 st.write("---")
 
-# --- INTERFACE VISUAL RESPONSIVA ---
+# --- ABAS DE PESQUISA ---
 aba1, aba2 = st.tabs(["🔍 Por Produto", "👤 Por Cliente"])
 
 # --- ABA 1: BUSCA POR PRODUTO ---
@@ -111,20 +125,33 @@ with aba1:
         filtro_prod = df_total[df_total['Produto_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_prod.empty:
-            # 📈 IDEIA 2: Gráfico de linha do tempo do produto
+            # 🚨 RECALIBRADO PARA 30 DIAS: CLIENTES QUE PARARAM DE COMPRAR ESTE ITEM
+            st.markdown("### 🚨 Clientes Sumidos (Não compram este item há mais de 30 dias)")
+            
+            ultimas_compras_clientes = filtro_prod.groupby('Cliente')['Data_Datetime'].max().reset_index()
+            ultimas_compras_clientes['Dias_Sem_Comprar'] = (data_maxima_sistema - ultimas_compras_clientes['Data_Datetime']).dt.days
+            
+            clientes_sumidos = ultimas_compras_clientes[ultimas_compras_clientes['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
+            
+            if not clientes_sumidos.empty:
+                for idx, row in clientes_sumidos.head(8).iterrows():
+                    data_pt = row['Data_Datetime'].strftime('%d/%m/%Y')
+                    st.error(f"⚠️ **{row['Cliente']}** não compra este item desde **{data_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
+            else:
+                st.success("✅ Todos os clientes compraram este produto nos últimos 30 dias.")
+            
+            st.write("---")
             st.markdown("### 📈 Evolução das Vendas deste Produto (Mês a Mês)")
             faturamento_mensal = filtro_prod.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
             st.line_chart(faturamento_mensal, color="#00875A")
             
-            # Ranking de compradores
+            st.markdown("### 🏆 Ranking de Maiores Compradores deste Item")
             ranking_clientes = filtro_prod.groupby('Cliente')['Faturamento Brut'].sum().reset_index()
             ranking_clientes = ranking_clientes.sort_values(by='Faturamento Brut', ascending=False)
             
-            st.markdown("### 🏆 Maiores Compradores deste Item")
             for idx, row in ranking_clientes.head(10).iterrows():
                 fat_total = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 st.markdown(f"👤 **{row['Cliente']}** \n💰 Total Comprado: **{fat_total}**")
-                # Barra visual de progresso proporcional
                 proporcao = float(row['Faturamento Brut'] / ranking_clientes['Faturamento Brut'].max())
                 st.progress(proporcao)
         else:
@@ -141,18 +168,49 @@ with aba2:
         filtro_cliente = df_total[df_total['Cliente_Busca'].str.contains(termo_busca, na=False)]
         
         if not filtro_cliente.empty:
-            # 📈 IDEIA 2: Gráfico de compras do cliente
-            st.markdown("### 📊 Histórico de Compras do Cliente (Mês a Mês)")
-            compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
-            st.bar_chart(compras_mensais, color="#0052CC")
+            nome_cliente_real = filtro_cliente['Cliente'].iloc[0]
+            st.markdown(f"## 🏢 Ficha de: {nome_cliente_real}")
             
-            # Produtos preferidos do cliente
+            # 🚨 NOVO ALERTA CRÍTICO: SE O CLIENTE INTEGRALMENTE SUMIU HÁ MAIS DE 30 DIAS
+            ultima_venda_geral_cliente = filtro_cliente['Data_Datetime'].max()
+            dias_total_sumido = (data_maxima_sistema - ultima_venda_geral_cliente).days
+            
+            if dias_total_sumido > 30:
+                st.error(f"🔴 **ALERTA CRÍTICO DE INATIVIDADE:** Este cliente está há **{dias_total_sumido} dias** sem fazer NENHUM COMPRA na empresa! (Último pedido geral em: {ultima_venda_geral_cliente.strftime('%d/%m/%Y')})")
+            
+            # 🚨 RECALIBRADO PARA 30 DIAS: ITENS ESPECÍFICOS ESQUECIDOS
+            st.markdown("### 🚨 Itens Esquecidos/Queda por este Cliente (> 30 dias)")
+            
+            analise_produtos_cliente = filtro_cliente.groupby('Produto').agg(
+                Ultima_Compra=('Data_Datetime', 'max'),
+                Total_Faturado=('Faturamento Brut', 'sum')
+            ).reset_index()
+            
+            analise_produtos_cliente['Dias_Sem_Comprar'] = (data_maxima_sistema - analise_produtos_cliente['Ultima_Compra']).dt.days
+            
+            produtos_abandonados = analise_produtos_cliente[analise_produtos_cliente['Dias_Sem_Comprar'] > 30].sort_values(by='Dias_Sem_Comprar', ascending=False)
+            
+            if not produtos_abandonados.empty:
+                for idx, row in produtos_abandonados.head(5).iterrows():
+                    data_prod_pt = row['Ultima_Compra'].strftime('%d/%m/%Y')
+                    st.warning(f"降低 **Item Abandonado:** Deixou de comprar **{row['Produto']}** desde **{data_prod_pt}** (há **{row['Dias_Sem_Comprar']} dias**)")
+            else:
+                st.success("✅ Este cliente está comprando o mix tradicional em dia.")
+            
+            st.write("---")
+            st.markdown("### 🏆 Ranking de Produtos Mais Vendidos para este Cliente")
             ranking_produtos = filtro_cliente.groupby('Produto')['Faturamento Brut'].sum().reset_index()
             ranking_produtos = ranking_produtos.sort_values(by='Faturamento Brut', ascending=False)
             
-            st.markdown("### 🥩 Mix de Produtos Mais Comprados por Ele")
             for idx, row in ranking_produtos.head(10).iterrows():
                 fat_prod = f"R$ {row['Faturamento Brut']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                st.write(f"• **{row['Produto']}** - Total: {fat_prod}")
+                st.markdown(f"🥩 **{row['Produto']}** \n💰 Volume Histórico: **{fat_prod}**")
+                proporcao_prod = float(row['Faturamento Brut'] / ranking_produtos['Faturamento Brut'].max())
+                st.progress(proporcao_prod)
+
+            st.write("---")
+            st.markdown("### 📊 Histórico Geral de Compras do Cliente (Mês a Mês)")
+            compras_mensais = filtro_cliente.groupby('Ano_Mes')['Faturamento Brut'].sum().sort_index()
+            st.bar_chart(compras_mensais, color="#0B4F93")
         else:
             st.warning("Cliente não encontrado.")
