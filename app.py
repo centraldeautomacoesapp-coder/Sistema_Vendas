@@ -307,6 +307,28 @@ exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
 exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
+# --- BOTÕES DE NAVEGAÇÃO ---
+st.write("---")
+# Usando colunas para deixar os botões lado a lado (fica mais organizado com o novo header)
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
+        st.session_state.aba_atual = "🟢 Ofertas"
+        st.rerun()
+
+with col2:
+    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
+        st.session_state.aba_atual = "🚨 Alertas"
+        st.rerun()
+
+with col3:
+    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
+        st.session_state.aba_atual = "🔍 Consulta"
+        st.rerun()
+
+st.write("---")
+
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
