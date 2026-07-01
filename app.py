@@ -9,36 +9,33 @@ import random
 import json
 import streamlit.components.v1 as components
 
+# --- NOVA IMPORTAÇÃO: IA DO GEMINI ---
+import google.generativeai as genai
+
+# Configuração da API do Gemini (ATENÇÃO: Em produção, coloque essa chave no st.secrets)
+import streamlit as st
+import google.generativeai as genai
+
+# O Streamlit busca automaticamente a chave nos Secrets
+api_key = st.secrets["GEMINI_API_KEY"]
+genai.configure(api_key=api_key)
+# Usando o modelo flash que é mais rápido e ideal para textos curtos
+modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
+
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Fontes maiores e botões robustos) ---
+# --- OTIMIZAÇÃO VISUAL PARA CELULAR ---
 st.markdown("""
     <style>
-    /* Estilização global de textos para leitura mobile */
-    html, body, [class*="css"], p, span {
-        font-size: 16px !important;
-    }
-    h3 {
-        font-size: 20px !important;
-        font-weight: bold !important;
-    }
-    h4 {
-        font-size: 18px !important;
-    }
-    /* Botões grandes e fáceis de tocar no celular */
+    html, body, [class*="css"], p, span { font-size: 16px !important; }
+    h3 { font-size: 20px !important; font-weight: bold !important; }
+    h4 { font-size: 18px !important; }
     div.stButton > button {
-        width: 100% !important;
-        height: 52px !important;
-        font-size: 16px !important;
-        font-weight: bold !important;
-        margin-bottom: 10px !important;
-        border-radius: 8px !important;
+        width: 100% !important; height: 52px !important; font-size: 16px !important;
+        font-weight: bold !important; margin-bottom: 10px !important; border-radius: 8px !important;
     }
-    /* Ajuste de tamanho para blocos de código/mensagens */
-    code {
-        font-size: 14px !important;
-    }
+    code { font-size: 14px !important; white-space: pre-wrap !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -55,8 +52,7 @@ def carregar_progresso_salvo():
         try:
             with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
-            pass
+        except: pass
     return {}
 
 def salvar_progresso_atual():
@@ -75,49 +71,42 @@ def salvar_progresso_atual():
     try:
         with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
             json.dump(dados, f, ensure_ascii=False, indent=4)
-    except:
-        pass
+    except: pass
 
 progresso_backup = carregar_progresso_salvo()
 ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
 mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
-if 'data_ultimo_acesso' not in st.session_state:
-    st.session_state.data_ultimo_acesso = data_hoje_str
+if 'data_ultimo_acesso' not in st.session_state: st.session_state.data_ultimo_acesso = data_hoje_str
 
 if ultimo_acesso == data_hoje_str:
-    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
-    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
-    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
-    if 'memoria_ofertas_cruas_dia' not in st.session_state: st.session_state.memoria_ofertas_cruas_dia = progresso_backup.get("memoria_ofertas_cruas_dia", [])
-    if 'memoria_ofertas_cruas_rel' not in st.session_state: st.session_state.memoria_ofertas_cruas_rel = progresso_backup.get("memoria_ofertas_cruas_rel", [])
-    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
-    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
+    for key in ['envios_hoje', 'fila_ofertas_dia', 'fila_ofertas_relampago', 'memoria_ofertas_cruas_dia', 'memoria_ofertas_cruas_rel']:
+        if key not in st.session_state: st.session_state[key] = progresso_backup.get(key, 0 if key=='envios_hoje' else ([] if 'memoria' in key else None))
+    for key in ['excluidos_ofertas_dia', 'excluidos_ofertas_relampago']:
+        if key not in st.session_state: st.session_state[key] = set(progresso_backup.get(key, []))
 else:
     st.session_state.envios_hoje = 0
-    st.session_state.fila_ofertas_dia = None
-    st.session_state.fila_ofertas_relampago = None
-    st.session_state.memoria_ofertas_cruas_dia = []
-    st.session_state.memoria_ofertas_cruas_rel = []
-    st.session_state.excluidos_ofertas_dia = set()
-    st.session_state.excluidos_ofertas_relampago = set()
+    st.session_state.fila_ofertas_dia, st.session_state.fila_ofertas_relampago = None, None
+    st.session_state.memoria_ofertas_cruas_dia, st.session_state.memoria_ofertas_cruas_rel = [], []
+    st.session_state.excluidos_ofertas_dia, st.session_state.excluidos_ofertas_relampago = set(), set()
 
 if mes_ultimo_acesso == mes_atual_referencia:
     if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
 else:
     st.session_state.enviados_supervisor_mes = set()
 
-if 'excluidos_permanente' not in st.session_state:
-    st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
-
-if not progresso_backup or ultimo_acesso != data_hoje_str:
-    salvar_progresso_atual()
+if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
+if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
 
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
+
+# Variáveis de cache para a IA não gerar a mesma mensagem duas vezes
+if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
+if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
@@ -137,19 +126,42 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
     return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
 
-def gerar_mensagem_humanizada(ofertas, tipo_lista):
-    saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?"]
-    termo_oferta = "ofertas relâmpago do dia" if tipo_lista == "relampago" else "ofertas do dia"
-    introducoes = [
-        f"Separei aqui as melhores {termo_oferta} exclusivas para você:\n\n",
-        f"Olha só as {termo_oferta} que separei hoje para o seu estoque:\n\n"
-    ]
-    fechamentos = ["\n\nMe avisa aqui se posso garantir o seu pedido antes que acabe! 👍", "\n\nQual vamos aproveitar hoje? 🚀"]
-    msg = f"{random.choice(saudacoes)} {random.choice(introducoes)}"
-    for of in ofertas:
-        msg += f"👉 {of}\n"
-    msg += random.choice(fechamentos)
-    return msg
+# --- FUNÇÃO DE GERAÇÃO COM IA GEMINI ---
+def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
+    # Formata as listas para o prompt
+    texto_ofertas = "\n".join([f"- {of}" for of in ofertas])
+    texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
+    
+    prompt = f"""
+    Você é um vendedor(a) experiente e simpático da distribuidora de alimentos Delly's.
+    Escreva uma mensagem de WhatsApp persuasiva e personalizada para o cliente '{nome_cliente}'.
+    
+    O cliente já costuma comprar estes produtos conosco (este é o histórico dele):
+    {texto_historico}
+    
+    Hoje nós temos as seguintes OFERTAS que deram match com o perfil de compra dele:
+    {texto_ofertas}
+    
+    REGRAS DA MENSAGEM:
+    1. Seja natural, caloroso, mas direto ao ponto.
+    2. Mostre que você lembrou dele ao ver as ofertas (ex: "Vi essa oferta e lembrei que você sempre compra...").
+    3. Apresente os produtos da oferta de forma clara.
+    4. Use emojis com moderação, sem exagerar.
+    5. Termine com uma chamada para ação suave (ex: "Posso separar essas ofertas para você?").
+    6. Não inclua placeholders como [Seu Nome]. Aja como se a mensagem já estivesse pronta.
+    """
+    
+    try:
+        response = modelo_ia.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        # Fallback de segurança se a IA falhar
+        st.warning(f"Erro ao conectar com a IA: {e}")
+        saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
+        msg = f"{random.choice(saudacoes)}\nOlha só as ofertas que separei hoje com base nas suas últimas compras:\n\n"
+        for of in ofertas: msg += f"👉 {of}\n"
+        msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
+        return msg
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=600)
@@ -212,9 +224,7 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
     ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
     
     for cli in df['Cliente'].unique():
-        if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip():
-            continue
-            
+        if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip(): continue
         tags = []
         dt_ult = ultimas_compras.get(cli, data_hoje)
         dias_sem_compra = (data_hoje - dt_ult).days
@@ -228,9 +238,7 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
         else:
             tags.append("NÃO POSITIVADO")
             
-        if dias_sem_compra > 30:
-            tags.append("SUMIDO")
-            
+        if dias_sem_compra > 30: tags.append("SUMIDO")
         mapa[cli] = {"tags": tags, "dias": dias_sem_compra, "data_ult": dt_ult}
     return mapa
 
@@ -247,14 +255,13 @@ def obter_badges_html(cliente_nome):
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
 
-# --- CABEÇALHO DA MARCA EM PILHA ---
+# --- CABEÇALHO ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
     st.rerun()
 
-# --- 📊 INDICADORES SUPERIORES EM PILHA ---
 st.write("---")
 f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
 f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
@@ -266,35 +273,30 @@ st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-rad
 
 st.write("---")
 
-# --- MENUS DE NAVEGAÇÃO EM PILHA ---
-if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-    st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
-
-if st.button("🚨 Alertas de Clientes", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-    st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-
-if st.button("🔍 Consulta & Cruzamentos", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
-    st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-
+# --- NAVEGAÇÃO ---
+if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+if st.button("🚨 Alertas de Clientes", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+if st.button("🔍 Consulta & Cruzamentos", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
 st.write("---")
 
-# --- ABA 1: OFERTAS ---
+# ==============================================================================
+# --- ABA 1: OFERTAS (AGORA INTEGRADA COM GEMINI IA) ---
+# ==============================================================================
 if st.session_state.aba_atual == "🟢 Ofertas":
-    st.subheader("📋 Painel de Transmissão")
+    st.subheader("📋 Painel de Transmissão c/ IA 🧠")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
     tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
-    tipo_msg = "dia" if "☀️" in tipo_lista else "relampago"
     
     with st.expander("📝 Inserir Bloco de Ofertas"):
         txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -323,57 +325,68 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada!")
+                st.success("Fila vinculada e cruzada com sucesso!")
                 st.rerun()
 
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
     if fila_ativa is None or len(fila_ativa) == 0:
-        st.info("Nenhum cliente na fila.")
+        st.info("Nenhum cliente na fila de transmissão pendente.")
     else:
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
         
         cliente_atual = clientes_restantes[0]
         ofertas_cliente = fila_ativa[cliente_atual]
-        mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
         
         st.markdown(f"**🏢 {cliente_atual}**")
         st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
         st.write("")
         
-        st.code(mensagem_pronta, language=None)
+        # --- GERAÇÃO DA MENSAGEM VIA IA ---
+        # Se for um cliente novo na fila, roda a IA. Se for o mesmo de antes, usa o cache.
+        if st.session_state.cliente_ia_atual != cliente_atual:
+            st.session_state.cliente_ia_atual = cliente_atual
+            
+            # Pega os 5 produtos mais comprados pelo cliente para dar contexto à IA
+            historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+            
+            with st.spinner("🧠 Gemini analisando o histórico e escrevendo a mensagem..."):
+                st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
+        
+        # Exibe o resultado do Gemini
+        st.code(st.session_state.msg_ia_atual, language=None)
         
         if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
             st.session_state.envios_hoje += 1
             st.session_state[id_excluidos].add(cliente_atual)
             del st.session_state[id_fila][cliente_atual]
+            st.session_state.cliente_ia_atual = "" # Limpa cache para o próximo
             salvar_progresso_atual()
             st.rerun()
             
         if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
             st.session_state.excluidos_permanente.add(cliente_atual)
             del st.session_state[id_fila][cliente_atual]
+            st.session_state.cliente_ia_atual = "" # Limpa cache para o próximo
             salvar_progresso_atual()
             st.rerun()
 
-# --- ABA 2: ALERTAS (REESTRUTURADA COM FILTROS E CONFIRMAÇÃO MANUAL TOTALMENTE INTEGRADA) ---
+# ==============================================================================
+# --- ABA 2: ALERTAS ---
+# ==============================================================================
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
-    
-    # 1. EXIBE A CAIXA DO SUPERVISOR CASO JÁ TENHA TEXTO GERADO
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
             st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
-            
             texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
             html_button_js = f"""
             <button id=\"copyBtn\" style=\"width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Relatório</button>
             <script>
             document.getElementById('copyBtn').addEventListener('click', function() {{
-                const text = {texto_js_safe};
-                navigator.clipboard.writeText(text);
+                navigator.clipboard.writeText({texto_js_safe});
                 this.innerText = '✅ Copiado com sucesso!';
                 setTimeout(() => {{ this.innerText = '📋 Copiar Relatório'; }}, 2000);
             }});
@@ -381,13 +394,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             """
             components.html(html_button_js, height=55)
             
-            # BOTÃO DE CONFIRMAÇÃO MANUAL: Aplica a tag definitiva apenas ao clicar aqui
             if st.button("💾 Marcar Selecionados como Reportados"):
                 for c_nome in st.session_state.clientes_processados_aguardando:
                     st.session_state.enviados_supervisor_mes.add(c_nome)
-                    if f"chk_{c_nome}" in st.session_state:
-                        st.session_state[f"chk_{c_nome}"] = False
-                
+                    if f"chk_{c_nome}" in st.session_state: st.session_state[f"chk_{c_nome}"] = False
                 st.session_state.clientes_processados_aguardando = []
                 st.session_state.texto_supervisor_gerado = ""
                 salvar_progresso_atual()
@@ -395,56 +405,38 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.rerun()
             st.write("---")
 
-    # 2. SEÇÃO DE FILTROS DA LISTA
     st.markdown("### Filtros da Lista")
-    filtro_status = st.selectbox(
-        "Filtrar por status de envio:",
-        ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"]
-    )
-    
+    filtro_status = st.selectbox("Filtrar por status de envio:", ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"])
     busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:", placeholder="Digite o nome...").strip()
 
-    # 3. MONTAGEM DA LISTA DE DADOS
     lista_alertas = []
     for cli, dados in dict_carteira.items():
-        if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0:
-            continue
+        if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0: continue
         if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
             ja_reportado = cli in st.session_state.enviados_supervisor_mes
-            
-            if filtro_status == "Apenas Não Reportados" and ja_reportado:
-                continue
-            if filtro_status == "Apenas Reportados" and not ja_reportado:
-                continue
-                
+            if filtro_status == "Apenas Não Reportados" and ja_reportado: continue
+            if filtro_status == "Apenas Reportados" and not ja_reportado: continue
             lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"], "Reportado": ja_reportado})
             
     df_alertas_visuais = pd.DataFrame(lista_alertas)
-    if not df_alertas_visuais.empty:
-        df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
+    if not df_alertas_visuais.empty: df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
         
     if busca_alerta and not df_alertas_visuais.empty:
         termo_limpo = limpar_texto(busca_alerta)
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
-    # 4. RENDERIZAÇÃO DOS CHECKBOXES
     if df_alertas_visuais.empty:
         st.info("Nenhum cliente localizado para os filtros selecionados.")
     else:
         st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes nesta lista:")
-        
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
-            
-            if f"chk_{c_nome}" not in st.session_state:
-                st.session_state[f"chk_{c_nome}"] = False
+            if f"chk_{c_nome}" not in st.session_state: st.session_state[f"chk_{c_nome}"] = False
             
             with st.container():
                 st.checkbox(f"📍 {c_nome} ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
-                
                 html_badges = obter_badges_html(c_nome)
-                if row["Reportado"]:
-                    html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
+                if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 st.markdown(html_badges, unsafe_allow_html=True)
                 
                 if st.button(f"🔍 Histórico de {c_nome[:12]}...", key=f"btn_h_{idx}"):
@@ -454,15 +446,12 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     st.rerun()
             st.write("---")
         
-        # 5. BOTÃO FIXO PARA CONSTRUIR O TEXTO DO SUPERVISOR (SEM COAGIR MARCAÇÃO AUTOMÁTICA)
-        st.write("")
         if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
             novo_texto_acumulado = ""
             clientes_selecionados_na_rodada = []
             
             for idx, row in df_alertas_visuais.iterrows():
                 c_nome = row["Cliente"]
-                
                 if st.session_state.get(f"chk_{c_nome}", False):
                     clientes_selecionados_na_rodada.append(c_nome)
                     status_txt = "Sumido" if row["Dias"] > 30 else "Pendente"
@@ -472,29 +461,23 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     if not df_cli_h.empty:
                         top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
                         novo_texto_acumulado += "   🔹 Mais Comprados pelo Cliente:\n"
-                        for item in top_itens:
-                            novo_texto_acumulado += f"      ▪️ {item}\n"
+                        for item in top_itens: novo_texto_acumulado += f"      ▪️ {item}\n"
                     else:
                         novo_texto_acumulado += "   🔹 Sem histórico recente registrado\n"
                     
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
                     regras_segmento = {
-                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate"], 
-                        "pizza": ["Calabresa", "Muçarela", "Presunto"],
-                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese"], 
-                        "burguer": ["Hambúrguer", "Cheddar"],
-                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], 
-                        "churrasco": ["Linguiça", "Picanha", "Alcatra"]
+                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate"], "pizza": ["Calabresa", "Muçarela", "Presunto"],
+                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese"], "burguer": ["Hambúrguer", "Cheddar"],
+                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], "churrasco": ["Linguiça", "Picanha", "Alcatra"]
                     }
                     for chave, itens_sugeridos in regras_segmento.items():
-                        if chave in nome_limpo_cli: 
-                            sugestoes_seg.extend(itens_sugeridos)
+                        if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
                     
                     if congest := list(set(sugestoes_seg)):
                         novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
-                        for sug in congest:
-                            novo_texto_acumulado += f"      ▪️ {sug}\n"
+                        for sug in congest: novo_texto_acumulado += f"      ▪️ {sug}\n"
                     novo_texto_acumulado += "\n"
             
             if len(clientes_selecionados_na_rodada) > 0:
@@ -505,7 +488,9 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             else:
                 st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
-# --- ABA 3: CONSULTA E VENDA CRUZADA ---
+# ==============================================================================
+# --- ABA 3: CONSULTA E VENDA CRUZADA (COM FINAL CORRIGIDO) ---
+# ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Filtro de Pesquisa:", ["👤 Por Cliente", "📦 Por Produto"], horizontal=True)
     st.write("---")
@@ -546,8 +531,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 }
                 
                 for chave, itens_sugeridos in regras_segmento.items():
-                    if chave in nome_limpo_cli:
-                        sugestoes_segmento.extend(itens_sugeridos)
+                    if chave in nome_limpo_cli: sugestoes_segmento.extend(itens_sugeridos)
                 
                 produtos_ja_comprados = set(df_cli['Produto'].unique())
                 produto_campeao = rank_p.iloc[0]['Produto'] if not rank_p.empty else None
@@ -594,11 +578,16 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         
         if input_prod:
             filtrados_p = filtrar_por_palavras(df_total, 'Produto_Busca', input_prod)
+            
+            # --- FINAL CORRIGIDO AQUI ---
             if not filtrados_p.empty:
-                st.write("**🏆 Maiores Compradores:**")
-                rank_c = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
-                for i, r in rank_c.iterrows():
-                    st.markdown(f"👤 {r['Cliente']} (R$ {r['Faturamento Brut']:,.2f})")
-                    st.markdown(obter_badges_html(r['Cliente']), unsafe_allow_html=True)
+                st.write(f"✅ Encontrados **{len(filtrados_p['Produto'].unique())}** produtos semelhantes.")
+                
+                # Agrupa para descobrir quem são os maiores compradores deste produto
+                st.markdown("### Top 10 Compradores deste Item")
+                top_compradores = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
+                
+                for idx, row in top_compradores.iterrows():
+                    st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Brut']:,.2f}")
             else:
-                st.warning("Produto não localizado.")
+                st.warning("Nenhum produto encontrado com este nome.")
