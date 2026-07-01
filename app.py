@@ -27,7 +27,6 @@ st.markdown("""
     }
     code { font-size: 14px !important; line-height: 1.6 !important; white-space: pre-wrap !important; }
     
-    /* Estilização customizada para o painel de marcas caber em telas menores */
     .brand-box {
         background-color: #f8f9fa;
         padding: 6px;
@@ -73,7 +72,6 @@ def salvar_progresso_atual():
         "meta_pos_f6": st.session_state.get("meta_pos_f6", 0),
         "meta_rob_f2": st.session_state.get("meta_rob_f2", 0.0),
         "meta_rob_f6": st.session_state.get("meta_rob_f6", 0.0),
-        # Metas de Marcas individuais salvas
         "meta_m_lds": st.session_state.get("meta_m_lds", 0),
         "meta_m_frivatti": st.session_state.get("meta_m_frivatti", 0),
         "meta_m_brasa": st.session_state.get("meta_m_brasa", 0),
@@ -112,7 +110,6 @@ if 'meta_pos_f6' not in st.session_state: st.session_state.meta_pos_f6 = progres
 if 'meta_rob_f2' not in st.session_state: st.session_state.meta_rob_f2 = progresso_backup.get("meta_rob_f2", 0.0)
 if 'meta_rob_f6' not in st.session_state: st.session_state.meta_rob_f6 = progresso_backup.get("meta_rob_f6", 0.0)
 
-# Inicialização das metas individuais das marcas
 if 'meta_m_lds' not in st.session_state: st.session_state.meta_m_lds = progresso_backup.get("meta_m_lds", 0)
 if 'meta_m_frivatti' not in st.session_state: st.session_state.meta_m_frivatti = progresso_backup.get("meta_m_frivatti", 0)
 if 'meta_m_brasa' not in st.session_state: st.session_state.meta_m_brasa = progresso_backup.get("meta_m_brasa", 0)
@@ -202,21 +199,18 @@ def carregar_base_clientes_cadastro():
         return pd.concat(lista_dfs_cli, ignore_index=True).drop_duplicates(subset=['Cliente_Busca'])
     return pd.DataFrame()
 
-with St.spinner("Conectando e sincronizando bases Delly's..."):
+with st.spinner("Conectando e sincronizando bases Delly's..."):
     df_total = carregar_dados_vendas()
     df_clientes = carregar_base_clientes_cadastro()
 
-# Alinhamento inteligente de mês de exibição
 mes_exibicao = mes_atual_referencia
 if not df_total.empty:
     meses_com_dados = df_total['Ano_Mes'].dropna().unique()
     if mes_atual_referencia not in meses_com_dados and len(meses_com_dados) > 0:
         mes_exibicao = max(meses_com_dados)
-        st.sidebar.warning(f"Exibindo dados ativos de {mes_exibicao}.")
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_exibicao] if not df_total.empty else pd.DataFrame()
 
-# Regra Geral de Marcas Parceiras Combinadas (Todas as marcas mapeadas)
 termo_todas_marcas = "lebon|doriana|seara|frivatti|brasa|mccain|confrescor|ceratti"
 
 mapa_cadastro_clientes = {}
@@ -255,7 +249,6 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
 
-# --- VALORES REALIZADOS DO CABEÇALHO ---
 mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0']) if not df_mes_atual.empty else pd.Series()
 mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0']) if not df_mes_atual.empty else pd.Series()
 
@@ -273,7 +266,6 @@ real_rob_geral = real_rob_f2 + real_rob_f6
 meta_rob_f2, meta_rob_f6 = float(st.session_state.meta_rob_f2), float(st.session_state.meta_rob_f6)
 meta_rob_geral = meta_rob_f2 + meta_rob_f6
 
-# Extração precisa de ativação por marca individual no mês corrente
 def calcular_real_marca(regex_marca):
     if df_mes_atual.empty: return 0
     return df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)]['Cliente'].nunique()
@@ -316,7 +308,6 @@ if st.session_state.modo_edicao_metas:
         st.session_state.meta_rob_f2 = st.number_input("Faturamento FL2 (R$)", value=meta_rob_f2, step=1000.0)
         st.session_state.meta_rob_f6 = st.number_input("Faturamento FL6 (R$)", value=meta_rob_f6, step=1000.0)
 else:
-    # Sequência exata de linhas exigidas pelo cliente
     df_indicadores = pd.DataFrame([
         {"Métrica": "🎯 Positivação Geral", "Alvo": meta_pos_geral, "Realizado": f"{real_pos_geral} clis", "Atingimento": f"{(real_pos_geral/meta_pos_geral*100) if meta_pos_geral>0 else 0:.1f}%"},
         {"Métrica": "◽ Positivação FL2", "Alvo": meta_pos_f2, "Realizado": f"{real_pos_f2} clis", "Atingimento": f"{(real_pos_f2/meta_pos_f2*100) if meta_pos_f2>0 else 0:.1f}%"},
@@ -327,9 +318,7 @@ else:
     ])
     st.table(df_indicadores)
     
-    # --- 🏷️ SEÇÃO SEPARADA: MARCAS PARCEIRAS (BLOCO CONDENSADO ABAIXO) ---
     st.markdown("#### 🏷️ Marcas Parceiras (Ativação no Mês)")
-    
     def exibir_box_marca(titulo, real, alvo):
         pct = (real / alvo * 100) if alvo > 0 else 0.0
         return f"""
@@ -353,7 +342,7 @@ else:
 
 st.write("---")
 
-# --- BOTÕES DE NAVEGAÇÃO DO APLICATIVO ---
+# --- BOTÕES DE NAVEGAÇÃO ---
 c_nav1, c_nav2 = st.columns(2)
 with c_nav1:
     if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
@@ -374,7 +363,6 @@ with c_nav6:
 
 st.write("---")
 
-# --- LÓGICA DE BADGES ---
 def obter_badges_html(cliente_nome):
     html = ""
     if df_mes_atual.empty: return html
@@ -390,9 +378,9 @@ def obter_badges_html(cliente_nome):
 
 # --- INTERFACES DAS ABAS ---
 if st.session_state.aba_atual == "🟢 Ofertas":
-    st.subheader("📋 Painel de Transmissão")
+    st.subheader("📋 Painel de Transmissão Inteligente")
     if df_total.empty:
-        st.info("Bancos de dados vazios. Verifique o mapeamento das planilhas.")
+        st.info("Bancos de dados vazios.")
     else:
         tipo_lista = st.radio("Fila Ativa:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
         id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
@@ -405,17 +393,56 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 linhas = [l.strip() for l in texto_colado.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
                 st.session_state[id_fila] = {c: linhas for c in df_total['Cliente'].dropna().unique() if c not in st.session_state[id_excluidos]}
+                st.session_state.cache_ia_gemini = {} # Limpa o cache ao mudar ofertas
                 salvar_progresso_atual(); st.rerun()
 
         fila_ativa = st.session_state.get(id_fila)
         if fila_ativa:
             cli_corrente = list(fila_ativa.keys())[0]
             inf = obter_info_cliente(cli_corrente)
+            
             st.markdown(f"### 🏢 {cli_corrente} ({inf['Cidade']})")
             st.markdown(obter_badges_html(cli_corrente), unsafe_allow_html=True)
             
-            # Mensagem rápida simulada comercial
-            msg_venda = f"Olá! Separamos oportunidades da McCain, Frivatti, Seara e muito mais exclusivas para seu comércio hoje. Vamos fechar?"
+            # 🧠 --- AQUI ENTRA O CRUZA-DADOS DA IA VERDADEIRA ---
+            # Puxamos o que ele já comprou na história para a IA analisar o nicho/perfil dele
+            historico_produtos = df_total[df_total['Cliente'] == cli_corrente]['Produto'].dropna().unique()
+            produtos_oferecidos_hoje = fila_ativa[cli_corrente]
+            
+            # Chave única de identificação no cache para não gastar sua API toda hora que a tela recarregar
+            chave_cache = f"{cli_corrente}_{id_fila}"
+            
+            if chave_cache not in st.session_state.cache_ia_gemini:
+                with st.spinner("🧠 Gemini analisando histórico do cliente e criando oferta personalizada..."):
+                    try:
+                        prompt_ia = f"""
+                        Você é o especialista comercial de inteligência da distribuidora Delly's.
+                        Gere uma mensagem comercial curta e persuasiva para enviar via WhatsApp para o cliente '{cli_corrente}' de '{inf['Cidade']}'.
+
+                        HISTÓRICO REAL DE COMPRAS DELE (Use para entender o nicho dele):
+                        {list(historico_produtos)[:15]}
+
+                        PRODUTOS EM OFERTA HOJE (Escolha os melhores ou relacione com as marcas parceiras):
+                        {produtos_oferecidos_hoje}
+
+                        NOSSAS MARCAS EXCLUSIVAS/PARCEIRAS EM FOCO:
+                        Lebon, Doriana, Seara, Frivatti, Brasa, McCain, Confrescor e Ceratti.
+
+                        REGRAS DA MENSAGEM:
+                        1. Seja muito direto, simpático e profissional.
+                        2. Use quebras de linha e poucos emojis para leitura rápida no celular.
+                        3. Cite o nome de alguma marca parceira se fizer sentido com o nicho dele (ex: se ele compra muita batata, foque na McCain).
+                        4. Não invente preços ou prazos. Apenas monte o texto de abordagem comercial.
+                        """
+                        model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                        resposta_ia = model_flash.generate_content(prompt_ia).text
+                        st.session_state.cache_ia_gemini[chave_cache] = resposta_ia
+                    except Exception as e:
+                        st.session_state.cache_ia_gemini[chave_cache] = f"Olá! Separamos excelentes oportunidades em marcas parceiras como McCain, Seara e Frivatti hoje para o seu negócio. Vamos aproveitar?"
+
+            msg_venda = st.session_state.cache_ia_gemini[chave_cache]
+            
+            st.markdown("**📝 Abordagem Gerada por Inteligência Artificial:**")
             st.code(msg_venda)
             
             c_a1, c_a2 = st.columns(2)
@@ -425,6 +452,8 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     del st.session_state[id_fila][cli_corrente]; salvar_progresso_atual(); st.rerun()
             with c_a2:
                 if st.button("❌ Pular"): del st.session_state[id_fila][cli_corrente]; st.rerun()
+        else:
+            st.success("🎉 Nenhuma oferta pendente nesta fila!")
 
 elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Clientes Inativos (Mais de 30 dias)")
@@ -441,7 +470,6 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             st.markdown(f"### {inf['Nome']}")
             st.markdown(f"📍 Cidade: {inf['Cidade']} | Fantasia: {inf['Fantasia']}")
             st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
-            
             prods = df_total[df_total['Cliente'] == c_sel]['Produto'].dropna().unique()
             st.write("🛒 **Produtos comprados anteriormente:**", ", ".join(list(prods)[:40]))
 
@@ -461,7 +489,6 @@ elif st.session_state.aba_atual == "🧠 Assistente":
         model_flash = genai.GenerativeModel("gemini-1.5-flash")
         st.info(model_flash.generate_content(p_user).text)
 
-# --- 🏷️ ABA COMPLETA DE NEGOCIAÇÃO DE MARCAS RESTAURADA ---
 elif st.session_state.aba_atual == "🏷️ Marcas":
     st.subheader("🏷️ Painel de Alvos de Marcas Parceiras")
     if df_total.empty:
