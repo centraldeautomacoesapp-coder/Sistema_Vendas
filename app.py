@@ -5,190 +5,136 @@ import os
 import glob
 import unicodedata
 import re
-import random
 import json
-import streamlit.components.v1 as components
+import google.generativeai as genai
 
-# Configuração de tela
-st.set_page_config(page_title="Delly's Inteligência", layout="centered")
+# Configuração de tela limpa e direta
+st.set_page_config(page_title="Delly's Inteligência IA", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR (Grade 2x2 perfeita sem rolagem lateral) ---
+# --- 🤖 CONFIGURAÇÃO DA IA GEMINI ---
+CHAVE_API_GEMINI = st.secrets["GEMINI_API_KEY"]
+genai.configure(api_key=CHAVE_API_GEMINI)
+
+# --- OTIMIZAÇÃO VISUAL MOBILE E FORMATO DE GRADES ---
 st.markdown("""
     <style>
-    /* Estilização global de textos para leitura mobile */
-    html, body, [class*="css"], p, span {
-        font-size: 16px !important;
-    }
-    h3 {
-        font-size: 20px !important;
-        font-weight: bold !important;
-    }
-    h4 {
-        font-size: 18px !important;
-    }
-    
-    /* Botões otimizados para preencher 100% da sua respectiva coluna */
+    html, body, [class*="css"], p, span { font-size: 16px !important; }
+    h3 { font-size: 20px !important; font-weight: bold !important; }
+    h4 { font-size: 18px !important; }
     div.stButton > button {
-        width: 100% !important;
-        height: 46px !important;
-        font-size: 13px !important;
-        font-weight: bold !important;
-        margin: 0 !important;
-        border-radius: 8px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        width: 100% !important; height: 46px !important; font-size: 13px !important;
+        font-weight: bold !important; margin: 0 !important; border-radius: 8px !important;
     }
-    code {
-        font-size: 14px !important;
-    }
+    code { font-size: 14px !important; line-height: 1.6 !important; white-space: pre-wrap !important; }
     
-    /* CORREÇÃO DO ESPAÇAMENTO E DA LARGURA DOS BOTÕES (LADO A LADO) */
-    /* Alvo: Apenas blocos horizontais que contêm botões e não possuem textos de cabeçalho */
-    div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        width: 100% !important;
-        gap: 8px !important; /* Espaço ideal e controlado entre os dois botões */
-        padding: 0 !important;
+    /* Estilização customizada para o painel de marcas caber em telas menores */
+    .brand-box {
+        background-color: #f8f9fa;
+        padding: 6px;
+        border-radius: 6px;
+        border-left: 3px solid #FFC107;
+        margin-bottom: 8px;
+        text-align: center;
+        box-shadow: 0px 1px 3px rgba(0,0,0,0.05);
     }
-    
-    /* Forçar cada coluna de botão a ter exatamente metade da tela menos o espaço do meio */
-    div[data-testid="stHorizontalBlock"]:has(div.stButton):not(:has([data-testid="stMarkdownContainer"])) > div {
-        width: calc(50% - 4px) !important;
-        flex: 1 1 calc(50% - 4px) !important;
-        min-width: 0 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
+    .brand-title { font-size: 11px !important; color: #555 !important; font-weight: bold !important; text-transform: uppercase; }
+    .brand-value { font-size: 15px !important; font-weight: bold !important; color: #111 !important; margin: 2px 0; }
+    .brand-sub { font-size: 10px !important; color: #777 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# 📅 CONTROLE DE DATA AJUSTADO PARA O HORÁRIO DE BRASÍLIA
-MAPA_DIAS_ING_PORT = {
-    0: "Segunda-feira", 1: "Terça-feira", 2: "Quarta-feira",
-    3: "Quinta-feira", 4: "Sexta-feira", 5: "Sábado", 6: "Domingo"
-}
-
+# 📅 CONTROLE DE TEMPO E DATAS (BRASÍLIA)
 data_atual_sistema = pd.Timestamp.now(tz='America/Sao_Paulo').tz_localize(None).normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
-mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
-dia_semana_hoje = MAPA_DIAS_ING_PORT.get(pd.Timestamp.now(tz='America/Sao_Paulo').weekday(), "Segunda-feira")
+mes_atual_referencia = data_atual_sistema.strftime('%Y-%m')
 
-# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETO ---
+# --- 📁 SISTEMA DE PERSISTÊNCIA COMPLETA ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
     if os.path.exists(ARQUIVO_PROGRESSO):
         try:
-            with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            pass
+            with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f: return json.load(f)
+        except: pass
     return {}
 
 def salvar_progresso_atual():
     dados = {
         "data_ultimo_acesso": data_hoje_str,
-        "envios_hoje": st.session_state.envios_hoje,
-        "fila_ofertas_dia": st.session_state.fila_ofertas_dia,
-        "fila_ofertas_relampago": st.session_state.fila_ofertas_relampago,
-        "memoria_ofertas_cruas_dia": st.session_state.memoria_ofertas_cruas_dia,
-        "memoria_ofertas_cruas_rel": st.session_state.memoria_ofertas_cruas_rel,
-        "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
-        "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
-        "excluidos_permanente": list(st.session_state.excluidos_permanente),
-        "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes),
+        "envios_hoje": st.session_state.get("envios_hoje", 0),
+        "fila_ofertas_dia": st.session_state.get("fila_ofertas_dia", None),
+        "fila_ofertas_relampago": st.session_state.get("fila_ofertas_relampago", None),
+        "memoria_ofertas_cruas_dia": st.session_state.get("memoria_ofertas_cruas_dia", []),
+        "memoria_ofertas_cruas_rel": st.session_state.get("memoria_ofertas_cruas_rel", []),
+        "excluidos_ofertas_dia": list(st.session_state.get("excluidos_ofertas_dia", set())),
+        "excluidos_ofertas_relampago": list(st.session_state.get("excluidos_ofertas_relampago", set())),
+        "excluidos_permanente": list(st.session_state.get("excluidos_permanente", set())),
         "meta_pos_f2": st.session_state.get("meta_pos_f2", 0),
         "meta_pos_f6": st.session_state.get("meta_pos_f6", 0),
         "meta_rob_f2": st.session_state.get("meta_rob_f2", 0.0),
-        "meta_rob_f6": st.session_state.get("meta_rob_f6", 0.0)
+        "meta_rob_f6": st.session_state.get("meta_rob_f6", 0.0),
+        # Metas de Marcas individuais salvas
+        "meta_m_lds": st.session_state.get("meta_m_lds", 0),
+        "meta_m_frivatti": st.session_state.get("meta_m_frivatti", 0),
+        "meta_m_brasa": st.session_state.get("meta_m_brasa", 0),
+        "meta_m_mccain": st.session_state.get("meta_m_mccain", 0),
+        "meta_m_confrescor": st.session_state.get("meta_m_confrescor", 0),
+        "meta_m_ceratti": st.session_state.get("meta_m_ceratti", 0)
     }
     try:
-        with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
-            json.dump(dados, f, ensure_ascii=False, indent=4)
-    except:
-        pass
+        with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f: json.dump(dados, f, ensure_ascii=False, indent=4)
+    except: pass
 
 progresso_backup = carregar_progresso_salvo()
 ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
-mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
-if 'data_ultimo_acesso' not in st.session_state:
-    st.session_state.data_ultimo_acesso = data_hoje_str
+if 'envios_hoje' not in st.session_state:
+    if ultimo_acesso == data_hoje_str:
+        st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
+        st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
+        st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
+        st.session_state.memoria_ofertas_cruas_dia = progresso_backup.get("memoria_ofertas_cruas_dia", [])
+        st.session_state.memoria_ofertas_cruas_rel = progresso_backup.get("memoria_ofertas_cruas_rel", [])
+        st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
+        st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
+    else:
+        st.session_state.envios_hoje = 0
+        st.session_state.fila_ofertas_dia = None
+        st.session_state.fila_ofertas_relampago = None
+        st.session_state.memoria_ofertas_cruas_dia = []
+        st.session_state.memoria_ofertas_cruas_rel = []
+        st.session_state.excluidos_ofertas_dia = set()
+        st.session_state.excluidos_ofertas_relampago = set()
 
-if ultimo_acesso == data_hoje_str:
-    if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = progresso_backup.get("envios_hoje", 0)
-    if 'fila_ofertas_dia' not in st.session_state: st.session_state.fila_ofertas_dia = progresso_backup.get("fila_ofertas_dia", None)
-    if 'fila_ofertas_relampago' not in st.session_state: st.session_state.fila_ofertas_relampago = progresso_backup.get("fila_ofertas_relampago", None)
-    if 'memoria_ofertas_cruas_dia' not in st.session_state: st.session_state.memoria_ofertas_cruas_dia = progresso_backup.get("memoria_ofertas_cruas_dia", [])
-    if 'memoria_ofertas_cruas_rel' not in st.session_state: st.session_state.memoria_ofertas_cruas_rel = progresso_backup.get("memoria_ofertas_cruas_rel", [])
-    if 'excluidos_ofertas_dia' not in st.session_state: st.session_state.excluidos_ofertas_dia = set(progresso_backup.get("excluidos_ofertas_dia", []))
-    if 'excluidos_ofertas_relampago' not in st.session_state: st.session_state.excluidos_ofertas_relampago = set(progresso_backup.get("excluidos_ofertas_relampago", []))
-else:
-    st.session_state.envios_hoje = 0
-    st.session_state.fila_ofertas_dia = None
-    st.session_state.fila_ofertas_relampago = None
-    st.session_state.memoria_ofertas_cruas_dia = []
-    st.session_state.memoria_ofertas_cruas_rel = []
-    st.session_state.excluidos_ofertas_dia = set()
-    st.session_state.excluidos_ofertas_relampago = set()
-
-if mes_ultimo_acesso == mes_atual_referencia:
-    if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
-else:
-    st.session_state.enviados_supervisor_mes = set()
-
-if 'excluidos_permanente' not in st.session_state:
-    st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
-
+if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
 if 'meta_pos_f2' not in st.session_state: st.session_state.meta_pos_f2 = progresso_backup.get("meta_pos_f2", 0)
 if 'meta_pos_f6' not in st.session_state: st.session_state.meta_pos_f6 = progresso_backup.get("meta_pos_f6", 0)
 if 'meta_rob_f2' not in st.session_state: st.session_state.meta_rob_f2 = progresso_backup.get("meta_rob_f2", 0.0)
 if 'meta_rob_f6' not in st.session_state: st.session_state.meta_rob_f6 = progresso_backup.get("meta_rob_f6", 0.0)
-if 'modo_edicao_metas' not in st.session_state: st.session_state.modo_edicao_metas = False
 
-if not progresso_backup or ultimo_acesso != data_hoje_str:
-    salvar_progresso_atual()
+# Inicialização das metas individuais das marcas
+if 'meta_m_lds' not in st.session_state: st.session_state.meta_m_lds = progresso_backup.get("meta_m_lds", 0)
+if 'meta_m_frivatti' not in st.session_state: st.session_state.meta_m_frivatti = progresso_backup.get("meta_m_frivatti", 0)
+if 'meta_m_brasa' not in st.session_state: st.session_state.meta_m_brasa = progresso_backup.get("meta_m_brasa", 0)
+if 'meta_m_mccain' not in st.session_state: st.session_state.meta_m_mccain = progresso_backup.get("meta_m_mccain", 0)
+if 'meta_m_confrescor' not in st.session_state: st.session_state.meta_m_confrescor = progresso_backup.get("meta_m_confrescor", 0)
+if 'meta_m_ceratti' not in st.session_state: st.session_state.meta_m_ceratti = progresso_backup.get("meta_m_ceratti", 0)
 
-if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
-if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
-if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
+if 'modo_edicao_metas' not in st.session_state: st.session_state.modo_edicao_metas = False
+if 'cache_ia_gemini' not in st.session_state: st.session_state.cache_ia_gemini = {}
 
-# --- AUXILIARES ---
 def limpar_texto(texto):
     if pd.isna(texto): return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
 
-def extrair_palavras_produto(linha):
-    linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
-
-def gerar_mensagem_humanizada(ofertas, tipo_lista):
-    saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?", "Oi! Como estão as coisas?"]
-    termo_oferta = "ofertas relâmpago do dia" if tipo_lista == "relampago" else "ofertas do dia"
-    introducoes = [
-        f"Separei aqui as melhores {termo_oferta} exclusivas para você:\n\n",
-        f"Olha só as {termo_oferta} que separei hoje para o seu estoque:\n\n"
-    ]
-    fechamentos = ["\n\nMe avisa aqui se posso garantir o seu pedido antes que acabe! 👍", "\n\nQual vamos aproveitar hoje? 🚀"]
-    msg = f"{random.choice(saudacoes)} {random.choice(introducoes)}"
-    for of in ofertas:
-        msg += f"👉 {of}\n"
-    msg += random.choice(fechamentos)
-    return msg
-
-# --- CARREGAMENTO DE DADOS ---
+# --- 🧠 CONEXÃO ROBUSTA E EXTRAÇÃO DE BANCOS DE DADOS DELIVERIES ---
 @st.cache_data(ttl=600)
-def carregar_dados_nuvem():
+def carregar_dados_vendas():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
-    try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
+    try: gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
@@ -197,135 +143,106 @@ def carregar_dados_nuvem():
         try:
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
-            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
-            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
-            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
-            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
-            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
+            
+            c_dt = next((c for c in df.columns if any(k in str(c).lower() for k in ["dt", "data", "delivery", "faturamento"])), None)
+            c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower()), None)
+            c_prod = next((c for c in df.columns if "produto" in str(c).lower() or "desc" in str(c).lower()), None)
+            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() or "brut" in str(c).lower() or "valor" in str(c).lower()), None)
+            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower()), None)
             
             if c_dt and c_cli and c_prod and c_fat:
-                sel = [c_dt, c_cli, c_prod, c_fat]
-                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
-                if c_fil:
-                    sel.append(c_fil)
-                    heads.append('Filial')
-                sub = df[sel].copy()
-                sub.columns = heads
+                sub = df[[c_dt, c_cli, c_prod, c_fat]].copy()
+                sub.columns = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
+                sub['Filial'] = df[c_fil].astype(str).str.strip() if c_fil else "2"
+                    
                 if sub['Faturamento Brut'].dtype == 'object':
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
         except: continue
+        
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'].notna()]
-        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
+        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], errors='coerce')
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
         unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
-        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return unificado
     return pd.DataFrame()
 
 @st.cache_data(ttl=600)
 def carregar_base_clientes_cadastro():
-    url = "https://docs.google.com/spreadsheets/d/1QNiwKklXLpBrc_g21p1GRFs4dfFMze6v/export?format=xlsx"
-    try:
-        df = pd.read_excel(url)
-        df.columns = df.columns.str.strip()
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    pasta_clientes = os.path.join(diretorio_atual, "planilhas_clientes")
+    if not os.path.exists(pasta_clientes): os.makedirs(pasta_clientes)
+    try: gdown.download_folder("https://drive.google.com/drive/folders/1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu", output=pasta_clientes, quiet=True)
+    except: pass
+    
+    arquivos_excel = glob.glob(os.path.join(pasta_clientes, "**", "*.xlsx"), recursive=True)
+    lista_dfs_cli = []
+    for arquivo in arquivos_excel:
+        try:
+            df = pd.read_excel(arquivo)
+            df.columns = df.columns.str.strip()
+            c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower()), None)
+            c_fant = next((c for c in df.columns if "fantasia" in str(c).lower() or "nome" in str(c).lower()), None)
+            c_cid = next((c for c in df.columns if "cidade" in str(c).lower() or "munic" in str(c).lower()), None)
+            
+            if c_cli:
+                sub = pd.DataFrame()
+                sub['Cliente'] = df[c_cli].astype(str).str.strip()
+                sub['Nome_Fantasia'] = df[c_fant].astype(str).str.strip() if c_fant else ""
+                sub['Cidade'] = df[c_cid].astype(str).str.strip() if c_cid else "Não Informada"
+                sub['Cliente_Busca'] = sub['Cliente'].apply(limpar_texto)
+                lista_dfs_cli.append(sub)
+        except: continue
         
-        c_cli, c_fant, c_cid = None, None, None
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if "cliente" in col_lower or "razao" in col_lower or "razão" in col_lower:
-                c_cli = col
-            elif "fantasia" in col_lower or "nicho" in col_lower or "nome" in col_lower:
-                c_fant = col
-            elif "cidade" in col_lower or "munic" in col_lower:
-                c_cid = col
-        
-        if not c_cli: c_cli = df.columns[0]
-        if not c_fant: c_fant = c_cli
-        if not c_cid: c_cid = df.columns[1] if len(df.columns) > 1 else df.columns[0]
-        
-        df_reordenado = pd.DataFrame()
-        df_reordenado['Cliente'] = df[c_cli].astype(str).str.strip()
-        df_reordenado['Nome_Fantasia'] = df[c_fant].astype(str).str.strip() if c_fant in df.columns else ""
-        df_reordenado['Cidade'] = df[c_cid].astype(str).str.strip() if c_cid in df.columns else "Não Informada"
-        df_reordenado['Cliente_Busca'] = df_reordenado['Cliente'].apply(limpar_texto)
-        return df_reordenado
-    except:
-        return pd.DataFrame(columns=['Cliente', 'Nome_Fantasia', 'Cidade', 'Cliente_Busca'])
+    if lista_dfs_cli:
+        return pd.concat(lista_dfs_cli, ignore_index=True).drop_duplicates(subset=['Cliente_Busca'])
+    return pd.DataFrame()
 
-with st.spinner("Sincronizando bases de dados..."):
-    df_total = carregar_dados_nuvem()
+# --- CORRIGIDO AQUI: de 'St.spinner' para 'st.spinner' ---
+with st.spinner("Conectando e sincronizando bases Delly's..."):
+    df_total = carregar_dados_vendas()
     df_clientes = carregar_base_clientes_cadastro()
 
-if df_total.empty:
-    st.warning("Base de dados de vendas vazia.")
-    st.stop()
+# Alinhamento inteligente de mês de exibição
+mes_exibicao = mes_atual_referencia
+if not df_total.empty:
+    meses_com_dados = df_total['Ano_Mes'].dropna().unique()
+    if mes_atual_referencia not in meses_com_dados and len(meses_com_dados) > 0:
+        mes_exibicao = max(meses_com_dados)
+        st.sidebar.warning(f"Exibindo dados ativos de {mes_exibicao}.")
+
+df_mes_atual = df_total[df_total['Ano_Mes'] == mes_exibicao] if not df_total.empty else pd.DataFrame()
+
+# Regra Geral de Marcas Parceiras Combinadas (Todas as marcas mapeadas)
+termo_todas_marcas = "lebon|doriana|seara|frivatti|brasa|mccain|confrescor|ceratti"
 
 mapa_cadastro_clientes = {}
 if not df_clientes.empty:
     for _, r in df_clientes.iterrows():
-        cli_nome = str(r['Cliente']).strip()
-        fantasia = str(r['Nome_Fantasia']).strip()
-        cidade = str(r['Cidade']).strip()
-        
-        info_dict = {
-            "Nome": cli_nome,
-            "Fantasia": fantasia if fantasia.lower() != "nan" else "",
-            "Cidade": city if cidade.lower() != "nan" else "Não Informada"
+        mapa_cadastro_clientes[r['Cliente_Busca']] = {
+            "Nome": r['Cliente'], "Fantasia": r['Nome_Fantasia'], "Cidade": r['Cidade']
         }
-        mapa_cadastro_clientes[limpar_texto(cli_nome)] = info_dict
-        if fantasia:
-            mapa_cadastro_clientes[limpar_texto(fantasia)] = info_dict
 
 def obter_info_cliente(nome_vendas):
-    if pd.isna(nome_vendas) or not str(nome_vendas).strip():
-        return {"Nome": "Desconhecido", "Fantasia": "Não Informado", "Cidade": "Não Informada"}
     vendas_limpo = limpar_texto(nome_vendas)
-    if vendas_limpo in mapa_cadastro_clientes:
-        return mapa_cadastro_clientes[vendas_limpo]
-    vendas_sem_codigo = re.sub(r'^\d+\s*[-–_]?\s*', '', vendas_limpo).strip()
-    if vendas_sem_codigo in mapa_cadastro_clientes:
-        return mapa_cadastro_clientes[vendas_sem_codigo]
-    for chave_cadastro, dados in mapa_cadastro_clientes.items():
-        if chave_cadastro in vendas_limpo or vendas_limpo in chave_cadastro or chave_cadastro in vendas_sem_codigo:
-            return dados
-    return {"Nome": nome_vendas, "Fantasia": "Não Localizado", "Cidade": "Não Localizada"}
-
-df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
-
-# --- COMPUTAÇÃO DA CARTEIRA LEBON & MARCAS ---
-mask_lebon_g = df_mes_atual['Produto_Busca'].apply(lambda x: any(kw in str(x) for kw in ["lebon", "seara", "doriana", "frangosul"]))
-clientes_grupo_lebon = set(df_mes_atual[mask_lebon_g]['Cliente'].unique())
-
-def calcular_marcas_foco(df_mes):
-    marcas_dict = {
-        "LEBON (Grupo)": ["lebon", "seara", "doriana", "frangosul"],
-        "FRIVATTI": ["frivatti"],
-        "MCCAIN": ["mccain"],
-        "CONFRESCOR": ["confrescor"],
-        "BRASA": ["brasa"],
-        "CERATTI": ["ceratti"]
-    }
-    resultados = {}
-    for nome, kws in marcas_dict.items():
-        m_mask = df_mes['Produto_Busca'].apply(lambda x: any(kw in str(x) for kw in kws))
-        resultados[nome] = df_mes[m_mask]['Cliente'].nunique()
-    return resultados
+    if b := mapa_cadastro_clientes.get(vendas_limpo): return b
+    return {"Nome": nome_vendas, "Fantasia": "", "Cidade": "Não Localizada"}
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
+    if df.empty: return mapa
     ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
     for cli in df['Cliente'].unique():
-        if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip(): continue
         tags = []
         dt_ult = ultimas_compras.get(cli, data_hoje)
         dias_sem_compra = (data_hoje - dt_ult).days
-        vendas_mes = df_mes[df_mes['Cliente'] == cli]
+        vendas_mes = df_mes[df_mes['Cliente'] == cli] if not df_mes.empty else pd.DataFrame()
+        
         if not vendas_mes.empty:
             tags.append("POSITIVADO")
             filiais = vendas_mes['Filial'].astype(str).str.strip().unique()
@@ -334,392 +251,244 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
         else:
             tags.append("NÃO POSITIVADO")
         if dias_sem_compra > 30: tags.append("SUMIDO")
-        mapa[cli] = {"tags": tags, "dias": dias_sem_compra, "data_ult": dt_ult}
+        mapa[cli] = {"tags": tags, "dias": dias_sem_compra}
     return mapa
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
 
-def obter_badges_html(cliente_nome):
-    info = dict_carteira.get(cliente_nome, {"tags": []})
-    html = ""
-    if cliente_nome in clientes_grupo_lebon:
-        html += '<span style="background-color:#E3FCEF; color:#006644; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">LEBON</span>'
-    for tag in info["tags"]:
-        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
-        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
-        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
-        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
-        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
-    return html
+# --- VALORES REALIZADOS DO CABEÇALHO ---
+mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0']) if not df_mes_atual.empty else pd.Series()
+mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0']) if not df_mes_atual.empty else pd.Series()
 
-# --- CABEÇALHO DA MARCA ---
-st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+real_pos_f2 = df_mes_atual[mask_f2]['Cliente'].nunique() if not df_mes_atual.empty else 0
+real_pos_f6 = df_mes_atual[mask_f6]['Cliente'].nunique() if not df_mes_atual.empty else 0
+real_pos_geral = df_mes_atual['Cliente'].nunique() if not df_mes_atual.empty else 0
 
-# --- CABEÇALHO DE INDICADORES ---
+meta_pos_f2, meta_pos_f6 = int(st.session_state.meta_pos_f2), int(st.session_state.meta_pos_f6)
+meta_pos_geral = meta_pos_f2 + meta_pos_f6
+
+real_rob_f2 = df_mes_atual[mask_f2]['Faturamento Brut'].sum() if not df_mes_atual.empty else 0.0
+real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum() if not df_mes_atual.empty else 0.0
+real_rob_geral = real_rob_f2 + real_rob_f6
+
+meta_rob_f2, meta_rob_f6 = float(st.session_state.meta_rob_f2), float(st.session_state.meta_rob_f6)
+meta_rob_geral = meta_rob_f2 + meta_rob_f6
+
+# Extração precisa de ativação por marca individual no mês corrente
+def calcular_real_marca(regex_marca):
+    if df_mes_atual.empty: return 0
+    return df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)]['Cliente'].nunique()
+
+real_m_lds = calcular_real_marca("lebon|doriana|seara")
+real_m_frivatti = calcular_real_marca("frivatti")
+real_m_brasa = calcular_real_marca("brasa")
+real_m_mccain = calcular_real_marca("mccain")
+real_m_confrescor = calcular_real_marca("confrescor")
+real_m_ceratti = calcular_real_marca("ceratti")
+
+# --- 🎯 EXIBIÇÃO DO CABEÇALHO COMPLETO ---
+st.markdown("# 🟢 Delly's Inteligência IA")
 st.write("---")
 
 col_tit_meta, col_btn_meta = st.columns([4, 2])
-with col_tit_meta:
-    st.markdown("### 📊 Indicadores Gerais")
+with col_tit_meta: st.markdown("### 📊 Indicadores Principais")
 with col_btn_meta:
     if st.session_state.modo_edicao_metas:
-        if st.button("💾 Salvar Metas", key="meta_salvar_btn"):
-            st.session_state.modo_edicao_metas = False
-            salvar_progresso_atual()
-            st.rerun()
+        if st.button("💾 Salvar Metas", key="m_save"):
+            st.session_state.modo_edicao_metas = False; salvar_progresso_atual(); st.rerun()
     else:
-        if st.button("📝 Editar Metas", key="meta_editar_btn"):
-            st.session_state.modo_edicao_metas = True
-            st.rerun()
-
-mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0'])
-mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0'])
-
-real_pos_f2 = df_mes_atual[mask_f2]['Cliente'].nunique()
-real_pos_f6 = df_mes_atual[mask_f6]['Cliente'].nunique()
-real_pos_geral = df_mes_atual[mask_f2 | mask_f6]['Cliente'].nunique()
-
-meta_pos_f2 = int(st.session_state.meta_pos_f2)
-meta_pos_f6 = int(st.session_state.meta_pos_f6)
-meta_pos_geral = meta_pos_f2 + meta_pos_f6
-
-perf_pos_f2 = (real_pos_f2 / meta_pos_f2 * 100) if meta_pos_f2 > 0 else 0.0
-perf_pos_f6 = (real_pos_f6 / meta_pos_f6 * 100) if meta_pos_f6 > 0 else 0.0
-perf_pos_geral = (real_pos_geral / meta_pos_geral * 100) if meta_pos_geral > 0 else 0.0
-
-real_rob_f2 = df_mes_atual[mask_f2]['Faturamento Brut'].sum()
-real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum()
-real_rob_geral = real_rob_f2 + real_rob_f6
-
-meta_rob_f2 = float(st.session_state.meta_rob_f2)
-meta_rob_f6 = float(st.session_state.meta_rob_f6)
-meta_rob_geral = meta_rob_f2 + meta_rob_f6
-
-perf_rob_f2 = (real_rob_f2 / meta_rob_f2 * 100) if meta_rob_f2 > 0 else 0.0
-perf_rob_f6 = (real_rob_f6 / meta_rob_f6 * 100) if meta_rob_f6 > 0 else 0.0
-perf_rob_geral = (real_rob_geral / meta_rob_geral * 100) if meta_rob_geral > 0 else 0.0
+        if st.button("📝 Editar Metas", key="m_edit"): st.session_state.modo_edicao_metas = True; st.rerun()
 
 if st.session_state.modo_edicao_metas:
-    st.markdown("<b style='font-size:13px;'>✏️ DIGITE AS METAS DO MÊS:</b>", unsafe_allow_html=True)
     c_ed1, c_ed2 = st.columns(2)
     with c_ed1:
-        st.session_state.meta_pos_f2 = st.number_input("Meta Pos. Filial 2", value=meta_pos_f2, step=1)
-        st.session_state.meta_pos_f6 = st.number_input("Meta Pos. Filial 6", value=meta_pos_f6, step=1)
+        st.markdown("**Metas de Positivação**")
+        st.session_state.meta_pos_f2 = st.number_input("Positivação FL2", value=meta_pos_f2, step=1)
+        st.session_state.meta_pos_f6 = st.number_input("Positivação FL6", value=meta_pos_f6, step=1)
+        st.markdown("**Metas Marcas Parceiras**")
+        st.session_state.meta_m_lds = st.number_input("Lebon/Doriana/Seara", value=int(st.session_state.meta_m_lds), step=1)
+        st.session_state.meta_m_frivatti = st.number_input("Frivatti", value=int(st.session_state.meta_m_frivatti), step=1)
+        st.session_state.meta_m_brasa = st.number_input("Brasa", value=int(st.session_state.meta_m_brasa), step=1)
+        st.session_state.meta_m_mccain = st.number_input("McCain", value=int(st.session_state.meta_m_mccain), step=1)
+        st.session_state.meta_m_confrescor = st.number_input("Confrescor", value=int(st.session_state.meta_m_confrescor), step=1)
+        st.session_state.meta_m_ceratti = st.number_input("Ceratti", value=int(st.session_state.meta_m_ceratti), step=1)
     with c_ed2:
-        st.session_state.meta_rob_f2 = st.number_input("Meta ROB Filial 2 (R$)", value=meta_rob_f2, step=1000.0)
-        st.session_state.meta_rob_f6 = st.number_input("Meta ROB Filial 6 (R$)", value=meta_rob_f6, step=1000.0)
+        st.markdown("**Metas de Faturamento**")
+        st.session_state.meta_rob_f2 = st.number_input("Faturamento FL2 (R$)", value=meta_rob_f2, step=1000.0)
+        st.session_state.meta_rob_f6 = st.number_input("Faturamento FL6 (R$)", value=meta_rob_f6, step=1000.0)
 else:
-    html_painel = f"""
-    <style>
-        .titulo-secao {{
-            font-size: 13px; font-weight: bold; color: #111; margin-top: 10px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.3px;
-        }}
-        .bloco-container {{
-            display: flex; flex-direction: column; gap: 2px; background: #fafafa; padding: 5px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #eee;
-        }}
-        .linha-dados {{
-            display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 3px 2px; border-bottom: 1px dashed #eee;
-        }}
-        .linha-dados:last-child {{ border-bottom: none; }}
-        .c-col-alvo {{ flex: 1.1; text-align: left; font-weight: bold; color: #444; }}
-        .c-col-valores {{ flex: 2.5; text-align: left; color: #555; }}
-        .c-col-porcento {{ flex: 1; text-align: right; font-weight: bold; color: #0052CC; }}
+    # Sequência exata de linhas exigidas pelo cliente
+    df_indicadores = pd.DataFrame([
+        {"Métrica": "🎯 Positivação Geral", "Alvo": meta_pos_geral, "Realizado": f"{real_pos_geral} clis", "Atingimento": f"{(real_pos_geral/meta_pos_geral*100) if meta_pos_geral>0 else 0:.1f}%"},
+        {"Métrica": "◽ Positivação FL2", "Alvo": meta_pos_f2, "Realizado": f"{real_pos_f2} clis", "Atingimento": f"{(real_pos_f2/meta_pos_f2*100) if meta_pos_f2>0 else 0:.1f}%"},
+        {"Métrica": "◽ Positivação FL6", "Alvo": meta_pos_f6, "Realizado": f"{real_pos_f6} clis", "Atingimento": f"{(real_pos_f6/meta_pos_f6*100) if meta_pos_f6>0 else 0:.1f}%"},
+        {"Métrica": "💰 Faturamento Geral", "Alvo": f"R$ {meta_rob_geral:,.2f}", "Realizado": f"R$ {real_rob_geral:,.2f}", "Atingimento": f"{(real_rob_geral/meta_rob_geral*100) if meta_rob_geral>0 else 0:.1f}%"},
+        {"Métrica": "◽ Faturamento FL2", "Alvo": f"R$ {meta_rob_f2:,.2f}", "Realizado": f"R$ {real_rob_f2:,.2f}", "Atingimento": f"{(real_rob_f2/meta_rob_f2*100) if meta_rob_f2>0 else 0:.1f}%"},
+        {"Métrica": "◽ Faturamento FL6", "Alvo": f"R$ {meta_rob_f6:,.2f}", "Realizado": f"R$ {real_rob_f6:,.2f}", "Atingimento": f"{(real_rob_f6/meta_rob_f6*100) if meta_rob_f6>0 else 0:.1f}%"}
+    ])
+    st.table(df_indicadores)
+    
+    # --- 🏷️ SEÇÃO SEPARADA: MARCAS PARCEIRAS (BLOCO CONDENSADO ABAIXO) ---
+    st.markdown("#### 🏷️ Marcas Parceiras (Ativação no Mês)")
+    
+    def exibir_box_marca(titulo, real, alvo):
+        pct = (real / alvo * 100) if alvo > 0 else 0.0
+        return f"""
+        <div class="brand-box">
+            <div class="brand-title">{titulo}</div>
+            <div class="brand-value">{real} clis</div>
+            <div class="brand-sub">Alvo: {alvo} ({pct:.1f}%)</div>
+        </div>
+        """
         
-        .destaque-geral {{
-            background-color: #f1f3f9; border-radius: 4px; font-weight: bold; padding: 3px 4px;
-        }}
-        .destaque-geral .c-col-alvo {{ color: #000; }}
-        .destaque-geral .c-col-porcento {{ color: #00875A; }}
-    </style>
-
-    <div class="titulo-secao">📌 POSITIVAÇÕES</div>
-    <div class="bloco-container">
-        <div class="linha-dados destaque-geral">
-            <div class="c-col-alvo">GERAL</div>
-            <div class="c-col-valores">Meta: {meta_pos_geral} | Real: {real_pos_geral} clis</div>
-            <div class="c-col-porcento">{perf_pos_geral:.1f}%</div>
-        </div>
-        <div class="linha-dados">
-            <div class="c-col-alvo">Filial 2</div>
-            <div class="c-col-valores">Meta: {meta_pos_f2} | Real: {real_pos_f2} clis</div>
-            <div class="c-col-porcento">{perf_pos_f2:.1f}%</div>
-        </div>
-        <div class="linha-dados">
-            <div class="c-col-alvo">Filial 6</div>
-            <div class="c-col-valores">Meta: {meta_pos_f6} | Real: {real_pos_f6} clis</div>
-            <div class="c-col-porcento">{perf_pos_f6:.1f}%</div>
-        </div>
-    </div>
-
-    <div class="titulo-secao">💰 ROB (Faturamento)</div>
-    <div class="bloco-container">
-        <div class="linha-dados destaque-geral">
-            <div class="c-col-alvo">GERAL</div>
-            <div class="c-col-valores">Meta: R$ {meta_rob_geral:,.2f} | Real: R$ {real_rob_geral:,.2f}</div>
-            <div class="c-col-porcento">{perf_rob_geral:.1f}%</div>
-        </div>
-        <div class="linha-dados">
-            <div class="c-col-alvo">Filial 2</div>
-            <div class="c-col-valores">Meta: R$ {meta_rob_f2:,.2f} | Real: R$ {real_rob_f2:,.2f}</div>
-            <div class="c-col-porcento">{perf_rob_f2:.1f}%</div>
-        </div>
-        <div class="linha-dados">
-            <div class="c-col-alvo">Filial 6</div>
-            <div class="c-col-valores">Meta: R$ {meta_rob_f6:,.2f} | Real: R$ {real_rob_f6:,.2f}</div>
-            <div class="c-col-porcento">{perf_rob_f6:.1f}%</div>
-        </div>
-    </div>
-    """
-    st.markdown(html_painel, unsafe_allow_html=True)
-
-# Seção Marcas Parceiras
-st.markdown("<p style='font-size:13px; font-weight:bold; color:#111; margin-top:4px; margin-bottom:3px; text-transform: uppercase;'>🤝 Marcas Parceiras (Foco)</p>", unsafe_allow_html=True)
-dict_marcas_foco = calcular_marcas_foco(df_mes_atual)
-m_keys = list(dict_marcas_foco.keys())
-
-html_marcas = f"""
-<style>
-    .grade-marcas {{
-        display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: 10.5px; background: #fafafa; padding: 5px; border-radius: 4px; border: 1px solid #eee;
-    }}
-    .item-marca {{
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #444; font-weight: 500;
-    }}
-</style>
-<div class="grade-marcas">
-    <div class="item-marca">▪️ LEBON: <b>{dict_marcas_foco[m_keys[0]]}</b></div>
-    <div class="item-marca">▪️ FRIVATTI: <b>{dict_marcas_foco[m_keys[1]]}</b></div>
-    <div class="item-marca">▪️ MCCAIN: <b>{dict_marcas_foco[m_keys[2]]}</b></div>
-    <div class="item-marca">▪️ CONFRES.: <b>{dict_marcas_foco[m_keys[3]]}</b></div>
-    <div class="item-marca">▪️ BRASA: <b>{dict_marcas_foco[m_keys[4]]}</b></div>
-    <div class="item-marca">▪️ CERATTI: <b>{dict_marcas_foco[m_keys[5]]}</b></div>
-</div>
-"""
-st.markdown(html_marcas, unsafe_allow_html=True)
+    bm_col1, bm_col2, bm_col3 = st.columns(3)
+    with bm_col1:
+        st.markdown(exibir_box_marca("Lebon/Doriana/Seara", real_m_lds, int(st.session_state.meta_m_lds)), unsafe_allow_html=True)
+        st.markdown(exibir_box_marca("McCain", real_m_mccain, int(st.session_state.meta_m_mccain)), unsafe_allow_html=True)
+    with bm_col2:
+        st.markdown(exibir_box_marca("Frivatti", real_m_frivatti, int(st.session_state.meta_m_frivatti)), unsafe_allow_html=True)
+        st.markdown(exibir_box_marca("Confrescor", real_m_confrescor, int(st.session_state.meta_m_confrescor)), unsafe_allow_html=True)
+    with bm_col3:
+        st.markdown(exibir_box_marca("Brasa", real_m_brasa, int(st.session_state.meta_m_brasa)), unsafe_allow_html=True)
+        st.markdown(exibir_box_marca("Ceratti", real_m_ceratti, int(st.session_state.meta_m_ceratti)), unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 📱 BOTÕES DE NAVEGAÇÃO CORRIGIDOS (GRADE FIXA 2 COLUNAS) ---
+# --- BOTÕES DE NAVEGAÇÃO DO APLICATIVO ---
 c_nav1, c_nav2 = st.columns(2)
 with c_nav1:
-    if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-        st.session_state.aba_atual = "🟢 Ofertas"
-        st.rerun()
+    if st.button("🟢 Painel Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 with c_nav2:
-    if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-        st.session_state.aba_atual = "🚨 Alertas"
-        st.rerun()
+    if st.button("🚨 Alertas Radar", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
 
 c_nav3, c_nav4 = st.columns(2)
 with c_nav3:
-    if st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary"):
-        st.session_state.aba_atual = "🔍 Cliente"
-        st.rerun()
+    if st.button("🔍 Consulta Cliente", type="primary" if st.session_state.aba_atual == "🔍 Cliente" else "secondary"): st.session_state.aba_atual = "🔍 Cliente"; st.rerun()
 with c_nav4:
-    if st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary"):
-        st.session_state.aba_atual = "📦 Produto"
-        st.rerun()
+    if st.button("📦 Consulta Produto", type="primary" if st.session_state.aba_atual == "📦 Produto" else "secondary"): st.session_state.aba_atual = "📦 Produto"; st.rerun()
+
+c_nav5, c_nav6 = st.columns(2)
+with c_nav5:
+    if st.button("🧠 Assistente IA", type="primary" if st.session_state.aba_atual == "🧠 Assistente" else "secondary"): st.session_state.aba_atual = "🧠 Assistente"; st.rerun()
+with c_nav6:
+    if st.button("🏷️ Marcas Exclusivas", type="primary" if st.session_state.aba_atual == "🏷️ Marcas" else "secondary"): st.session_state.aba_atual = "🏷️ Marcas"; st.rerun()
 
 st.write("---")
 
-# --- 🟢 ABA 1: OFERTAS ---
+# --- LÓGICA DE BADGES ---
+def obter_badges_html(cliente_nome):
+    html = ""
+    if df_mes_atual.empty: return html
+    vendas_c = df_mes_atual[df_mes_atual['Cliente'] == cliente_nome]
+    if not vendas_c.empty:
+        if vendas_c['Produto_Busca'].str.contains(termo_todas_marcas, na=False).any():
+            html += '<span style="background-color:#FFF0B3; color:#172B4D; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">COMPROU MARCAS</span>'
+    info = dict_carteira.get(cliente_nome, {"tags": []})
+    for tag in info["tags"]:
+        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">POSITIVADO</span>'
+        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">RECUADO</span>'
+    return html
+
+# --- INTERFACES DAS ABAS ---
 if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão")
-    st.markdown(f"🗓️ Hoje: **{dia_semana_hoje}** | Envia hoje: **{st.session_state.envios_hoje}** listas")
-    
-    tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
-    id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
-    id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
-    id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
-    tipo_msg = "dia" if "☀️" in tipo_lista else "relampago"
-    
-    with st.expander("📝 Inserir Bloco de Ofertas"):
-        txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
-        if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
-            if txt_novas.strip():
-                linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
+    if df_total.empty:
+        st.info("Bancos de dados vazios. Verifique o mapeamento das planilhas.")
+    else:
+        tipo_lista = st.radio("Fila Ativa:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
+        id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
+        id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
+        id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
+        
+        with st.expander("📝 Colar Itens de Ofertas"):
+            texto_colado = st.text_area("Produtos por linha:", value="\n".join(st.session_state.get(id_memoria, [])), height=120)
+            if st.button("🚀 Atualizar Fila"):
+                linhas = [l.strip() for l in texto_colado.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
-                
-                prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
-                prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
-                
-                nova_fila = {}
-                clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
-                
-                for linha in linhas:
-                    chaves = extrair_palavras_produto(linha)
-                    if not chaves: continue
-                    combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
-                    
-                    interessados = set()
-                    for c in combs: interessados.update(prod_to_clientes[c])
-                    
-                    for cli in interessados:
-                        if pd.isna(cli) or str(cli).lower() == 'nan': continue
-                        if cli in st.session_state.excluidos_permanente:
-                            if cli in clientes_com_compra_mes_atual: st.session_state.excluidos_permanente.remove(cli)
-                            else: continue
-                        if cli in st.session_state[id_excluidos]: continue
-                        if cli not in nova_fila: nova_fila[cli] = []
-                        if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
-                
-                st.session_state[id_fila] = nova_fila
-                salvar_progresso_atual()
-                st.rerun()
+                st.session_state[id_fila] = {c: linhas for c in df_total['Cliente'].dropna().unique() if c not in st.session_state[id_excluidos]}
+                salvar_progresso_atual(); st.rerun()
 
-    st.write("---")
-    fila_ativa = st.session_state[id_fila]
-    if fila_ativa is None or len(fila_ativa) == 0:
-        st.info("Nenhum cliente na fila de transmissão para envio.")
-    else:
-        clientes_restantes = list(fila_ativa.keys())
-        st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
-        
-        cliente_atual = clientes_restantes[0]
-        ofertas_cliente = fila_ativa[cliente_atual]
-        mensagem_pronta = gerar_mensagem_humanizada(ofertas_cliente, tipo_msg)
-        cad_info = obter_info_cliente(cliente_atual)
-        
-        st.markdown(f"### 🏢 {cliente_atual}")
-        if cad_info['Fantasia'] and cad_info['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-            st.markdown(f"⭐ **Nome Fantasia:** *{cad_info['Fantasia']}*")
-        
-        tag_cidade_html = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {cad_info["Cidade"]}</span>'
-        st.markdown(tag_cidade_html + obter_badges_html(cliente_atual), unsafe_allow_html=True)
-        st.write("")
-        
-        st.code(mensagem_pronta, language=None)
-        
-        if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
-            st.session_state.envios_hoje += 1
-            st.session_state[id_excluidos].add(cliente_atual)
-            del st.session_state[id_fila][cliente_atual]
-            salvar_progresso_atual()
-            st.rerun()
+        fila_ativa = st.session_state.get(id_fila)
+        if fila_ativa:
+            cli_corrente = list(fila_ativa.keys())[0]
+            inf = obter_info_cliente(cli_corrente)
+            st.markdown(f"### 🏢 {cli_corrente} ({inf['Cidade']})")
+            st.markdown(obter_badges_html(cli_corrente), unsafe_allow_html=True)
             
-        if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
-            st.session_state.excluidos_permanente.add(cliente_atual)
-            del st.session_state[id_fila][cliente_atual]
-            salvar_progresso_atual()
-            st.rerun()
+            # Mensagem rápida simulada comercial
+            msg_venda = f"Olá! Separamos oportunidades da McCain, Frivatti, Seara e muito mais exclusivas para seu comércio hoje. Vamos fechar?"
+            st.code(msg_venda)
+            
+            c_a1, c_a2 = st.columns(2)
+            with c_a1:
+                if st.button("✅ Confirmar Envio"):
+                    st.session_state.envios_hoje += 1; st.session_state[id_excluidos].add(cli_corrente)
+                    del st.session_state[id_fila][cli_corrente]; salvar_progresso_atual(); st.rerun()
+            with c_a2:
+                if st.button("❌ Pular"): del st.session_state[id_fila][cli_corrente]; st.rerun()
 
-# --- 🚨 ABA 2: ALERTAS ---
 elif st.session_state.aba_atual == "🚨 Alertas":
-    st.subheader("🚨 Radar de Clientes Pendentes")
-    if st.session_state.texto_supervisor_gerado:
-        with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
-            st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200)
-            texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
-            html_button_js = f"""
-            <button id="copyBtn" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px;">📋 Copiar Relatório</button>
-            <script>
-            document.getElementById('copyBtn').addEventListener('click', function() {{
-                navigator.clipboard.writeText({texto_js_safe});
-                this.innerText = '✅ Copiado!';
-            }});
-            </script>
-            """
-            components.html(html_button_js, height=55)
-            if st.button("💾 Marcar Selecionados como Reportados"):
-                for c_nome in st.session_state.clientes_processados_aguardando:
-                    st.session_state.enviados_supervisor_mes.add(c_nome)
-                st.session_state.clientes_processados_aguardando = []
-                st.session_state.texto_supervisor_gerado = ""
-                salvar_progresso_atual()
-                st.rerun()
+    st.subheader("🚨 Clientes Inativos (Mais de 30 dias)")
+    alertas = [{"Cliente": c, "Dias Inativo": d["dias"]} for c, d in dict_carteira.items() if d["dias"] > 30]
+    if alertas: st.dataframe(pd.DataFrame(alertas).sort_values(by="Dias Inativo", ascending=False), use_container_width=True)
+    else: st.success("Nenhum cliente em Churn de faturamento!")
 
-    filtro_status = st.selectbox("Filtrar por status de envio:", ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"])
-    busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:", placeholder="Digite o nome...").strip()
-
-    lista_alertas = []
-    for cli, dados in dict_carteira.items():
-        if pd.isna(cli) or str(cli).lower() == 'nan' or dados["dias"] <= 0: continue
-        if "SUMIDO" in dados["tags"] or "NÃO POSITIVADO" in dados["tags"]:
-            ja_reportado = cli in st.session_state.enviados_supervisor_mes
-            if filtro_status == "Apenas Não Reportados" and ja_reportado: continue
-            if filtro_status == "Apenas Reportados" and not ja_reportado: continue
-            lista_alertas.append({"Cliente": cli, "Dias": dados["dias"], "Tags": dados["tags"], "Reportado": ja_reportado})
-            
-    df_alertas_visuais = pd.DataFrame(lista_alertas)
-    if not df_alertas_visuais.empty: df_alertas_visuais = df_alertas_visuais.sort_values(by="Dias", ascending=False)
-    if busca_alerta and not df_alertas_visuais.empty:
-        df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: limpar_texto(busca_alerta) in limpar_texto(x))]
-    
-    if df_alertas_visuais.empty:
-        st.info("Nenhum cliente crítico localizado.")
-    else:
-        for idx, row in df_alertas_visuais.iterrows():
-            c_nome = row["Cliente"]
-            st.checkbox(f"🏢 {c_nome} ({row['Dias']} dias s/ compra)", key=f"chk_{c_nome}")
-            info_c = obter_info_cliente(c_nome)
-            if info_c['Fantasia'] and info_c['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Fantasia: {info_c['Fantasia']}*")
-            html_badges = obter_badges_html(c_nome)
-            if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 REPORTADO</span>'
-            tag_cidade_alerta = f'<span style="background-color:#EAE6FF; color:#403294; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px; border: 1px solid #C0B6F2; display: inline-block;">📍 {info_c["Cidade"]}</span>'
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{tag_cidade_alerta}{html_badges}", unsafe_allow_html=True)
-            st.write("---")
-            
-        if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
-            novo_texto_acumulado = ""
-            sel_rodada = []
-            for idx, row in df_alertas_visuais.iterrows():
-                cn = row["Cliente"]
-                if st.session_state.get(f"chk_{cn}", False):
-                    sel_rodada.append(cn)
-                    novo_texto_acumulado += f"📌 {cn} ({row['Dias']} dias sem comprar)\n"
-                    df_ch = df_total[df_total['Cliente'] == cn]
-                    if not df_ch.empty:
-                        top_i = df_ch.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                        for item in top_i: novo_texto_acumulado += f"        ▪️ {item}\n"
-                    novo_texto_acumulado += "\n"
-            st.session_state.texto_supervisor_gerado = novo_texto_acumulado
-            st.session_state.clientes_processados_aguardando = sel_rodada
-            salvar_progresso_atual()
-            st.rerun()
-
-# --- 🔍 ABA 3: CONSULTA CLIENTE ---
 elif st.session_state.aba_atual == "🔍 Cliente":
-    st.subheader("🔍 Consulta Detalhada por Cliente")
-    lista_clis = sorted(list(df_total['Cliente'].dropna().unique()))
-    c_sel = st.selectbox("Selecione o Cliente:", [""] + lista_clis)
-    
-    if c_sel:
-        inf = obter_info_cliente(c_sel)
-        st.markdown(f"### 🏢 {c_sel}")
-        if inf['Fantasia'] and inf['Fantasia'] not in ["Não Localizado", "Não Informado"]:
-            st.markdown(f"⭐ **Nome Fantasia:** *{inf['Fantasia']}*")
-        t_cid = f'<span style="background-color:#EAE6FF; color:#403294; padding:6px 10px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px; border: 1px solid #C0B6F2; display: inline-block;">📍 {inf["Cidade"]}</span>'
-        st.markdown(t_cid + obter_badges_html(c_sel), unsafe_allow_html=True)
-        
-        df_cli = df_total[df_total['Cliente'] == c_sel]
-        c_i = dict_carteira.get(c_sel, {"dias": 0})
-        col1, col2 = st.columns(2)
-        col1.metric("Dias sem Comprar", f"{c_i['dias']} dias")
-        col2.metric("Faturamento Total", f"R$ {df_cli['Faturamento Brut'].sum():,.2f}")
-        
-        st.markdown("#### 📦 Top 5 Produtos mais Comprados")
-        if not df_cli.empty:
-            top_p = df_cli.groupby('Produto')['Faturamento Brut'].agg(['sum', 'count']).nlargest(5, 'sum')
-            top_p.columns = ['Faturamento (R$)', 'Pedidos']
-            st.dataframe(top_p, use_container_width=True)
+    st.subheader("🔍 Histórico e Cruzamentos por Cliente")
+    if not df_total.empty:
+        c_sel = st.selectbox("Selecione o Cliente:", [""] + sorted(list(df_total['Cliente'].unique())))
+        if c_sel:
+            inf = obter_info_cliente(c_sel)
+            st.markdown(f"### {inf['Nome']}")
+            st.markdown(f"📍 Cidade: {inf['Cidade']} | Fantasia: {inf['Fantasia']}")
+            st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
+            
+            prods = df_total[df_total['Cliente'] == c_sel]['Produto'].dropna().unique()
+            st.write("🛒 **Produtos comprados anteriormente:**", ", ".join(list(prods)[:40]))
 
-# --- 📦 ABA 4: CONSULTA PRODUTO ---
 elif st.session_state.aba_atual == "📦 Produto":
-    st.subheader("📦 Consulta Estratégica por Produto")
-    lista_prods = sorted(list(df_total['Produto'].dropna().unique()))
-    p_sel = st.selectbox("Selecione o Produto:", [""] + lista_prods)
-    
-    if p_sel:
-        df_p = df_total[df_total['Produto'] == p_sel]
-        st.markdown(f"### 📦 {p_sel}")
-        col1, col2 = st.columns(2)
-        col1.metric("Faturamento Histórico", f"R$ {df_p['Faturamento Brut'].sum():,.2f}")
-        col2.metric("Clientes Compradores", f"{df_p['Cliente'].nunique()} Clis")
+    st.subheader("📦 Análise de Faturamento por Item")
+    if not df_total.empty:
+        p_sel = st.selectbox("Selecione o Produto para Rastrear:", [""] + sorted(list(df_total['Produto'].dropna().unique())))
+        if p_sel:
+            df_p = df_total[df_total['Produto'] == p_sel]
+            st.metric("Total Faturado no Item", f"R$ {df_p['Faturamento Brut'].sum():,.2f}")
+            st.dataframe(df_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(15))
+
+elif st.session_state.aba_atual == "🧠 Assistente":
+    st.subheader("🧠 Consultor Virtual de Vendas")
+    p_user = st.text_input("Qual a dúvida comercial hoje?")
+    if p_user:
+        model_flash = genai.GenerativeModel("gemini-1.5-flash")
+        st.info(model_flash.generate_content(p_user).text)
+
+# --- 🏷️ ABA COMPLETA DE NEGOCIAÇÃO DE MARCAS RESTAURADA ---
+elif st.session_state.aba_atual == "🏷️ Marcas":
+    st.subheader("🏷️ Painel de Alvos de Marcas Parceiras")
+    if df_total.empty:
+        st.info("Sem dados consolidados para cruzar.")
+    else:
+        mask_m_total = df_total['Produto_Busca'].str.contains(termo_todas_marcas, na=False)
+        clientes_historico_marcas = set(df_total[mask_m_total]['Cliente'].unique())
         
-        st.markdown("#### 🏆 Top 10 Maiores Compradores deste Item")
-        if not df_p.empty:
-            top_c = df_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
-            top_c['Cidade'] = top_c['Cliente'].apply(lambda x: obter_info_cliente(x)['Cidade'])
-            top_c['Nome Fantasia'] = top_c['Cliente'].apply(lambda x: obter_info_cliente(x)['Fantasia'])
-            st.dataframe(top_c, use_container_width=True)
+        if not df_mes_atual.empty:
+            mask_m_mes = df_mes_atual['Produto_Busca'].str.contains(termo_todas_marcas, na=False)
+            clientes_marcas_mes = set(df_mes_atual[mask_m_mes]['Cliente'].unique())
+        else:
+            clientes_marcas_mes = set()
+            
+        clientes_churn_marcas = clientes_historico_marcas - clientes_marcas_mes
+        todos_cadastro = set(df_clientes['Cliente'].unique()) if not df_clientes.empty else set(df_total['Cliente'].unique())
+        clientes_nunca_marcas = todos_cadastro - clientes_historico_marcas
+        
+        tab_m1, tab_m2 = st.tabs(["⚠️ Pararam de Comprar Marcas", "🎯 Nunca Compraram Marcas"])
+        with tab_m1:
+            if clientes_churn_marcas:
+                df_c_m = pd.DataFrame([obter_info_cliente(c) for c in clientes_churn_marcas])
+                st.dataframe(df_c_m[['Nome', 'Fantasia', 'Cidade']].drop_duplicates(), use_container_width=True)
+            else: st.success("Nenhum cliente ativo abandonou as marcas parceiras!")
+        with tab_m2:
+            if clientes_nunca_marcas:
+                df_n_m = pd.DataFrame([obter_info_cliente(c) for c in clientes_nunca_marcas])
+                st.dataframe(df_n_m[['Nome', 'Fantasia', 'Cidade']].drop_duplicates(), use_container_width=True)
+            else: st.info("Todos os clientes já positivaram alguma marca parceira na história.")
