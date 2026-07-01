@@ -174,10 +174,26 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         response = modelo_ia.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        # Fallback de segurança se a IA falhar
+        # Lista de variações para a frase principal
+        frases_ofertas = [
+            "Olha só as ofertas que separei com base nos produtos que você costuma levar:",
+            "Preparei uma lista especial de ofertas baseada nas suas compras anteriores:",
+            "Separei algumas sugestões que têm tudo a ver com o que você gosta:",
+            "Confira estas condições exclusivas que selecionei especialmente para você:",
+            "Aproveite estas ofertas que escolhi pensando no seu perfil de compra:"
+        ]
+        
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
-        msg = f"{random.choice(saudacoes)}\nrandom.choice(saudacoes):\n\n"
-        for of in ofertas: msg += f"👉 {of}\n"
+        
+        # Seleção aleatória tanto da saudação quanto da frase principal
+        saudacao_escolhida = random.choice(saudacoes)
+        frase_escolhida = random.choice(frases_ofertas)
+        
+        msg = f"{saudacao_escolhida}\n{frase_escolhida}\n\n"
+        
+        for of in ofertas: 
+            msg += f"👉 {of}\n"
+        
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
