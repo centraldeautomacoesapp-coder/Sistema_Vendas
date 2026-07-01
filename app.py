@@ -176,7 +176,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
     except Exception as e:
         # Fallback de segurança se a IA falhar
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
-        msg = f"{random.choice(saudacoes)}\nOlha só as ofertas que separei hoje com base nas suas últimas compras:\n\n"
+        msg = f"{random.choice(saudacoes)}\n{random.choice(saudacoes):\n\n"
         for of in ofertas: msg += f"👉 {of}\n"
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
