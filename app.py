@@ -566,10 +566,45 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
                     regras_segmento = {
-                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate"], "pizza": ["Calabresa", "Muçarela", "Presunto"],
-                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese"], "burguer": ["Hambúrguer", "Cheddar"],
-                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão"], "churrasco": ["Linguiça", "Picanha", "Alcatra"]
-                    }
+    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
+    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+}
                     for chave, itens_sugeridos in regras_segmento.items():
                         if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
                     
