@@ -213,9 +213,21 @@ if not df_clientes.empty:
             "Código": extrair_codigo(r['Cliente']), "Nome": r['Cliente'], "Fantasia": r['Nome_Fantasia'], "Cidade": r['Cidade']
         }
 
+# --- 🔍 CORREÇÃO DA BUSCA: REMOVE OS NÚMEROS DO INÍCIO SE NÃO ACHAR DIRETO ---
 def obter_info_cliente(nome_vendas):
     vendas_limpo = limpar_texto(nome_vendas)
     if b := mapa_cadastro_clientes.get(vendas_limpo): return b
+    
+    # Se falhar, remove o prefixo numérico e hífens do nome vindo das vendas e tenta de novo
+    vendas_sem_codigo = re.sub(r'^\d+\s*-\s*', '', str(nome_vendas))
+    vendas_sem_codigo_limpo = limpar_texto(vendas_sem_codigo)
+    if b := mapa_cadastro_clientes.get(vendas_sem_codigo_limpo): return b
+    
+    # Busca parcial de segurança caso ainda não bata 100%
+    for chave_cadastro, dados in mapa_cadastro_clientes.items():
+        if chave_cadastro in vendas_limpo or vendas_sem_codigo_limpo in chave_cadastro:
+            return dados
+
     return {"Código": extrair_codigo(nome_vendas), "Nome": nome_vendas, "Fantasia": "S/F", "Cidade": "Não Localizada"}
 
 # --- 🌐 LÓGICA ESPECIALIZADA DE NICHOS COMERCIAIS ---
@@ -293,7 +305,6 @@ real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum() if not df_mes_atua
 real_rob_geral = real_rob_f2 + real_rob_f6
 meta_rob_geral = float(st.session_state.meta_rob_f2) + float(st.session_state.meta_rob_f6)
 
-# --- FUNÇÃO CORRIGIDA PARA IDENTIFICAR POSITIVAÇÃO DE MARCAS ---
 def calcular_real_marca(regex_marca):
     if df_mes_atual.empty: return 0
     mask = df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)
@@ -338,7 +349,6 @@ else:
     st.table(df_indicadores)
     
     st.markdown("#### 🏷️ Marcas Parceiras (Positivas no Mês)")
-    
     def renderizar_box_marca(titulo, real):
         return f"""<div style="background-color: #f8f9fa; padding: 6px; border-radius: 6px; border-left: 3px solid #FFC107; margin-bottom: 8px; text-align: center; box-shadow: 0px 1px 3px rgba(0,0,0,0.05);"><div style="font-size: 11px; color: #555; font-weight: bold; text-transform: uppercase;">{titulo}</div><div style="font-size: 15px; font-weight: bold; color: #111; margin: 2px 0;">{real} clis</div></div>"""
 
@@ -454,30 +464,36 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             st.markdown("**📱 Texto Gerado para WhatsApp:**")
             dados_oferta = fila_ativa[cli_corrente]
             
-            msg_whatsapp = f"Olá! Tudo bem? Separamos algumas oportunidades exclusivas de itens que você já trabalha conosco da Delly's:\n\n"
-            if dados_oferta["historico"]:
-                for p in dados_oferta["historico"]: msg_whatsapp += f"{p}\n"
+            # --- 🛠️ PROTEÇÃO CONTRA O TYPEERROR ---
+            if isinstance(dados_oferta, dict):
+                msg_whatsapp = f"Olá! Tudo bem? Separamos algumas oportunidades exclusivas de itens que você já trabalha conosco da Delly's:\n\n"
+                if dados_oferta.get("historico"):
+                    for p in dados_oferta["historico"]: msg_whatsapp += f"{p}\n"
+                else:
+                    msg_whatsapp += "• (Consulte nossa tabela para reposição de estoque!)\n"
+                    
+                if dados_oferta.get("nicho"):
+                    msg_whatsapp += f"\n💡 *Recomendado para o segmento {nicho_atual} (Novidades mais vendidas):*\n"
+                    for p in dados_oferta["nicho"]: msg_whatsapp += f"{p}\n"
+                    
+                msg_whatsapp += "\nVamos aproveitar para garantir estas opções no pedido de hoje?"
+                st.code(msg_whatsapp, language="text")
             else:
-                msg_whatsapp += "• (Consulte nossa tabela para reposição de estoque!)\n"
-                
-            if dados_oferta["nicho"]:
-                msg_whatsapp += f"\n💡 *Recomendado para o segmento {nicho_atual} (Novidades mais vendidas):*\n"
-                for p in dados_oferta["nicho"]: msg_whatsapp += f"{p}\n"
-                
-            msg_whatsapp += "\nVamos aproveitar para garantir estas opções no pedido de hoje?"
-            st.code(msg_whatsapp, language="text")
+                st.warning("Aguardando reprocessamento estrutural deste cliente...")
             
             c_a1, c_a2 = st.columns(2)
             with c_a1:
                 if st.button("✅ Confirmar Envio"):
                     st.session_state.envios_hoje += 1
                     st.session_state[id_excluidos].add(cli_corrente)
-                    del st.session_state[id_fila][cli_corrente]
+                    if cli_corrente in st.session_state[id_fila]:
+                        del st.session_state[id_fila][cli_corrente]
                     salvar_progresso_atual()
                     st.rerun()
             with c_a2:
                 if st.button("❌ Pular Cliente"):
-                    del st.session_state[id_fila][cli_corrente]
+                    if cli_corrente in st.session_state[id_fila]:
+                        del st.session_state[id_fila][cli_corrente]
                     st.rerun()
         else:
             st.success("Fila limpa ou concluída para o dia atual!")
