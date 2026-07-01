@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 # O Streamlit busca automaticamente a chave nos Secrets
 api_key = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=api_key)
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 # Usando o modelo flash que é mais rápido e ideal para textos curtos
 modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
 
