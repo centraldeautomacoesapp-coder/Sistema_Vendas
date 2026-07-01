@@ -8,19 +8,18 @@ import re
 import random
 import json
 import streamlit.components.v1 as components
-
-# --- NOVA IMPORTAÇÃO: IA DO GEMINI ---
 import google.generativeai as genai
 
-# Configuração da API do Gemini (ATENÇÃO: Em produção, coloque essa chave no st.secrets)
-import streamlit as st
-import google.generativeai as genai
-
-# O Streamlit busca automaticamente a chave nos Secrets
-api_key = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# Usando o modelo flash que é mais rápido e ideal para textos curtos
-modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
+# --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # Tenta carregar o modelo de forma segura
+    try:
+        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
+    except:
+        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-pro')
+except Exception as e:
+    st.error("Erro ao configurar a API. Verifique se a GEMINI_API_KEY está nos Secrets do Streamlit.")
 
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
@@ -66,7 +65,8 @@ def salvar_progresso_atual():
         "excluidos_ofertas_dia": list(st.session_state.excluidos_ofertas_dia),
         "excluidos_ofertas_relampago": list(st.session_state.excluidos_ofertas_relampago),
         "excluidos_permanente": list(st.session_state.excluidos_permanente),
-        "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes)
+        "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes),
+        "metas_config": st.session_state.get('metas_config', {})
     }
     try:
         with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
@@ -108,6 +108,22 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
+if 'metas_config' not in st.session_state:
+    st.session_state.metas_config = progresso_backup.get("metas_config", {
+        "mes": mes_atual_referencia,
+        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
+        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
+    })
+
+# Reset automático de metas na virada do mês
+if st.session_state.metas_config.get("mes") != mes_atual_referencia:
+    st.session_state.metas_config = {
+        "mes": mes_atual_referencia,
+        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
+        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
+    }
+    salvar_progresso_atual()
+
 # --- AUXILIARES ---
 def limpar_texto(texto):
     if pd.isna(texto): return ""
@@ -121,14 +137,17 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     if not palavras: return df
     return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
+# --- NOVA REGRA: CRUZAMENTO AMPLO (Pega só as 2 primeiras palavras) ---
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    return [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    # Extrai palavras válidas ignorando medidas e números
+    palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    # Retorna apenas as 2 primeiras palavras para cruzar categorias inteiras (ex: miolo alcatra friboi -> ['miolo', 'alcatra'])
+    return palavras_validas[:2]
 
 # --- FUNÇÃO DE GERAÇÃO COM IA GEMINI ---
 def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
-    # Formata as listas para o prompt
     texto_ofertas = "\n".join([f"- {of}" for of in ofertas])
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
     
@@ -156,7 +175,6 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         return response.text.strip()
     except Exception as e:
         # Fallback de segurança se a IA falhar
-        st.warning(f"Erro ao conectar com a IA: {e}")
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
         msg = f"{random.choice(saudacoes)}\nOlha só as ofertas que separei hoje com base nas suas últimas compras:\n\n"
         for of in ofertas: msg += f"👉 {of}\n"
@@ -223,27 +241,9 @@ st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_con
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
-    st.rerun()
+    st.rerun() 
 
-# --- 1. CONFIGURAÇÃO E RESET DE METAS ---
-if 'metas_config' not in st.session_state:
-    st.session_state.metas_config = {
-        "mes": mes_atual_referencia,
-        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
-        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
-    }
-
-# Reset automático na virada do mês
-if st.session_state.metas_config["mes"] != mes_atual_referencia:
-    st.session_state.metas_config = {
-        "mes": mes_atual_referencia,
-        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
-        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
-    }
-    salvar_progresso_atual() # Certifique-se que sua função salvar_progresso_atual inclua 'metas_config'
-
-# --- 2. CÁLCULOS DOS REAIS ---
-# Filtros de Filial (Baseado no seu padrão de dados)
+# --- CÁLCULOS DOS REAIS (METAS) ---
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
 
@@ -255,7 +255,7 @@ real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
 real_fat_fl6 = df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
-# --- 3. FUNÇÃO DE RENDERIZAÇÃO DO CABEÇALHO ---
+# --- FUNÇÃO DE RENDERIZAÇÃO DO CABEÇALHO ---
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     col1.write(f"**{label}**")
@@ -266,7 +266,7 @@ def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     cor = "#00875A" if perc >= 100 else "#DE350B"
     col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.1f}%</div>', unsafe_allow_html=True)
 
-# --- 4. EXIBIÇÃO NA TELA ---
+# --- EXIBIÇÃO DE METAS NA TELA ---
 st.subheader("📊 Painel de Metas")
 if st.button("✏️ Editar Metas do Mês"):
     st.session_state.editar_aberto = True
@@ -300,7 +300,7 @@ exibir_kpi_linha("Geral", m['pos_geral'], real_pos_geral)
 exibir_kpi_linha("FL2", m['pos_fl2'], real_pos_fl2)
 exibir_kpi_linha("FL6", m['pos_fl6'], real_pos_fl6)
 
-st.write("---") # Espaço em branco
+st.write("---")
 
 st.markdown("### ROB FATURAMENTO")
 exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
@@ -309,7 +309,6 @@ exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
 # --- BOTÕES DE NAVEGAÇÃO ---
 st.write("---")
-# Usando colunas para deixar os botões lado a lado (fica mais organizado com o novo header)
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -367,7 +366,7 @@ def obter_badges_html(cliente_nome):
     return html
 
 # ==============================================================================
-# --- ABA 1: OFERTAS (AGORA INTEGRADA COM GEMINI IA) ---
+# --- ABA 1: OFERTAS ---
 # ==============================================================================
 if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão c/ IA 🧠")
@@ -432,31 +431,27 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         st.write("")
         
         # --- GERAÇÃO DA MENSAGEM VIA IA ---
-        # Se for um cliente novo na fila, roda a IA. Se for o mesmo de antes, usa o cache.
         if st.session_state.cliente_ia_atual != cliente_atual:
             st.session_state.cliente_ia_atual = cliente_atual
-            
-            # Pega os 5 produtos mais comprados pelo cliente para dar contexto à IA
             historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
             
             with st.spinner("🧠 Gemini analisando o histórico e escrevendo a mensagem..."):
                 st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
         
-        # Exibe o resultado do Gemini
         st.code(st.session_state.msg_ia_atual, language=None)
         
         if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
             st.session_state.envios_hoje += 1
             st.session_state[id_excluidos].add(cliente_atual)
             del st.session_state[id_fila][cliente_atual]
-            st.session_state.cliente_ia_atual = "" # Limpa cache para o próximo
+            st.session_state.cliente_ia_atual = "" 
             salvar_progresso_atual()
             st.rerun()
             
         if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
             st.session_state.excluidos_permanente.add(cliente_atual)
             del st.session_state[id_fila][cliente_atual]
-            st.session_state.cliente_ia_atual = "" # Limpa cache para o próximo
+            st.session_state.cliente_ia_atual = ""
             salvar_progresso_atual()
             st.rerun()
 
@@ -548,7 +543,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     if not df_cli_h.empty:
                         top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
                         novo_texto_acumulado += "   🔹 Mais Comprados pelo Cliente:\n"
-                        for item in top_itens: novo_texto_acumulado += f"      ▪️ {item}\n"
+                        for item in top_itens: novo_texto_acumulado += f"     ▪️ {item}\n"
                     else:
                         novo_texto_acumulado += "   🔹 Sem histórico recente registrado\n"
                     
@@ -564,7 +559,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     
                     if congest := list(set(sugestoes_seg)):
                         novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
-                        for sug in congest: novo_texto_acumulado += f"      ▪️ {sug}\n"
+                        for sug in congest: novo_texto_acumulado += f"     ▪️ {sug}\n"
                     novo_texto_acumulado += "\n"
             
             if len(clientes_selecionados_na_rodada) > 0:
@@ -576,7 +571,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # ==============================================================================
-# --- ABA 3: CONSULTA E VENDA CRUZADA (COM FINAL CORRIGIDO) ---
+# --- ABA 3: CONSULTA E VENDA CRUZADA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Filtro de Pesquisa:", ["👤 Por Cliente", "📦 Por Produto"], horizontal=True)
@@ -666,11 +661,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         if input_prod:
             filtrados_p = filtrar_por_palavras(df_total, 'Produto_Busca', input_prod)
             
-            # --- FINAL CORRIGIDO AQUI ---
             if not filtrados_p.empty:
                 st.write(f"✅ Encontrados **{len(filtrados_p['Produto'].unique())}** produtos semelhantes.")
                 
-                # Agrupa para descobrir quem são os maiores compradores deste produto
                 st.markdown("### Top 10 Compradores deste Item")
                 top_compradores = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
                 
