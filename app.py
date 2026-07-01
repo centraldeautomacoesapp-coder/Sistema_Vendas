@@ -577,4 +577,125 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             nicho_c = identificar_nicho(inf['Nome'], inf['Fantasia'])
             
             tags_completas = list(info_c["tags"])
-            vendas_c_mes = df_mes_atual[df_mes_atual['Cliente'] == c_sel] if not df_mes_atual.emp
+            vendas_c_mes = df_mes_atual[df_mes_atual['Cliente'] == c_sel] if not df_mes_atual.empty else pd.DataFrame()
+            if not vendas_c_mes.empty:
+                txt_v_mes = " ".join(vendas_c_mes['Produto_Busca'].unique())
+                if re.search(regex_seara, txt_v_mes): tags_completas.append("SEARA")
+                if re.search(regex_frivatti, txt_v_mes): tags_completas.append("FRIVATTI")
+                if re.search(regex_mccain, txt_v_mes): tags_completas.append("MCCAIN")
+                if re.search(regex_brasa, txt_v_mes): tags_completas.append("BRASA")
+                if re.search(regex_confrescor, txt_v_mes): tags_completas.append("CONFRESCOR")
+                if re.search(regex_ceratti, txt_v_mes): tags_completas.append("CERATTI")
+            
+            st.markdown(f"### {inf['Código']} - {inf['Nome']}")
+            st.markdown(f"📍 Cidade: {inf['Cidade']} | Segmento: **{nicho_c}**")
+            st.markdown(renderizar_tags_html(tags_completas), unsafe_allow_html=True)
+            st.write("---")
+            
+            st.markdown("🔥 **Produtos em Oferta Combinando com o Cliente:**")
+            ofertas_ativas = st.session_state.get("memoria_ofertas_cruas_dia", []) + st.session_state.get("memoria_ofertas_cruas_rel", [])
+            prods_historico_todos = df_total[df_total['Cliente'] == c_sel]['Produto_Busca'].unique()
+            matches_oferta = []
+            for of in ofertas_ativas:
+                for p in prods_historico_todos:
+                    if verificar_match_produto(of, p): matches_oferta.append(of); break
+            if matches_oferta:
+                for m in set(matches_oferta): st.success(f"• {m}")
+            else: st.write("*Nenhuma combinação para hoje.*")
+            
+            st.markdown(f"💡 **Produtos Recomendados para o Segmento ({nicho_c}):**")
+            prods_populares_nicho = nichos_produtos_db.get(nicho_c, [])
+            recomendados_nicho = [p for p in prods_populares_nicho if p not in prods_historico_todos][:5]
+            if recomendados_nicho:
+                for p_rec in recomendados_nicho: st.info(f"• {p_rec.upper()} (O segmento usa muito)")
+            else: st.write("*Mix do segmento completo.*")
+            
+            st.markdown("📊 **Top 10 Produtos Mais Comprados:**")
+            top_10 = df_total[df_total['Cliente'] == c_sel]['Produto'].value_counts().head(10)
+            for p, qtd in top_10.items(): st.write(f"🔹 {p} ({qtd}x)")
+                
+            st.markdown("⏳ **Produtos Abandonados:**")
+            ultimas_por_item = df_total[df_total['Cliente'] == c_sel].groupby('Produto')['Data_Datetime'].max()
+            for prod, dt_u in ultimas_por_item.items():
+                if dt_u < pd.to_datetime(mes_exibicao + "-01"):
+                    st.warning(f"• {prod} (Último em: {dt_u.strftime('%d/%m/%Y')})")
+
+# ==========================================
+# 📦 ABA CONSULTA PRODUTO
+# ==========================================
+elif st.session_state.aba_atual == "📦 Produto":
+    st.subheader("📦 Rastreamento por Item e Nicho")
+    if not df_total.empty:
+        busca_prod = st.text_input("Buscar Produto (Desconsidera acentos/ç):")
+        produtos_lista = sorted(list(df_total['Produto'].dropna().unique()))
+        if busca_prod:
+            produtos_lista = [p for p in produtos_lista if limpar_texto(busca_prod) in limpar_texto(p)]
+            
+        p_sel = st.selectbox("Selecione o Item:", [""] + produtos_lista)
+        if p_sel:
+            p_sel_busca = limpar_texto(p_sel)
+            df_p = df_total[df_total['Produto_Busca'] == p_sel_busca]
+            st.metric("Total Faturado no Item", f"R$ {df_p['Faturamento Brut'].sum():,.2f}")
+            
+            nichos_compradores = []
+            for c_comprador in df_p['Cliente'].unique():
+                inf_cc = obter_info_cliente(c_comprador)
+                nichos_compradores.append(identificar_nicho(inf_cc['Nome'], inf_cc['Fantasia']))
+            nicho_predominante = max(set(nichos_compradores), key=nichos_compradores.count) if nichos_compradores else "Geral"
+            
+            st.markdown("**🏢 Recomendações de Clientes e Prospecção:**")
+            for c in df_total['Cliente'].dropna().unique():
+                inf = obter_info_cliente(c)
+                clientes_compraram = set(df_p['Cliente'].unique())
+                nicho_deste_cli = identificar_nicho(inf['Nome'], inf['Fantasia'])
+                
+                if c in clientes_compraram:
+                    st.markdown(f"👤 **{inf['Código']} - {inf['Fantasia'] or inf['Nome']}** ({inf['Cidade']})")
+                    st.markdown(renderizar_tags_html(["JÁ COMPROU"]), unsafe_allow_html=True)
+                    st.write("---")
+                elif nicho_deste_cli == nicho_predominante:
+                    st.markdown(f"👤 **{inf['Código']} - {inf['Fantasia'] or inf['Nome']}** ({inf['Cidade']})")
+                    st.markdown(renderizar_tags_html(["VEND CRUZADA"]), unsafe_allow_html=True)
+                    st.write(f"*Cliente pertence ao nicho {nicho_deste_cli}, que mais consome este item.*")
+                    st.write("---")
+
+# ==========================================
+# 🧠 ABA ASSISTENTE IA
+# ==========================================
+elif st.session_state.aba_atual == "🧠 Assistente":
+    st.subheader("🧠 Consultor Virtual Delly's")
+    p_user = st.text_input("Qual a dúvida comercial hoje?")
+    if p_user:
+        model_flash = genai.GenerativeModel("gemini-1.5-flash")
+        st.info(model_flash.generate_content(p_user).text)
+
+# ==========================================
+# 🏷️ ABA MARCAS EXCLUSIVAS
+# ==========================================
+elif st.session_state.aba_atual == "🏷️ Marcas":
+    st.subheader("🏷️ Painel de Alvos de Marcas")
+    opcao_tela_marca = st.radio("Filtro Comercial:", ["⚠️ Já Compraram", "🎯 Nunca Compraram"], horizontal=True)
+    marca_alvo = st.selectbox("Selecione a Marca:", ["SEARA", "MCCAIN", "FRIVATTI", "CONFRESCOR", "BRASA", "CERATTI"])
+    
+    regex_mapa = {"SEARA": regex_seara, "MCCAIN": regex_mccain, "FRIVATTI": regex_frivatti, "CONFRESCOR": regex_confrescor, "BRASA": regex_brasa, "CERATTI": regex_ceratti}
+    reg_marca_sel = regex_mapa[marca_alvo]
+    
+    clientes_com_compra_mes = set(df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(reg_marca_sel, na=False)]['Cliente'].unique()) if not df_mes_atual.empty else set()
+    clientes_historico_marca = set(df_total[df_total['Produto_Busca'].str.contains(reg_marca_sel, na=False)]['Cliente'].unique())
+    todos_clientes_sistema = set(df_total['Cliente'].dropna().unique())
+    
+    if "⚠️ Já Compraram" in opcao_tela_marca:
+        alvos = clientes_historico_marca - clientes_com_compra_mes
+        for c in alvos:
+            inf = obter_info_cliente(c)
+            st.markdown(f"🏢 **{inf['Código']} - {inf['Nome']}** ({inf['Cidade']})")
+            prods_hist = df_total[(df_total['Cliente'] == c) & (df_total['Produto_Busca'].str.contains(reg_marca_sel, na=False))]['Produto'].unique()
+            st.write("📋 *Já comprou:*", ", ".join(list(prods_hist)[:5]))
+            st.write("---")
+    else:
+        alvos = todos_clientes_sistema - clientes_com_compra_mes
+        for c in alvos:
+            inf = obter_info_cliente(c)
+            st.markdown(f"🏢 **{inf['Código']} - {inf['Nome']}** ({inf['Cidade']})")
+            st.write("❌ *Nunca positivou este item.*")
+            st.write("---")
