@@ -44,6 +44,88 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
+# --- 1. CONFIGURAÇÃO E RESET DE METAS ---
+if 'metas_config' not in st.session_state:
+    st.session_state.metas_config = {
+        "mes": mes_atual_referencia,
+        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
+        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
+    }
+
+# Reset automático na virada do mês
+if st.session_state.metas_config["mes"] != mes_atual_referencia:
+    st.session_state.metas_config = {
+        "mes": mes_atual_referencia,
+        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
+        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
+    }
+    salvar_progresso_atual() # Certifique-se que sua função salvar_progresso_atual inclua 'metas_config'
+
+# --- 2. CÁLCULOS DOS REAIS ---
+# Filtros de Filial (Baseado no seu padrão de dados)
+df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
+df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
+
+real_pos_fl2 = df_fl2['Cliente'].nunique()
+real_pos_fl6 = df_fl6['Cliente'].nunique()
+real_pos_geral = real_pos_fl2 + real_pos_fl6
+
+real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
+real_fat_fl6 = df_fl6['Faturamento Brut'].sum()
+real_fat_geral = real_fat_fl2 + real_fat_fl6
+
+# --- 3. FUNÇÃO DE RENDERIZAÇÃO DO CABEÇALHO ---
+def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    col1.write(f"**{label}**")
+    col2.write(f"Meta: {f'R$ {meta:,.0f}' if eh_faturamento else meta}")
+    col3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
+    
+    perc = (realizado / meta * 100) if meta > 0 else 0
+    cor = "#00875A" if perc >= 100 else "#DE350B"
+    col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.1f}%</div>', unsafe_allow_html=True)
+
+# --- 4. EXIBIÇÃO NA TELA ---
+st.subheader("📊 Painel de Metas")
+if st.button("✏️ Editar Metas do Mês"):
+    st.session_state.editar_aberto = True
+
+if st.session_state.get('editar_aberto', False):
+    with st.expander("Configurar Metas", expanded=True):
+        m = st.session_state.metas_config
+        with st.form("form_metas"):
+            st.write("Positivação (Qtd Clientes)")
+            c1, c2, c3 = st.columns(3)
+            m['pos_geral'] = c1.number_input("Geral", value=m['pos_geral'])
+            m['pos_fl2'] = c2.number_input("FL2", value=m['pos_fl2'])
+            m['pos_fl6'] = c3.number_input("FL6", value=m['pos_fl6'])
+            
+            st.write("Faturamento (R$)")
+            c4, c5, c6 = st.columns(3)
+            m['fat_geral'] = c4.number_input("Geral", value=m['fat_geral'])
+            m['fat_fl2'] = c5.number_input("FL2", value=m['fat_fl2'])
+            m['fat_fl6'] = c6.number_input("FL6", value=m['fat_fl6'])
+            
+            if st.form_submit_button("Salvar Metas"):
+                st.session_state.metas_config = m
+                salvar_progresso_atual()
+                st.session_state.editar_aberto = False
+                st.rerun()
+
+# --- RENDERIZAÇÃO DO CABEÇALHO ---
+st.markdown("### Positivação")
+m = st.session_state.metas_config
+exibir_kpi_linha("Geral", m['pos_geral'], real_pos_geral)
+exibir_kpi_linha("FL2", m['pos_fl2'], real_pos_fl2)
+exibir_kpi_linha("FL6", m['pos_fl6'], real_pos_fl6)
+
+st.write("---") # Espaço em branco
+
+st.markdown("### ROB FATURAMENTO")
+exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
+exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
+exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
+
 # --- 📁 SISTEMA DE PERSISTÊNCIA ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
