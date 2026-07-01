@@ -20,7 +20,7 @@ import google.generativeai as genai
 api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 # Usando o modelo flash que é mais rápido e ideal para textos curtos
-modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
+modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
 
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
