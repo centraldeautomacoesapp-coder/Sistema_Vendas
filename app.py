@@ -59,6 +59,7 @@ def carregar_progresso_salvo():
 
 def salvar_progresso_atual():
     dados = {
+        "mes_referencia_salvo": mes_atual_referencia,
         "data_ultimo_acesso": data_hoje_str,
         "envios_hoje": st.session_state.get("envios_hoje", 0),
         "fila_ofertas_dia": st.session_state.get("fila_ofertas_dia", None),
@@ -84,6 +85,21 @@ def salvar_progresso_atual():
     except: pass
 
 progresso_backup = carregar_progresso_salvo()
+mes_salvo = progresso_backup.get("mes_referencia_salvo", "")
+
+# 🔄 --- LÓGICA DE ZERAMENTO AUTOMÁTICO SE MUDAR O MÊS ---
+if mes_salvo != "" and mes_salvo != mes_atual_referencia:
+    # Virou o mês! Zera todas as metas e filas do arquivo de backup
+    progresso_backup = {
+        "mes_referencia_salvo": mes_atual_referencia,
+        "data_ultimo_acesso": data_hoje_str,
+        "envios_hoje": 0, "fila_ofertas_dia": None, "fila_ofertas_relampago": None,
+        "memoria_ofertas_cruas_dia": [], "memoria_ofertas_cruas_rel": [],
+        "excluidos_ofertas_dia": [], "excluidos_ofertas_relampago": [],
+        "meta_pos_f2": 0, "meta_pos_f6": 0, "meta_rob_f2": 0.0, "meta_rob_f6": 0.0,
+        "meta_m_lds": 0, "meta_m_frivatti": 0, "meta_m_brasa": 0, "meta_m_mccain": 0, "meta_m_confrescor": 0, "meta_m_ceratti": 0
+    }
+
 ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
 
 if 'envios_hoje' not in st.session_state:
@@ -125,7 +141,7 @@ def limpar_texto(texto):
     if pd.isna(texto): return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
 
-# --- 🧠 CONEXÃO ROBUSTA E EXTRAÇÃO DE BANCOS DE DADOS DELIVERIES ---
+# --- 🧠 EXTRAÇÃO E VINCULAÇÃO POR CÓDIGO DO CLIENTE ---
 @st.cache_data(ttl=600)
 def carregar_dados_vendas():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
@@ -141,6 +157,7 @@ def carregar_dados_vendas():
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
             
+            c_cod = next((c for c in df.columns if any(k in str(c).lower() for k in ["cod", "id", "codigo", "cd_cl"])), None)
             c_dt = next((c for c in df.columns if any(k in str(c).lower() for k in ["dt", "data", "delivery", "faturamento"])), None)
             c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower()), None)
             c_prod = next((c for c in df.columns if "produto" in str(c).lower() or "desc" in str(c).lower()), None)
@@ -148,8 +165,12 @@ def carregar_dados_vendas():
             c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower()), None)
             
             if c_dt and c_cli and c_prod and c_fat:
-                sub = df[[c_dt, c_cli, c_prod, c_fat]].copy()
-                sub.columns = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
+                sub = pd.DataFrame()
+                sub['Dt. Delivery'] = df[c_dt]
+                sub['Cod_Cliente'] = df[c_cod].astype(str).str.strip() if c_cod else df[c_cli].apply(limpar_texto)
+                sub['Cliente'] = df[c_cli].astype(str).str.strip()
+                sub['Produto'] = df[c_prod].astype(str).str.strip()
+                sub['Faturamento Brut'] = df[c_fat]
                 sub['Filial'] = df[c_fil].astype(str).str.strip() if c_fil else "2"
                     
                 if sub['Faturamento Brut'].dtype == 'object':
@@ -160,11 +181,10 @@ def carregar_dados_vendas():
         
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
-        unificado = unificado[unificado['Cliente'].notna()]
+        unificado = unificado[unificado['Cod_Cliente'].notna()]
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], errors='coerce')
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
         unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
-        unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
         return unificado
     return pd.DataFrame()
 
@@ -182,24 +202,25 @@ def carregar_base_clientes_cadastro():
         try:
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
+            c_cod = next((c for c in df.columns if any(k in str(c).lower() for k in ["cod", "id", "codigo", "cd_cl"])), None)
             c_cli = next((c for c in df.columns if "cliente" in str(c).lower() or "raz" in str(c).lower()), None)
             c_fant = next((c for c in df.columns if "fantasia" in str(c).lower() or "nome" in str(c).lower()), None)
             c_cid = next((c for c in df.columns if "cidade" in str(c).lower() or "munic" in str(c).lower()), None)
             
             if c_cli:
                 sub = pd.DataFrame()
-                sub['Cliente'] = df[c_cli].astype(str).str.strip()
+                sub['Cod_Cliente'] = df[c_cod].astype(str).str.strip() if c_cod else df[c_cli].apply(limpar_texto)
+                sub['Razao_Social'] = df[c_cli].astype(str).str.strip()
                 sub['Nome_Fantasia'] = df[c_fant].astype(str).str.strip() if c_fant else ""
                 sub['Cidade'] = df[c_cid].astype(str).str.strip() if c_cid else "Não Informada"
-                sub['Cliente_Busca'] = sub['Cliente'].apply(limpar_texto)
                 lista_dfs_cli.append(sub)
         except: continue
         
     if lista_dfs_cli:
-        return pd.concat(lista_dfs_cli, ignore_index=True).drop_duplicates(subset=['Cliente_Busca'])
+        return pd.concat(lista_dfs_cli, ignore_index=True).drop_duplicates(subset=['Cod_Cliente'])
     return pd.DataFrame()
 
-with st.spinner("Conectando e sincronizando bases Delly's..."):
+with st.spinner("Conectando e sincronizando bases Delly's por Chave de Código..."):
     df_total = carregar_dados_vendas()
     df_clientes = carregar_base_clientes_cadastro()
 
@@ -210,31 +231,36 @@ if not df_total.empty:
         mes_exibicao = max(meses_com_dados)
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_exibicao] if not df_total.empty else pd.DataFrame()
-
 termo_todas_marcas = "lebon|doriana|seara|frivatti|brasa|mccain|confrescor|ceratti"
 
+# Mapa indexado por Código do Cliente
 mapa_cadastro_clientes = {}
 if not df_clientes.empty:
     for _, r in df_clientes.iterrows():
-        mapa_cadastro_clientes[r['Cliente_Busca']] = {
-            "Nome": r['Cliente'], "Fantasia": r['Nome_Fantasia'], "Cidade": r['Cidade']
+        mapa_cadastro_clientes[str(r['Cod_Cliente'])] = {
+            "Cod": r['Cod_Cliente'], "Razao": r['Razao_Social'], "Fantasia": r['Nome_Fantasia'], "Cidade": r['Cidade']
         }
 
-def obter_info_cliente(nome_vendas):
-    vendas_limpo = limpar_texto(nome_vendas)
-    if b := mapa_cadastro_clientes.get(vendas_limpo): return b
-    return {"Nome": nome_vendas, "Fantasia": "", "Cidade": "Não Localizada"}
+def obter_info_cliente(cod_cliente):
+    cod_str = str(cod_cliente)
+    if b := mapa_cadastro_clientes.get(cod_str): return b
+    # Fallback se não achar no cadastro externo
+    if not df_total.empty:
+        sub_c = df_total[df_total['Cod_Cliente'] == cod_str]
+        if not sub_c.empty:
+            return {"Cod": cod_str, "Razao": sub_c['Cliente'].iloc[0], "Fantasia": "", "Cidade": "Não Localizada"}
+    return {"Cod": cod_str, "Razao": f"Cod: {cod_str}", "Fantasia": "", "Cidade": "Não Localizada"}
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
     if df.empty: return mapa
-    ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
-    for cli in df['Cliente'].unique():
+    ultimas_compras = df.groupby('Cod_Cliente')['Data_Datetime'].max().to_dict()
+    for cod_cli in df['Cod_Cliente'].unique():
         tags = []
-        dt_ult = ultimas_compras.get(cli, data_hoje)
+        dt_ult = ultimas_compras.get(cod_cli, data_hoje)
         dias_sem_compra = (data_hoje - dt_ult).days
-        vendas_mes = df_mes[df_mes['Cliente'] == cli] if not df_mes.empty else pd.DataFrame()
+        vendas_mes = df_mes[df_mes['Cod_Cliente'] == cod_cli] if not df_mes.empty else pd.DataFrame()
         
         if not vendas_mes.empty:
             tags.append("POSITIVADO")
@@ -244,7 +270,7 @@ def analisar_carteira_clientes(df, df_mes, data_hoje):
         else:
             tags.append("NÃO POSITIVADO")
         if dias_sem_compra > 30: tags.append("SUMIDO")
-        mapa[cli] = {"tags": tags, "dias": dias_sem_compra}
+        mapa[str(cod_cli)] = {"tags": tags, "dias": dias_sem_compra}
     return mapa
 
 dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_sistema)
@@ -252,9 +278,9 @@ dict_carteira = analisar_carteira_clientes(df_total, df_mes_atual, data_atual_si
 mask_f2 = df_mes_atual['Filial'].astype(str).str.strip().isin(['2', '02', '2.0']) if not df_mes_atual.empty else pd.Series()
 mask_f6 = df_mes_atual['Filial'].astype(str).str.strip().isin(['6', '06', '6.0']) if not df_mes_atual.empty else pd.Series()
 
-real_pos_f2 = df_mes_atual[mask_f2]['Cliente'].nunique() if not df_mes_atual.empty else 0
-real_pos_f6 = df_mes_atual[mask_f6]['Cliente'].nunique() if not df_mes_atual.empty else 0
-real_pos_geral = df_mes_atual['Cliente'].nunique() if not df_mes_atual.empty else 0
+real_pos_f2 = df_mes_atual[mask_f2]['Cod_Cliente'].nunique() if not df_mes_atual.empty else 0
+real_pos_f6 = df_mes_atual[mask_f6]['Cod_Cliente'].nunique() if not df_mes_atual.empty else 0
+real_pos_geral = df_mes_atual['Cod_Cliente'].nunique() if not df_mes_atual.empty else 0
 
 meta_pos_f2, meta_pos_f6 = int(st.session_state.meta_pos_f2), int(st.session_state.meta_pos_f6)
 meta_pos_geral = meta_pos_f2 + meta_pos_f6
@@ -268,7 +294,7 @@ meta_rob_geral = meta_rob_f2 + meta_rob_f6
 
 def calcular_real_marca(regex_marca):
     if df_mes_atual.empty: return 0
-    return df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)]['Cliente'].nunique()
+    return df_mes_atual[df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)]['Cod_Cliente'].nunique()
 
 real_m_lds = calcular_real_marca("lebon|doriana|seara")
 real_m_frivatti = calcular_real_marca("frivatti")
@@ -363,22 +389,22 @@ with c_nav6:
 
 st.write("---")
 
-def obter_badges_html(cliente_nome):
+def obter_badges_html(cod_cliente):
     html = ""
     if df_mes_atual.empty: return html
-    vendas_c = df_mes_atual[df_mes_atual['Cliente'] == cliente_nome]
+    vendas_c = df_mes_atual[df_mes_atual['Cod_Cliente'] == str(cod_cliente)]
     if not vendas_c.empty:
         if vendas_c['Produto_Busca'].str.contains(termo_todas_marcas, na=False).any():
             html += '<span style="background-color:#FFF0B3; color:#172B4D; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">COMPROU MARCAS</span>'
-    info = dict_carteira.get(cliente_nome, {"tags": []})
+    info = dict_carteira.get(str(cod_cliente), {"tags": []})
     for tag in info["tags"]:
         if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">POSITIVADO</span>'
         elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">RECUADO</span>'
     return html
 
-# --- INTERFACES DAS ABAS ---
+# --- INTERFACES ABAS CONTROLADAS PELA GEMINI IA ---
 if st.session_state.aba_atual == "🟢 Ofertas":
-    st.subheader("📋 Painel de Transmissão Inteligente")
+    st.subheader("📋 Painel de Transmissão por Combinação de Palavras-Chave")
     if df_total.empty:
         st.info("Bancos de dados vazios.")
     else:
@@ -389,132 +415,158 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         
         with st.expander("📝 Colar Itens de Ofertas"):
             texto_colado = st.text_area("Produtos por linha:", value="\n".join(st.session_state.get(id_memoria, [])), height=120)
-            if st.button("🚀 Atualizar Fila"):
-                linhas = [l.strip() for l in texto_colado.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
-                st.session_state[id_fila] = {c: linhas for c in df_total['Cliente'].dropna().unique() if c not in st.session_state[id_excluidos]}
-                st.session_state.cache_ia_gemini = {} # Limpa o cache ao mudar ofertas
+            if st.button("🚀 Gerar Fila Inteligente"):
+                linhas_ofertas = [l.strip() for l in texto_colado.split('\n') if l.strip()]
+                st.session_state[id_memoria] = linhas_ofertas
+                st.session_state.cache_ia_gemini = {}
+                
+                # 🧠 ENGINE DE CRUZAMENTO POR PALAVRA-CHAVE (Mapeia nichos mesmo de marcas diferentes)
+                nova_fila_filtrada = {}
+                # Extrai raízes de palavras significativas com mais de 3 letras das ofertas coladas
+                for cod_cli, grupo_historico in df_total.groupby('Cod_Cliente'):
+                    if cod_cli in st.session_state[id_excluidos]: continue
+                    
+                    produtos_comprados_historico = " ".join(grupo_historico['Produto_Busca'].astype(str).unique())
+                    ofertas_que_combinam = []
+                    
+                    for oferta in linhas_ofertas:
+                        palavras_oferta = re.findall(r'\b\w{4,}\b', limpar_texto(oferta))
+                        # Se o cliente já comprou termos parecidos (Ex: comprou batata tradicional, oferta é batata McCain)
+                        if any(p in produtos_comprados_historico for p in palavras_oferta):
+                            ofertas_que_combinam.append(oferta)
+                            
+                    if ofertas_que_combinam:
+                        nova_fila_filtrada[str(cod_cli)] = ofertas_que_combinam
+                
+                st.session_state[id_fila] = nova_fila_filtrada
                 salvar_progresso_atual(); st.rerun()
 
         fila_ativa = st.session_state.get(id_fila)
         if fila_ativa:
-            cli_corrente = list(fila_ativa.keys())[0]
-            inf = obter_info_cliente(cli_corrente)
+            cod_cli_corrente = list(fila_ativa.keys())[0]
+            inf = obter_info_cliente(cod_cli_corrente)
             
-            st.markdown(f"### 🏢 {cli_corrente} ({inf['Cidade']})")
-            st.markdown(obter_badges_html(cli_corrente), unsafe_allow_html=True)
+            st.markdown(f"### 🏢 {inf['Razao']} \n *({inf['Nome_Fantasia'] if inf['Fantasia'] else 'Sem Fantasia'} - {inf['Cidade']})*")
+            st.markdown(f"**Código Interno:** {cod_cli_corrente}")
+            st.markdown(obter_badges_html(cod_cli_corrente), unsafe_allow_html=True)
             
-            # 🧠 --- AQUI ENTRA O CRUZA-DADOS DA IA VERDADEIRA ---
-            # Puxamos o que ele já comprou na história para a IA analisar o nicho/perfil dele
-            historico_produtos = df_total[df_total['Cliente'] == cli_corrente]['Produto'].dropna().unique()
-            produtos_oferecidos_hoje = fila_ativa[cli_corrente]
+            historico_produtos = df_total[df_total['Cod_Cliente'] == cod_cli_corrente]['Produto'].dropna().unique()
+            produtos_combinados_hoje = fila_ativa[cod_cli_corrente]
             
-            # Chave única de identificação no cache para não gastar sua API toda hora que a tela recarregar
-            chave_cache = f"{cli_corrente}_{id_fila}"
+            chave_cache = f"{cod_cli_corrente}_{id_fila}"
             
             if chave_cache not in st.session_state.cache_ia_gemini:
-                with st.spinner("🧠 Gemini analisando histórico do cliente e criando oferta personalizada..."):
+                with st.spinner("🧠 Gemini estruturando a oferta com base no nicho encontrado..."):
                     try:
                         prompt_ia = f"""
-                        Você é o especialista comercial de inteligência da distribuidora Delly's.
-                        Gere uma mensagem comercial curta e persuasiva para enviar via WhatsApp para o cliente '{cli_corrente}' de '{inf['Cidade']}'.
-
-                        HISTÓRICO REAL DE COMPRAS DELE (Use para entender o nicho dele):
-                        {list(historico_produtos)[:15]}
-
-                        PRODUTOS EM OFERTA HOJE (Escolha os melhores ou relacione com as marcas parceiras):
-                        {produtos_oferecidos_hoje}
-
-                        NOSSAS MARCAS EXCLUSIVAS/PARCEIRAS EM FOCO:
-                        Lebon, Doriana, Seara, Frivatti, Brasa, McCain, Confrescor e Ceratti.
-
-                        REGRAS DA MENSAGEM:
-                        1. Seja muito direto, simpático e profissional.
-                        2. Use quebras de linha e poucos emojis para leitura rápida no celular.
-                        3. Cite o nome de alguma marca parceira se fizer sentido com o nicho dele (ex: se ele compra muita batata, foque na McCain).
-                        4. Não invente preços ou prazos. Apenas monte o texto de abordagem comercial.
+                        Você é o consultor master da distribuidora Delly's. 
+                        Escreva uma mensagem comercial exclusiva para WhatsApp focando nos produtos em oferta que COMBINAM com o perfil desse cliente.
+                        
+                        CLIENTE: {inf['Razao']} (Fantasia: {inf['Fantasia']})
+                        LOCAL: {inf['Cidade']}
+                        
+                        PRODUTOS QUE ELE JÁ COMPROU NO PASSADO (Nicho dele):
+                        {list(historico_produtos)[:12]}
+                        
+                        OFERTAS DA DELLY'S QUE COMBINAM COM ELE HOJE (Foque nisso):
+                        {produtos_combinados_hoje}
+                        
+                        REGRAS: Estilo direto, parágrafos curtos, gatilho de oportunidade rápida, use pouquíssimos emojis. Sem inventar dados.
                         """
                         model_flash = genai.GenerativeModel("gemini-1.5-flash")
-                        resposta_ia = model_flash.generate_content(prompt_ia).text
-                        st.session_state.cache_ia_gemini[chave_cache] = resposta_ia
-                    except Exception as e:
-                        st.session_state.cache_ia_gemini[chave_cache] = f"Olá! Separamos excelentes oportunidades em marcas parceiras como McCain, Seara e Frivatti hoje para o seu negócio. Vamos aproveitar?"
+                        st.session_state.cache_ia_gemini[chave_cache] = model_flash.generate_content(prompt_ia).text
+                    except:
+                        st.session_state.cache_ia_gemini[chave_cache] = "Olá! Identificamos que as novas ofertas de marcas parceiras combinam muito com seu histórico de compras. Vamos repor o estoque?"
 
-            msg_venda = st.session_state.cache_ia_gemini[chave_cache]
-            
-            st.markdown("**📝 Abordagem Gerada por Inteligência Artificial:**")
-            st.code(msg_venda)
+            st.markdown("**📝 Texto de Abordagem Sugerido pela IA:**")
+            st.code(st.session_state.cache_ia_gemini[chave_cache])
             
             c_a1, c_a2 = st.columns(2)
             with c_a1:
-                if st.button("✅ Confirmar Envio"):
-                    st.session_state.envios_hoje += 1; st.session_state[id_excluidos].add(cli_corrente)
-                    del st.session_state[id_fila][cli_corrente]; salvar_progresso_atual(); st.rerun()
+                if st.button("✅ Confirmar e Ir Próximo"):
+                    st.session_state.envios_hoje += 1; st.session_state[id_excluidos].add(cod_cli_corrente)
+                    del st.session_state[id_fila][cod_cli_corrente]; salvar_progresso_atual(); st.rerun()
             with c_a2:
-                if st.button("❌ Pular"): del st.session_state[id_fila][cli_corrente]; st.rerun()
+                if st.button("❌ Pular Cliente"): del st.session_state[id_fila][cod_cli_corrente]; st.rerun()
         else:
-            st.success("🎉 Nenhuma oferta pendente nesta fila!")
+            st.success("🎉 Nenhuma oferta pendente ou sem combinações encontradas para os alvos colados!")
 
 elif st.session_state.aba_atual == "🚨 Alertas":
-    st.subheader("🚨 Clientes Inativos (Mais de 30 dias)")
-    alertas = [{"Cliente": c, "Dias Inativo": d["dias"]} for c, d in dict_carteira.items() if d["dias"] > 30]
-    if alertas: st.dataframe(pd.DataFrame(alertas).sort_values(by="Dias Inativo", ascending=False), use_container_width=True)
+    st.subheader("🚨 Alertas de Churn Analisados pela IA")
+    alertas_lista = [{"Cod": c, "Razao": obter_info_cliente(c)["Razao"], "Dias_Inativo": d["dias"]} for c, d in dict_carteira.items() if d["dias"] > 30]
+    
+    if alertas_lista:
+        df_alerta = pd.DataFrame(alertas_lista).sort_values(by="Dias_Inativo", ascending=False)
+        st.dataframe(df_alerta, use_container_width=True)
+        
+        if st.button("🧠 Solicitar Plano de Ação Geral ao Gemini"):
+            with st.spinner("Analisando carteira inativa..."):
+                prompt_alerta = f"Com base nessa amostra de clientes da distribuidora que sumiram há mais de 30 dias: {alertas_lista[:10]}. Dê 3 dicas cirúrgicas e comerciais para a equipe de vendas reverter esse cenário imediatamente."
+                model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                st.info(model_flash.generate_content(prompt_alerta).text)
     else: st.success("Nenhum cliente em Churn de faturamento!")
 
 elif st.session_state.aba_atual == "🔍 Cliente":
-    st.subheader("🔍 Histórico e Cruzamentos por Cliente")
+    st.subheader("🔍 Diagnóstico Comercial Inteligente")
     if not df_total.empty:
-        c_sel = st.selectbox("Selecione o Cliente:", [""] + sorted(list(df_total['Cliente'].unique())))
+        codigos_unicos = sorted(list(df_total['Cod_Cliente'].unique()))
+        c_sel = st.selectbox("Selecione o Código do Cliente:", [""] + codigos_unicos)
         if c_sel:
             inf = obter_info_cliente(c_sel)
-            st.markdown(f"### {inf['Nome']}")
-            st.markdown(f"📍 Cidade: {inf['Cidade']} | Fantasia: {inf['Fantasia']}")
+            st.markdown(f"### {inf['Razao']}")
+            st.markdown(f"📍 **Cidade:** {inf['Cidade']} | **Nome Fantasia:** {inf['Fantasia']}")
             st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
-            prods = df_total[df_total['Cliente'] == c_sel]['Produto'].dropna().unique()
-            st.write("🛒 **Produtos comprados anteriormente:**", ", ".join(list(prods)[:40]))
+            
+            prods = df_total[df_total['Cod_Cliente'] == c_sel]['Produto'].dropna().unique()
+            st.write("🛒 **Histórico Físico de Itens:**", ", ".join(list(prods)[:20]))
+            
+            if st.button("🧠 Pedir Análise de Perfil ao Gemini"):
+                with st.spinner("Estudando comportamento..."):
+                    prompt_perfil = f"O cliente '{inf['Razao']}' possui este histórico de compras: {list(prods)[:30]}. Defina em uma linha qual é o provável nicho dele (ex: pizzaria, mercado, etc) e qual produto complementar das marcas McCain, Seara ou Ceratti deveríamos oferecer."
+                    model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                    st.success(model_flash.generate_content(prompt_perfil).text)
 
 elif st.session_state.aba_atual == "📦 Produto":
-    st.subheader("📦 Análise de Faturamento por Item")
+    st.subheader("📦 Otimização Comercial de Itens")
     if not df_total.empty:
-        p_sel = st.selectbox("Selecione o Produto para Rastrear:", [""] + sorted(list(df_total['Produto'].dropna().unique())))
+        p_sel = st.selectbox("Selecione o Produto:", [""] + sorted(list(df_total['Produto'].dropna().unique())))
         if p_sel:
             df_p = df_total[df_total['Produto'] == p_sel]
             st.metric("Total Faturado no Item", f"R$ {df_p['Faturamento Brut'].sum():,.2f}")
-            st.dataframe(df_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(15))
+            
+            if st.button("🧠 Gerar Argumento de Venda com Gemini"):
+                with st.spinner("Criando pitch..."):
+                    prompt_prod = f"Gere um argumento de vendas matador de 2 frases para o produto '{p_sel}' focado em convencer donos de estabelecimentos comerciais de alimentação."
+                    model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                    st.warning(model_flash.generate_content(prompt_prod).text)
 
 elif st.session_state.aba_atual == "🧠 Assistente":
     st.subheader("🧠 Consultor Virtual de Vendas")
-    p_user = st.text_input("Qual a dúvida comercial hoje?")
+    p_user = st.text_input("Qual a dúvida comercial ou estratégica hoje?")
     if p_user:
         model_flash = genai.GenerativeModel("gemini-1.5-flash")
         st.info(model_flash.generate_content(p_user).text)
 
 elif st.session_state.aba_atual == "🏷️ Marcas":
-    st.subheader("🏷️ Painel de Alvos de Marcas Parceiras")
+    st.subheader("🏷️ Campanhas Estratégicas para Marcas Exclusivas")
     if df_total.empty:
         st.info("Sem dados consolidados para cruzar.")
     else:
         mask_m_total = df_total['Produto_Busca'].str.contains(termo_todas_marcas, na=False)
-        clientes_historico_marcas = set(df_total[mask_m_total]['Cliente'].unique())
+        clientes_historico_marcas = set(df_total[mask_m_total]['Cod_Cliente'].unique())
         
         if not df_mes_atual.empty:
             mask_m_mes = df_mes_atual['Produto_Busca'].str.contains(termo_todas_marcas, na=False)
-            clientes_marcas_mes = set(df_mes_atual[mask_m_mes]['Cliente'].unique())
+            clientes_marcas_mes = set(df_mes_atual[mask_m_mes]['Cod_Cliente'].unique())
         else:
             clientes_marcas_mes = set()
             
         clientes_churn_marcas = clientes_historico_marcas - clientes_marcas_mes
-        todos_cadastro = set(df_clientes['Cliente'].unique()) if not df_clientes.empty else set(df_total['Cliente'].unique())
-        clientes_nunca_marcas = todos_cadastro - clientes_historico_marcas
         
-        tab_m1, tab_m2 = st.tabs(["⚠️ Pararam de Comprar Marcas", "🎯 Nunca Compraram Marcas"])
-        with tab_m1:
-            if clientes_churn_marcas:
-                df_c_m = pd.DataFrame([obter_info_cliente(c) for c in clientes_churn_marcas])
-                st.dataframe(df_c_m[['Nome', 'Fantasia', 'Cidade']].drop_duplicates(), use_container_width=True)
-            else: st.success("Nenhum cliente ativo abandonou as marcas parceiras!")
-        with tab_m2:
-            if clientes_nunca_marcas:
-                df_n_m = pd.DataFrame([obter_info_cliente(c) for c in clientes_nunca_marcas])
-                st.dataframe(df_n_m[['Nome', 'Fantasia', 'Cidade']].drop_duplicates(), use_container_width=True)
-            else: st.info("Todos os clientes já positivaram alguma marca parceira na história.")
+        st.markdown(f"**Clientes que abandonaram marcas parceiras neste mês:** {len(clientes_churn_marcas)}")
+        if clientes_churn_marcas and st.button("🧠 Criar Pitch de Reativação para Marcas"):
+            with st.spinner("Gerando campanha..."):
+                ex_clientes = [obter_info_cliente(c)["Razao"] for c in list(clientes_churn_marcas)[:5]]
+                prompt_m = f"Monte uma mensagem curta de reengajamento direcionada a clientes como {ex_clientes} que já compraram nossas marcas exclusivas (Seara, McCain, Ceratti, Frivatti, Brasa) mas não realizaram nenhum pedido delas esse mês."
+                model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                st.write(model_flash.generate_content(prompt_m).text)
