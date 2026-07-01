@@ -293,6 +293,12 @@ real_rob_f6 = df_mes_atual[mask_f6]['Faturamento Brut'].sum() if not df_mes_atua
 real_rob_geral = real_rob_f2 + real_rob_f6
 meta_rob_geral = float(st.session_state.meta_rob_f2) + float(st.session_state.meta_rob_f6)
 
+# --- FUNÇÃO CORRIGIDA PARA IDENTIFICAR POSITIVAÇÃO DE MARCAS ---
+def calcular_real_marca(regex_marca):
+    if df_mes_atual.empty: return 0
+    mask = df_mes_atual['Produto_Busca'].str.contains(regex_marca, na=False)
+    return df_mes_atual[mask]['Cliente'].nunique()
+
 real_m_seara = calcular_real_marca(regex_seara)
 real_m_mccain = calcular_real_marca(regex_mccain)
 real_m_frivatti = calcular_real_marca(regex_frivatti)
@@ -321,7 +327,6 @@ if st.session_state.modo_edicao_metas:
         st.session_state.meta_rob_f2 = st.number_input("Fat. FL2 (R$)", value=float(st.session_state.meta_rob_f2), step=1000.0)
         st.session_state.meta_rob_f6 = st.number_input("Fat. FL6 (R$)", value=float(st.session_state.meta_rob_f6), step=1000.0)
 else:
-    # Tabela com exibição completa de faturamento geral e por filiais
     df_indicadores = pd.DataFrame([
         {"Métrica": "🎯 Positivação Geral", "Alvo": meta_pos_geral, "Realizado": f"{real_pos_geral} clis", "Ating.": f"{(real_pos_geral/meta_pos_geral*100) if meta_pos_geral>0 else 0:.1f}%"},
         {"Métrica": "◽ Positivação FL2", "Alvo": st.session_state.meta_pos_f2, "Realizado": f"{real_pos_f2} clis", "Ating.": f"{(real_pos_f2/int(st.session_state.meta_pos_f2)*100) if int(st.session_state.meta_pos_f2)>0 else 0:.1f}%"},
@@ -332,7 +337,6 @@ else:
     ])
     st.table(df_indicadores)
     
-    # --- 🏷️ BLOCO DE MARCAS SEM METAS (CORREÇÃO DE TEXTO LITERAL / DUAS COLUNAS MOBILE) ---
     st.markdown("#### 🏷️ Marcas Parceiras (Positivas no Mês)")
     
     def renderizar_box_marca(titulo, real):
@@ -397,7 +401,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             texto_colado = st.text_area("Insira as ofertas do dia:", value="\n".join(st.session_state.get(id_memoria, [])), height=100)
             if st.button("🚀 Processar Inteligência Comercial"):
                 linhas = [l.strip() for l in texto_colado.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines
+                st.session_state[id_memoria] = linhas
                 
                 nova_fila = {}
                 for cli in df_total['Cliente'].dropna().unique():
@@ -411,8 +415,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     matches_historico = []
                     matches_niche = []
                     
-                    for linha_of in lines:
-                        # 1. Cruzamento direto por histórico do cliente
+                    for linha_of in linhas:
                         hist_match = False
                         for p_hist in prods_historico:
                             if verificar_match_produto(linha_of, p_hist):
@@ -420,7 +423,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                                 hist_match = True
                                 break
                         
-                        # 2. Cruzamento inteligente de venda cruzada do nicho
                         if not hist_match:
                             for p_nicho in prods_sugeridos_nicho:
                                 if p_nicho not in prods_historico:
@@ -574,7 +576,6 @@ elif st.session_state.aba_atual == "🔍 Cliente":
             st.markdown(renderizar_tags_html(tags_completas), unsafe_allow_html=True)
             st.write("---")
             
-            # 1. Produtos em Oferta que casam com Histórico
             st.markdown("🔥 **Produtos em Oferta Combinando com o Cliente:**")
             ofertas_ativas = st.session_state.get("memoria_ofertas_cruas_dia", []) + st.session_state.get("memoria_ofertas_cruas_rel", [])
             prods_historico_todos = df_total[df_total['Cliente'] == c_sel]['Produto_Busca'].unique()
@@ -586,7 +587,6 @@ elif st.session_state.aba_atual == "🔍 Cliente":
                 for m in set(matches_oferta): st.success(f"• {m}")
             else: st.write("*Nenhuma combinação para hoje.*")
             
-            # 2. Venda Cruzada Inteligente Baseada em Nicho
             st.markdown(f"💡 **Produtos Recomendados para o Segmento ({nicho_c}):**")
             prods_populares_nicho = nichos_produtos_db.get(nicho_c, [])
             recomendados_nicho = [p for p in prods_populares_nicho if p not in prods_historico_todos][:5]
@@ -594,12 +594,10 @@ elif st.session_state.aba_atual == "🔍 Cliente":
                 for p_rec in recomendados_nicho: st.info(f"• {p_rec.upper()} (O segmento usa muito)")
             else: st.write("*Mix do segmento completo.*")
             
-            # 3. Top 10 Produtos (Uma linha por item)
             st.markdown("📊 **Top 10 Produtos Mais Comprados:**")
             top_10 = df_total[df_total['Cliente'] == c_sel]['Produto'].value_counts().head(10)
             for p, qtd in top_10.items(): st.write(f"🔹 {p} ({qtd}x)")
                 
-            # 4. Abandonados
             st.markdown("⏳ **Produtos Abandonados:**")
             ultimas_por_item = df_total[df_total['Cliente'] == c_sel].groupby('Produto')['Data_Datetime'].max()
             for prod, dt_u in ultimas_por_item.items():
@@ -623,7 +621,6 @@ elif st.session_state.aba_atual == "📦 Produto":
             df_p = df_total[df_total['Produto_Busca'] == p_sel_busca]
             st.metric("Total Faturado no Item", f"R$ {df_p['Faturamento Brut'].sum():,.2f}")
             
-            # Identifica quais nichos compram muito esse produto para indicar venda cruzada
             nichos_compradores = []
             for c_comprador in df_p['Cliente'].unique():
                 inf_cc = obter_info_cliente(c_comprador)
