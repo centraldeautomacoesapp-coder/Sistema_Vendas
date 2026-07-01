@@ -202,8 +202,7 @@ def carregar_base_clientes_cadastro():
         return pd.concat(lista_dfs_cli, ignore_index=True).drop_duplicates(subset=['Cliente_Busca'])
     return pd.DataFrame()
 
-# --- CORRIGIDO AQUI: de 'St.spinner' para 'st.spinner' ---
-with st.spinner("Conectando e sincronizando bases Delly's..."):
+with St.spinner("Conectando e sincronizando bases Delly's..."):
     df_total = carregar_dados_vendas()
     df_clientes = carregar_base_clientes_cadastro()
 
