@@ -218,6 +218,13 @@ if df_total.empty:
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
+# --- CABEÇALHO ---
+st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+if st.button("🔄 Sincronizar Sistema"):
+    st.cache_data.clear()
+    st.toast("Sincronizando...", icon="🔄")
+    st.rerun()
+
 # --- 1. CONFIGURAÇÃO E RESET DE METAS ---
 if 'metas_config' not in st.session_state:
     st.session_state.metas_config = {
@@ -336,30 +343,6 @@ def obter_badges_html(cliente_nome):
         elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
-
-# --- CABEÇALHO ---
-st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
-if st.button("🔄 Sincronizar Sistema"):
-    st.cache_data.clear()
-    st.toast("Sincronizando...", icon="🔄")
-    st.rerun()
-
-st.write("---")
-f2_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 2" in v["tags"])
-f6_pos = sum(1 for c, v in dict_carteira.items() if "FILIAL 6" in v["tags"])
-nao_pos_mes = sum(1 for c, v in dict_carteira.items() if "NÃO POSITIVADO" in v["tags"])
-
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #00875A; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟢 POSITIVADOS FILIAL 2</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f2_pos} Clientes</h4></div>""", unsafe_allow_html=True)
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #FF8B00; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🟠 POSITIVADOS FILIAL 6</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{f6_pos} Clientes</h4></div>""", unsafe_allow_html=True)
-st.markdown(f"""<div style="background-color: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 5px solid #DE350B; margin-bottom:8px;"><p style="margin:0; font-size:12px; color:#555; font-weight:bold;">🔴 NÃO POSITIVADOS NO MÊS</p><h4 style="margin:0; font-size:16px; font-weight:bold;">{nao_pos_mes} Clientes</h4></div>""", unsafe_allow_html=True)
-
-st.write("---")
-
-# --- NAVEGAÇÃO ---
-if st.button("🟢 Painel de Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
-if st.button("🚨 Alertas de Clientes", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-if st.button("🔍 Consulta & Cruzamentos", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-st.write("---")
 
 # ==============================================================================
 # --- ABA 1: OFERTAS (AGORA INTEGRADA COM GEMINI IA) ---
