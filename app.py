@@ -7,13 +7,13 @@ import unicodedata
 import re
 import random
 import json
+import shutil # <--- ADICIONADO PARA LIMPEZA DE CACHE DE ARQUIVOS
 import streamlit.components.v1 as components
 import google.generativeai as genai
 
 # --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Tenta carregar o modelo de forma segura
     try:
         modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
     except:
@@ -104,7 +104,6 @@ if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofert
 if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
 
-# Variáveis de cache para a IA não gerar a mesma mensagem duas vezes
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
@@ -115,7 +114,6 @@ if 'metas_config' not in st.session_state:
         "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
     })
 
-# Reset automático de metas na virada do mês
 if st.session_state.metas_config.get("mes") != mes_atual_referencia:
     st.session_state.metas_config = {
         "mes": mes_atual_referencia,
@@ -137,13 +135,10 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     if not palavras: return df
     return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
-# --- NOVA REGRA: CRUZAMENTO AMPLO (Pega só as 2 primeiras palavras) ---
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    # Extrai palavras válidas ignorando medidas e números
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
-    # Retorna apenas as 3 primeiras palavras para cruzar categorias inteiras (ex: miolo alcatra friboi -> ['miolo', 'alcatra'])
     return palavras_validas[:3]
 
 # --- FUNÇÃO DE GERAÇÃO COM IA GEMINI ---
@@ -174,7 +169,6 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         response = modelo_ia.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        # Lista de variações para a frase principal
         frases_ofertas = [
             "Olha só as ofertas que separei com base nos produtos que você costuma levar:",
             "Preparei uma lista especial de ofertas baseada nas suas compras anteriores:",
@@ -184,11 +178,8 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         ]
         
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
-        
-        # Seleção aleatória tanto da saudação quanto da frase principal
         saudacao_escolhida = random.choice(saudacoes)
         frase_escolhida = random.choice(frases_ofertas)
-        
         msg = f"{saudacao_escolhida}\n{frase_escolhida}\n\n"
         
         for of in ofertas: 
@@ -202,7 +193,13 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
-    if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
+    
+    # CORREÇÃO: Limpar a pasta local completamente antes de sincronizar
+    # Isso impede que o Gdown ignore planilhas atualizadas que possuem o mesmo nome
+    if os.path.exists(pasta_destino):
+        shutil.rmtree(pasta_destino)
+    os.makedirs(pasta_destino)
+    
     try:
         gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
     except: pass
@@ -247,7 +244,7 @@ with st.spinner("Sincronizando base de dados..."):
     df_total = carregar_dados_nuvem()
 
 if df_total.empty:
-    st.warning("Base de dados vazia.")
+    st.warning("Base de dados vazia. Verifique a conexão com o Google Drive.")
     st.stop()
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
@@ -256,7 +253,7 @@ df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
-    st.toast("Sincronizando...", icon="🔄")
+    st.toast("Baixando dados frescos da nuvem...", icon="🔄")
     st.rerun() 
 
 # --- CÁLCULOS DOS REAIS (METAS) ---
@@ -566,45 +563,45 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
                     regras_segmento = {
-    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
-}
+                        "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
+                        "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+                        "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+                        "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+                        "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+                        "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+                        "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+                        "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+                        "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+                        "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+                        "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+                        "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+                        "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+                        "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+                        "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+                        "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+                        "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+                        "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+                        "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+                        "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+                        "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+                        "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+                        "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+                        "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+                        "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+                        "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+                        "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+                        "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+                        "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+                        "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+                        "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+                        "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+                        "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+                        "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+                        "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+                    }
                     for chave, itens_sugeridos in regras_segmento.items():
                         if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
                     
@@ -655,43 +652,43 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 regras_segmento = {
                     "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+                    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+                    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+                    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+                    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+                    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+                    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+                    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+                    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+                    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+                    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+                    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+                    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+                    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+                    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+                    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+                    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+                    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+                    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+                    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+                    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+                    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+                    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+                    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+                    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+                    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+                    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+                    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+                    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+                    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+                    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+                    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+                    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+                    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+                    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+                    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+                    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+                    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
                 }
                 
                 for chave, itens_sugeridos in regras_segmento.items():
