@@ -188,29 +188,102 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
-# --- CARREGAMENTO DE DADOS ---
-@st.cache_data(ttl=600)
-def carregar_dados_nuvem():
-    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-    pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
-    
-    # Limpa a pasta local para forçar novo download
-    if os.path.exists(pasta_destino):
-        shutil.rmtree(pasta_destino)
-    os.makedirs(pasta_destino)
-    
-    # 1. TENTA BAIXAR E MOSTRA O ERRO SE FALHAR
+# 1. COLOQUE SUA CHAVE E OS IDS DAS PASTAS NO TOPO DO ARQUIVO
+API_KEY = "AIzaSyCFk9dWY4Nvejj7i5svH9100fGo_rqEk7s"
+PASTA_HISTORICO_ID = "1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF"
+PASTA_CLIENTES_ID = "1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu"
+
+# 2. ESSA FUNÇÃO DE LIMPEZA É NECESSÁRIA PARA AS BUSCAS FUNCIONAREM
+def limpar_texto(texto):
+    if pd.isna(texto):
+        return ""
+    texto = str(texto).strip().lower()
+    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
+    return texto
+
+# 3. NOVA FUNÇÃO AUXILIAR DA API
+def listar_arquivos_da_pasta(folder_id, api_key):
+    url = "https://www.googleapis.com/drive/v3/files"
+    params = {
+        "q": f"'{folder_id}' in parents and trashed = false",
+        "key": api_key,
+        "fields": "files(id, name)"
+    }
     try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=False)
-    except Exception as e:
-        st.error(f"Erro ao conectar com o Google Drive: {e}")
-        return pd.DataFrame()
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get("files", [])
+        return []
+    except:
+        return []
+
+# 4. SUBSTITUA A SUA FUNÇÃO ANTIGA DE CARREGAR HISTÓRICO POR ESTA
+@st.cache_data(ttl=600)
+def carregar_dados_nuvem():  # Mantenha o exato nome da sua função original se ela se chamar assim
+    arquivos = listar_arquivos_da_pasta(PASTA_HISTORICO_ID, API_KEY)
+    arquivos_excel = [f for f in arquivos if f['name'].endswith('.xlsx') or f['name'].endswith('.xls')]
     
-    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
-    
-    # 2. VERIFICA SE ENCONTROU ARQUIVOS
     if not arquivos_excel:
-        st.error("Conectou ao Drive, mas não encontrou nenhum arquivo .xlsx na pasta!")
+        return pd.DataFrame()
+        
+    lista_dfs = []
+    for arq in arquivos_excel:
+        file_id = arq['id']
+        download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
+        try:
+            resp = requests.get(download_url)
+            if resp.status_code != 200: continue
+            
+            df = pd.read_excel(io.BytesIO(resp.content))
+            df.columns = df.columns.str.strip()
+            
+            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
+            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
+            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
+            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
+            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
+            
+            if c_dt and c_cli and c_prod and c_fat:
+                sel = [c_dt, c_cli, c_prod, c_fat]
+                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
+                if c_fil:
+                    sel.append(c_fil)
+                    heads.append('Filial')
+                sub = df[sel].copy()
+                sub.columns = heads
+                if sub['Faturamento Brut'].dtype == 'object':
+                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
+                lista_dfs.append(sub)
+        except:
+            continue
+            
+    if lista_dfs:
+        unificado = pd.concat(lista_dfs, ignore_index=True)
+        unificado = unificado[unificado['Cliente'].notna()]
+        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
+        unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
+        unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
+        unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
+        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
+        return unificado
+    return pd.DataFrame()
+
+# 5. ADICIONE ESTA NOVA FUNÇÃO PARA CARREGAR A SUA SEGUNDA PASTA (CLIENTES)
+@st.cache_data(ttl=600)
+def carregar_lista_clientes():
+    arquivos = listar_arquivos_da_pasta(PASTA_CLIENTES_ID, API_KEY)
+    arquivos_excel = [f for f in arquivos if f['name'].endswith('.xlsx') or f['name'].endswith('.xls')]
+    if not arquivos_excel:
+        return pd.DataFrame()
+    try:
+        resp = requests.get(f"https://www.googleapis.com/drive/v3/files/{arquivos_excel[0]['id']}?alt=media&key={API_KEY}")
+        df_clientes = pd.read_excel(io.BytesIO(resp.content))
+        df_clientes.columns = df_clientes.columns.str.strip()
+        if 'Cliente' in df_clientes.columns:
+            df_clientes['Cliente_Busca'] = df_clientes['Cliente'].apply(limpar_texto)
+        return df_clientes
+    except:
         return pd.DataFrame()
         
     lista_dfs = []
