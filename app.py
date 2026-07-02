@@ -7,13 +7,13 @@ import unicodedata
 import re
 import random
 import json
-import shutil # <--- ADICIONADO PARA LIMPEZA DE CACHE DE ARQUIVOS
 import streamlit.components.v1 as components
 import google.generativeai as genai
 
 # --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # Tenta carregar o modelo de forma segura
     try:
         modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
     except:
@@ -104,6 +104,7 @@ if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofert
 if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
 
+# Variáveis de cache para a IA não gerar a mesma mensagem duas vezes
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
@@ -114,6 +115,7 @@ if 'metas_config' not in st.session_state:
         "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
     })
 
+# Reset automático de metas na virada do mês
 if st.session_state.metas_config.get("mes") != mes_atual_referencia:
     st.session_state.metas_config = {
         "mes": mes_atual_referencia,
@@ -135,10 +137,13 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     if not palavras: return df
     return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
+# --- NOVA REGRA: CRUZAMENTO AMPLO (Pega só as 2 primeiras palavras) ---
 def extrair_palavras_produto(linha):
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
+    # Extrai palavras válidas ignorando medidas e números
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    # Retorna apenas as 3 primeiras palavras para cruzar categorias inteiras (ex: miolo alcatra friboi -> ['miolo', 'alcatra'])
     return palavras_validas[:3]
 
 # --- FUNÇÃO DE GERAÇÃO COM IA GEMINI ---
@@ -169,6 +174,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         response = modelo_ia.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
+        # Lista de variações para a frase principal
         frases_ofertas = [
             "Olha só as ofertas que separei com base nos produtos que você costuma levar:",
             "Preparei uma lista especial de ofertas baseada nas suas compras anteriores:",
@@ -178,8 +184,11 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         ]
         
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
+        
+        # Seleção aleatória tanto da saudação quanto da frase principal
         saudacao_escolhida = random.choice(saudacoes)
         frase_escolhida = random.choice(frases_ofertas)
+        
         msg = f"{saudacao_escolhida}\n{frase_escolhida}\n\n"
         
         for of in ofertas: 
@@ -188,119 +197,28 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
-# 1. COLOQUE SUA CHAVE E OS IDS DAS PASTAS NO TOPO DO ARQUIVO
-API_KEY = "AIzaSyCFk9dWY4Nvejj7i5svH9100fGo_rqEk7s"
-PASTA_HISTORICO_ID = "1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF"
-PASTA_CLIENTES_ID = "1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu"
-
-# 2. ESSA FUNÇÃO DE LIMPEZA É NECESSÁRIA PARA AS BUSCAS FUNCIONAREM
-def limpar_texto(texto):
-    if pd.isna(texto):
-        return ""
-    texto = str(texto).strip().lower()
-    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
-    return texto
-
-# 3. NOVA FUNÇÃO AUXILIAR DA API
-def listar_arquivos_da_pasta(folder_id, api_key):
-    url = "https://www.googleapis.com/drive/v3/files"
-    params = {
-        "q": f"'{folder_id}' in parents and trashed = false",
-        "key": api_key,
-        "fields": "files(id, name)"
-    }
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            return response.json().get("files", [])
-        return []
-    except:
-        return []
-
-# 4. SUBSTITUA A SUA FUNÇÃO ANTIGA DE CARREGAR HISTÓRICO POR ESTA
+# --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=600)
-def carregar_dados_nuvem():  # Mantenha o exato nome da sua função original se ela se chamar assim
-    arquivos = listar_arquivos_da_pasta(PASTA_HISTORICO_ID, API_KEY)
-    arquivos_excel = [f for f in arquivos if f['name'].endswith('.xlsx') or f['name'].endswith('.xls')]
-    
-    if not arquivos_excel:
-        return pd.DataFrame()
-        
-    lista_dfs = []
-    for arq in arquivos_excel:
-        file_id = arq['id']
-        download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
-        try:
-            resp = requests.get(download_url)
-            if resp.status_code != 200: continue
-            
-            df = pd.read_excel(io.BytesIO(resp.content))
-            df.columns = df.columns.str.strip()
-            
-            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
-            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
-            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
-            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
-            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
-            
-            if c_dt and c_cli and c_prod and c_fat:
-                sel = [c_dt, c_cli, c_prod, c_fat]
-                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
-                if c_fil:
-                    sel.append(c_fil)
-                    heads.append('Filial')
-                sub = df[sel].copy()
-                sub.columns = heads
-                if sub['Faturamento Brut'].dtype == 'object':
-                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
-                lista_dfs.append(sub)
-        except:
-            continue
-            
-    if lista_dfs:
-        unificado = pd.concat(lista_dfs, ignore_index=True)
-        unificado = unificado[unificado['Cliente'].notna()]
-        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
-        unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
-        unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
-        unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
-        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
-        return unificado
-    return pd.DataFrame()
-
-# 5. ADICIONE ESTA NOVA FUNÇÃO PARA CARREGAR A SUA SEGUNDA PASTA (CLIENTES)
-@st.cache_data(ttl=600)
-def carregar_lista_clientes():
-    arquivos = listar_arquivos_da_pasta(PASTA_CLIENTES_ID, API_KEY)
-    arquivos_excel = [f for f in arquivos if f['name'].endswith('.xlsx') or f['name'].endswith('.xls')]
-    if not arquivos_excel:
-        return pd.DataFrame()
+def carregar_dados_nuvem():
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
+    if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     try:
-        resp = requests.get(f"https://www.googleapis.com/drive/v3/files/{arquivos_excel[0]['id']}?alt=media&key={API_KEY}")
-        df_clientes = pd.read_excel(io.BytesIO(resp.content))
-        df_clientes.columns = df_clientes.columns.str.strip()
-        if 'Cliente' in df_clientes.columns:
-            df_clientes['Cliente_Busca'] = df_clientes['Cliente'].apply(limpar_texto)
-        return df_clientes
-    except:
-        return pd.DataFrame()
-        
-    lista_dfs = []
-    arquivos_ignorados = 0
+        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
+    except: pass
     
+    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
+    lista_dfs = []
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
-            
             c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
             c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
             c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
             c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
             c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
             
-            # 3. VERIFICA AS COLUNAS
             if c_dt and c_cli and c_prod and c_fat:
                 sel = [c_dt, c_cli, c_prod, c_fat]
                 heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
@@ -313,17 +231,7 @@ def carregar_lista_clientes():
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
-            else:
-                arquivos_ignorados += 1
-        except Exception as e:
-            st.error(f"Erro ao ler o arquivo {arquivo}: {e}")
-            continue
-            
-    # 4. AVISA SE AS COLUNAS ESTIVEREM ERRADAS
-    if arquivos_ignorados > 0 and not lista_dfs:
-        st.error(f"Encontrou {arquivos_ignorados} planilhas, mas NENHUMA tinha as colunas corretas (dt entrega, cliente, produto, faturamento brut).")
-        return pd.DataFrame()
-        
+        except: continue
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'].notna()]
@@ -333,15 +241,13 @@ def carregar_lista_clientes():
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
         if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return unificado
-        
-    return pd.DataFrame()
     return pd.DataFrame()
 
 with st.spinner("Sincronizando base de dados..."):
     df_total = carregar_dados_nuvem()
 
 if df_total.empty:
-    st.warning("Base de dados vazia. Verifique a conexão com o Google Drive.")
+    st.warning("Base de dados vazia.")
     st.stop()
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
@@ -350,7 +256,7 @@ df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
-    st.toast("Baixando dados frescos da nuvem...", icon="🔄")
+    st.toast("Sincronizando...", icon="🔄")
     st.rerun() 
 
 # --- CÁLCULOS DOS REAIS (METAS) ---
@@ -660,45 +566,45 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
                     regras_segmento = {
-                        "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-                        "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-                        "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-                        "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-                        "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-                        "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-                        "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-                        "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-                        "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-                        "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-                        "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-                        "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-                        "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-                        "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-                        "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-                        "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-                        "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-                        "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-                        "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-                        "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-                        "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-                        "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-                        "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-                        "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-                        "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-                        "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-                        "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-                        "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-                        "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-                        "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-                        "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-                        "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-                        "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-                        "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-                        "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-                        "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-                        "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-                        "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
-                    }
+    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
+    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+}
                     for chave, itens_sugeridos in regras_segmento.items():
                         if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
                     
@@ -749,43 +655,43 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 regras_segmento = {
                     "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-                    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-                    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-                    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-                    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-                    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-                    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-                    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-                    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-                    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-                    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-                    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-                    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-                    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-                    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-                    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-                    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-                    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-                    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-                    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-                    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-                    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-                    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-                    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-                    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-                    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-                    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-                    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-                    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-                    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-                    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-                    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-                    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-                    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-                    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-                    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-                    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-                    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+    "peixaria": ["Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
                 }
                 
                 for chave, itens_sugeridos in regras_segmento.items():
