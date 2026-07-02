@@ -194,28 +194,40 @@ def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     
-    # CORREÇÃO: Limpar a pasta local completamente antes de sincronizar
-    # Isso impede que o Gdown ignore planilhas atualizadas que possuem o mesmo nome
+    # Limpa a pasta local para forçar novo download
     if os.path.exists(pasta_destino):
         shutil.rmtree(pasta_destino)
     os.makedirs(pasta_destino)
     
+    # 1. TENTA BAIXAR E MOSTRA O ERRO SE FALHAR
     try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
-    except: pass
+        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=False)
+    except Exception as e:
+        st.error(f"Erro ao conectar com o Google Drive: {e}")
+        return pd.DataFrame()
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
+    
+    # 2. VERIFICA SE ENCONTROU ARQUIVOS
+    if not arquivos_excel:
+        st.error("Conectou ao Drive, mas não encontrou nenhum arquivo .xlsx na pasta!")
+        return pd.DataFrame()
+        
     lista_dfs = []
+    arquivos_ignorados = 0
+    
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
+            
             c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
             c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
             c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
             c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
             c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
             
+            # 3. VERIFICA AS COLUNAS
             if c_dt and c_cli and c_prod and c_fat:
                 sel = [c_dt, c_cli, c_prod, c_fat]
                 heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
@@ -228,7 +240,17 @@ def carregar_dados_nuvem():
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
-        except: continue
+            else:
+                arquivos_ignorados += 1
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo {arquivo}: {e}")
+            continue
+            
+    # 4. AVISA SE AS COLUNAS ESTIVEREM ERRADAS
+    if arquivos_ignorados > 0 and not lista_dfs:
+        st.error(f"Encontrou {arquivos_ignorados} planilhas, mas NENHUMA tinha as colunas corretas (dt entrega, cliente, produto, faturamento brut).")
+        return pd.DataFrame()
+        
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'].notna()]
@@ -238,6 +260,8 @@ def carregar_dados_nuvem():
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
         if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return unificado
+        
+    return pd.DataFrame()
     return pd.DataFrame()
 
 with st.spinner("Sincronizando base de dados..."):
