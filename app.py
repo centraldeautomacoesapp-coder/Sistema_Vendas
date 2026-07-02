@@ -67,7 +67,6 @@ def salvar_progresso_atual():
         "excluidos_permanente": list(st.session_state.excluidos_permanente),
         "enviados_supervisor_mes": list(st.session_state.enviados_supervisor_mes),
         "metas_config": st.session_state.get('metas_config', {})
-        "clientes_cardapio": st.session_state.clientes_cardapio
     }
     try:
         with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
@@ -98,9 +97,6 @@ else:
 
 if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
 if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
-
-if 'clientes_cardapio' not in st.session_state:
-    st.session_state.clientes_cardapio = progresso_backup.get("clientes_cardapio", {}
 
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
@@ -392,44 +388,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão c/ IA 🧠")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
-    tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago", "🍽️ Cardápio Personalizado"], horizontal=True)
-
-if tipo_lista == "🍽️ Cardápio Personalizado":
-    st.subheader("🍽️ Gestão de Cardápio por Cliente")
-    cli_busca = st.text_input("Código ou Nome do Cliente:")
-    menu_txt = st.text_area("Cole o Cardápio/Texto do Cliente aqui:")
-    
-    col_a, col_b = st.columns(2)
-    if col_a.button("💾 Salvar na Memória"):
-        if cli_busca and menu_txt:
-            st.session_state.clientes_cardapio[cli_busca] = menu_txt
-            salvar_progresso_atual()
-            st.success(f"Cardápio de {cli_busca} salvo!")
-            st.rerun()
-            
-    if col_b.button("⚡ Gerar Ofertas"):
-        if cli_busca in st.session_state.clientes_cardapio:
-            menu_salvo = st.session_state.clientes_cardapio[cli_busca]
-            ofertas_ativas = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
-            
-            # Cruzamento de lógica
-            sugestoes_cruzadas = []
-            palavras_menu = extrair_palavras_produto(menu_salvo)
-            
-            for oferta in ofertas_ativas:
-                palavras_oferta = extrair_palavras_produto(oferta)
-                # Verifica se há intersecção entre o que o cliente usa e o que temos em oferta
-                if any(p in palavras_oferta for p in palavras_menu):
-                    sugestoes_cruzadas.append(f"▪️ {oferta}")
-            
-            # Exibir resultado
-            resultado = f"Olá! Analisei seu cardápio e separei essas ofertas que combinam com o que você usa:\n\n"
-            resultado += "\n".join(sugestoes_cruzadas) if sugestoes_cruzadas else "Não encontrei ofertas diretas, mas temos ótimos preços hoje!"
-            st.text_area("Copie para enviar:", value=resultado, height=200)
-        else:
-            st.warning("Cliente não encontrado na memória. Salve o cardápio primeiro!")
-            
-else:
+    tipo_lista = st.radio("Canal:", ["☀️ Ofertas do Dia", "⚡ Ofertas Relâmpago"], horizontal=True)
     id_fila = "fila_ofertas_dia" if "☀️" in tipo_lista else "fila_ofertas_relampago"
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
@@ -690,9 +649,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 st.write("---")
                 st.markdown("### 💡 Venda Cruzada Inteligente")
-
-                menu_salvo = st.session_state.clientes_cardapio.get(c_sel, "")
-palavras_do_cardapio = extrair_palavras_produto(menu_salvo) if menu_salvo else []
                 
                 sugestoes_segmento = []
                 nome_limpo_cli = limpar_texto(c_sel)
@@ -756,12 +712,6 @@ palavras_do_cardapio = extrair_palavras_produto(menu_salvo) if menu_salvo else [
                 ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
                 
                 lista_venda_final = []
-
-# Nova lógica: Verifica se temos produtos nas ofertas que batem com o cardápio salvo
-ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
-for of_linha in ofertas_memoria:
-    if any(p in extrair_palavras_produto(of_linha) for p in palavras_do_cardapio):
-        lista_venda_final.append(f"▪️ {of_linha} (Sugestão via Cardápio)")
                 
                 for item in todas_sugestoes_brutas:
                     item_limpo = limpar_texto(item)
