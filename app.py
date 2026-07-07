@@ -265,7 +265,7 @@ df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=Fa
 
 real_pos_fl2 = df_fl2['Cliente'].nunique()
 real_pos_fl6 = df_fl6['Cliente'].nunique()
-real_pos_geral = real_pos_fl2 + real_pos_fl6
+real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique()
 
 real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
 real_fat_fl6 = df_fl6['Faturamento Brut'].sum()
