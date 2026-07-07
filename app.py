@@ -293,16 +293,19 @@ if st.session_state.get('editar_aberto', False):
         with st.form("form_metas"):
             st.write("Positivação (Qtd Clientes)")
             c1, c2, c3 = st.columns(3)
-            m['pos_geral'] = c1.number_input("Geral", value=m['pos_geral'])
-            m['pos_fl2'] = c2.number_input("FL2", value=m['pos_fl2'])
-            m['pos_fl6'] = c3.number_input("FL6", value=m['pos_fl6'])
+            # Adicionamos keys únicas para a positivação
+            m['pos_geral'] = c1.number_input("Geral", value=m['pos_geral'], key="input_pos_geral")
+            m['pos_fl2'] = c2.number_input("FL2", value=m['pos_fl2'], key="input_pos_fl2")
+            m['pos_fl6'] = c3.number_input("FL6", value=m['pos_fl6'], key="input_pos_fl6")
             
             st.write("Faturamento (R$)")
             c4, c5, c6 = st.columns(3)
-            m['fat_geral'] = c4.number_input("Geral", value=m['fat_geral'])
-            m['fat_fl2'] = c5.number_input("FL2", value=m['fat_fl2'])
-            m['fat_fl6'] = c6.number_input("FL6", value=m['fat_fl6'])
+            # Adicionamos keys únicas para o faturamento
+            m['fat_geral'] = c4.number_input("Geral", value=m['fat_geral'], key="input_fat_geral")
+            m['fat_fl2'] = c5.number_input("FL2", value=m['fat_fl2'], key="input_fat_fl2")
+            m['fat_fl6'] = c6.number_input("FL6", value=m['fat_fl6'], key="input_fat_fl6")
             
+            # O botão já existia, agora o Streamlit vai conseguir chegar até ele
             if st.form_submit_button("Salvar Metas"):
                 st.session_state.metas_config = m
                 salvar_progresso_atual()
