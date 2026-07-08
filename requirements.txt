@@ -3,3 +3,5 @@ pandas
 openpyxl
 gdown
 google-generativeai>=0.7.2
+psycopg2-binary
+SQLAlchemy
