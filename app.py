@@ -493,6 +493,19 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             salvar_progresso_atual()
             st.rerun()
 
+# --- NOVO BOTÃO DE PULAR ---
+        if st.button("⏭️ Pular para o Final", key=f"pular_{str(cliente_atual)[:5]}"):
+            # Remove o cliente da posição atual (frente da fila)
+            dados_cliente = st.session_state[id_fila].pop(cliente_atual)
+            # Reinsere o cliente no final do dicionário
+            st.session_state[id_fila][cliente_atual] = dados_cliente
+            
+            # Limpa o cache da IA para gerar uma nova mensagem para o próximo
+            st.session_state.cliente_ia_atual = ""
+            salvar_progresso_atual()
+            st.toast(f"{cliente_atual} movido para o final da fila!", icon="⏭️")
+            st.rerun()
+
 # ==============================================================================
 # --- ABA 2: ALERTAS ---
 # ==============================================================================
