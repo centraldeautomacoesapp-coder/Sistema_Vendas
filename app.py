@@ -178,7 +178,6 @@ else:
     st.session_state.enviados_supervisor_mes = set()
 
 if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
-if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
 
 if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
@@ -189,13 +188,32 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
-# --- INICIALIZAÇÃO DE METAS ---
+# --- 🚀 CORREÇÃO DO CARREGAMENTO SEGURO DE METAS (ANTI-ZERAMENTO EM REFRESH) ---
 if 'metas_config' not in st.session_state:
-    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
+    db_metas = carregar_metas_neon(mes_atual_referencia)
+    # Se o banco falhar ou retornar zerado, tenta recuperar do JSON local como plano B
+    if db_metas.get("pos_geral", 0) == 0 and db_metas.get("fat_geral", 0.0) == 0.0:
+        local_metas = progresso_backup.get("metas_config", {})
+        if local_metas and local_metas.get("mes") == mes_atual_referencia:
+            st.session_state.metas_config = local_metas
+        else:
+            st.session_state.metas_config = db_metas
+    else:
+        st.session_state.metas_config = db_metas
 
 if st.session_state.metas_config.get("mes") != mes_atual_referencia:
-    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
+    db_metas = carregar_metas_neon(mes_atual_referencia)
+    if db_metas.get("pos_geral", 0) == 0 and db_metas.get("fat_geral", 0.0) == 0.0:
+        local_metas = progresso_backup.get("metas_config", {})
+        if local_metas and local_metas.get("mes") == mes_atual_referencia:
+            st.session_state.metas_config = local_metas
+        else:
+            st.session_state.metas_config = db_metas
+    else:
+        st.session_state.metas_config = db_metas
     salvar_progresso_atual()
+
+if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
 
 # --- REGRAS DE SEGMENTO GLOBAL ---
 regras_segmento = {
@@ -259,6 +277,28 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
+
+# --- 🚀 CALLBACK CORRIGIDO PARA REALIZAR O PUSH DE CLIENTE INSTANTÂNEO ---
+def adiantar_cliente_fila_callback(id_fila_param):
+    chave_selectbox = f"puxar_frente_{id_fila_param}"
+    cliente_escolhido = st.session_state.get(chave_selectbox)
+    
+    if cliente_escolhido and cliente_escolhido != "-- Digite ou selecione um cliente para adiantar --":
+        fila_atual = st.session_state.get(id_fila_param)
+        if fila_atual and cliente_escolhido in fila_atual:
+            # Move para o topo do dicionário da fila
+            dados_alvo = fila_atual.pop(cliente_escolhido)
+            nova_fila = {cliente_escolhido: dados_alvo}
+            nova_fila.update(fila_atual)
+            st.session_state[id_fila_param] = nova_fila
+            
+            # Limpa cache do Gemini para forçar a nova geração do cliente escolhido
+            st.session_state.cliente_ia_atual = ""
+            salvar_progresso_atual()
+            st.toast(f"🏢 {cliente_escolhido} foi puxado para a frente!", icon="⚡")
+            
+    # Reseta o valor da caixa de pesquisa para evitar loops infinitos no rerun
+    st.session_state[chave_selectbox] = "-- Digite ou selecione um cliente para adiantar --"
 
 # --- GERADOR GEMINI ---
 def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
@@ -518,7 +558,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = lines = linhas
+                st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -580,21 +620,14 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
         
-        # 🔍 RETORNADO O CAMPO DE PESQUISA INTELIGENTE (FURAR FILA)
-        cliente_puxar = st.selectbox(
+        # 🔍 CAIXA DE PESQUISA ATUALIZADA COM CALLBACK ANTI-CONGELAMENTO
+        st.selectbox(
             "🚀 Puxar cliente para a frente da fila:", 
             options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
-            key=f"puxar_frente_{id_fila}"
+            key=f"puxar_frente_{id_fila}",
+            on_change=adiantar_cliente_fila_callback,
+            args=(id_fila,)
         )
-        if cliente_puxar != "-- Digite ou selecione um cliente para adiantar --":
-            dados_alvo = st.session_state[id_fila].pop(cliente_puxar)
-            nova_fila = {cliente_puxar: dados_alvo}
-            nova_fila.update(st.session_state[id_fila])
-            st.session_state[id_fila] = nova_fila
-            st.session_state.cliente_ia_atual = "" # Força recálculo do Gemini
-            salvar_progresso_atual()
-            st.toast(f"🏢 {cliente_puxar} foi puxado para a frente!", icon="⚡")
-            st.rerun()
             
         st.write("---")
         
