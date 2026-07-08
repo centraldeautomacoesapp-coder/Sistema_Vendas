@@ -44,7 +44,7 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ANTI-SPAM E METAS PERSISTENTES) ---
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
     try:
         url = st.secrets["connections"]["neon_db"]["url"]
@@ -125,7 +125,7 @@ def salvar_metas_neon(m):
         except Exception as e:
             st.error(f"Erro ao salvar metas no Neon: {e}")
 
-# --- 📁 SISTEMA DE PERSISTÊNCIA LOCAL (ESTADOS DO APP) ---
+# --- 📁 PERSISTÊNCIA LOCAL ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
@@ -189,7 +189,7 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
-# --- INICIALIZAÇÃO DE METAS VIA NEON (ANTI-RESET NO REBOOT) ---
+# --- INICIALIZAÇÃO DE METAS ---
 if 'metas_config' not in st.session_state:
     st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
 
@@ -197,7 +197,7 @@ if st.session_state.metas_config.get("mes") != mes_atual_referencia:
     st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
     salvar_progresso_atual()
 
-# --- DICIONÁRIO DE REGRAS DE SEGMENTO GLOBAL ---
+# --- REGRAS DE SEGMENTO GLOBAL ---
 regras_segmento = {
     "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
     "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
@@ -260,7 +260,7 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
-# --- FUNÇÃO DE GERAÇÃO COM IA GEMINI ---
+# --- GERADOR GEMINI ---
 def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
     texto_ofertas = "\n".join([f"- {of}" for of in ofertas])
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
@@ -300,7 +300,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
-# --- CARREGAMENTO E SINCRONIZAÇÃO DE DADOS ---
+# --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=600)
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
@@ -319,7 +319,6 @@ def carregar_dados_nuvem():
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip()
             
-            # 1. Captura Dados Cadastrais Auxiliares (Fantasia, Município, Cardápio) se houver na planilha
             c_cli_cad = next((c for c in df.columns if "cliente" in str(c).lower() or "razão" in str(c).lower()), None)
             c_fan = next((c for c in df.columns if "fantasia" in str(c).lower()), None)
             c_mun = next((c for c in df.columns if "município" in str(c).lower() or "municipio" in str(c).lower() or "cidade" in str(c).lower()), None)
@@ -335,7 +334,6 @@ def carregar_dados_nuvem():
                     if c_mun and pd.notna(row[c_mun]): cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip()
                     if c_card and pd.notna(row[c_card]): cadastro_clientes[cli_nome]["cardapio"] = str(row[c_card]).strip()
 
-            # 2. Captura Dados de Faturamento/Vendas habituais
             c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
             c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
             c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
@@ -385,7 +383,7 @@ if st.button("🔄 Sincronizar Sistema"):
     st.toast("Sincronizando...", icon="🔄")
     st.rerun() 
 
-# --- CÁLCULOS DOS REAIS (METAS) COM REGRA DE CLIENTES ÚNICOS NO GERAL ---
+# --- CÁLCULOS METAS ---
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
 
@@ -397,7 +395,6 @@ real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
 real_fat_fl6 = df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
-# --- FUNÇÃO DE RENDERIZAÇÃO DO CABEÇALHO ---
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     col1.write(f"**{label}**")
@@ -408,7 +405,6 @@ def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     cor = "#00875A" if perc >= 100 else "#DE350B"
     col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.1f}%</div>', unsafe_allow_html=True)
 
-# --- EXIBIÇÃO DE METAS NA TELA ---
 st.subheader("📊 Painel de Metas")
 if st.button("✏️ Editar Metas do Mês"):
     st.session_state.editar_aberto = True
@@ -419,7 +415,6 @@ if st.session_state.get('editar_aberto', False):
         with st.form("form_metas"):
             st.write("Positivação (Qtd Clientes)")
             c1, c2, c3 = st.columns(3)
-            # ADICIONADO CHAVES ÚNICAS (KEY) PARA EVITAR DUPLICIDADE E CORRIGIR O ERRO
             m['pos_geral'] = c1.number_input("Geral", value=int(m['pos_geral']), key="inp_pos_geral")
             m['pos_fl2'] = c2.number_input("FL2", value=int(m['pos_fl2']), key="inp_pos_fl2")
             m['pos_fl6'] = c3.number_input("FL6", value=int(m['pos_fl6']), key="inp_pos_fl6")
@@ -432,7 +427,7 @@ if st.session_state.get('editar_aberto', False):
             
             if st.form_submit_button("Salvar Metas"):
                 st.session_state.metas_config = m
-                salvar_metas_neon(m) # SALVA NO NEON PARA EVITAR RESET NO REBOOT
+                salvar_metas_neon(m)
                 salvar_progresso_atual()
                 st.session_state.editar_aberto = False
                 st.toast("Metas salvas com sucesso no Neon!", icon="💾")
@@ -445,7 +440,6 @@ exibir_kpi_linha("FL2", m['pos_fl2'], real_pos_fl2)
 exibir_kpi_linha("FL6", m['pos_fl6'], real_pos_fl6)
 
 st.write("---")
-
 st.markdown("### ROB FATURAMENTO")
 exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
 exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
@@ -524,7 +518,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -585,6 +579,24 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     else:
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
+        
+        # 🔍 RETORNADO O CAMPO DE PESQUISA INTELIGENTE (FURAR FILA)
+        cliente_puxar = st.selectbox(
+            "🚀 Puxar cliente para a frente da fila:", 
+            options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
+            key=f"puxar_frente_{id_fila}"
+        )
+        if cliente_puxar != "-- Digite ou selecione um cliente para adiantar --":
+            dados_alvo = st.session_state[id_fila].pop(cliente_puxar)
+            nova_fila = {cliente_puxar: dados_alvo}
+            nova_fila.update(st.session_state[id_fila])
+            st.session_state[id_fila] = nova_fila
+            st.session_state.cliente_ia_atual = "" # Força recálculo do Gemini
+            salvar_progresso_atual()
+            st.toast(f"🏢 {cliente_puxar} foi puxado para a frente!", icon="⚡")
+            st.rerun()
+            
+        st.write("---")
         
         cliente_atual = clientes_restantes[0]
         ofertas_cliente = fila_ativa[cliente_atual]
@@ -742,7 +754,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # ==============================================================================
-# --- ABA 3: CONSULTA E VENDA CRUZADA ---
+# --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio("Filtro de Pesquisa:", ["👤 Por Cliente", "📦 Por Produto", "🏢 Exclusivos Filial 6"], horizontal=True)
@@ -772,7 +784,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 sugestoes_segmento = []
                 nome_limpo_cli = limpar_texto(c_sel)
-                
                 info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
                 fantasia_limpa = limpar_texto(info_c_extra["fantasia"])
                 
@@ -825,7 +836,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
     elif st.session_state.sub_aba_consulta == "📦 Por Produto":
         st.subheader("Análise por Produto")
         input_prod = st.text_input("Nome do produto:").strip()
-        
         if input_prod:
             filtrados_p = filtrar_por_palavras(df_total, 'Produto_Busca', input_prod)
             if not filtrados_p.empty:
