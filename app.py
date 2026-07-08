@@ -44,7 +44,7 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ANTI-SPAM) ---
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ANTI-SPAM E METAS PERSISTENTES) ---
 def obter_conexao_neon():
     try:
         url = st.secrets["connections"]["neon_db"]["url"]
@@ -80,6 +80,50 @@ def obter_produtos_enviados_recentes(cliente_nome):
         except:
             return []
     return []
+
+def carregar_metas_neon(mes_atual):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                query = text("""
+                    SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 
+                    FROM metas_mensais WHERE mes = :mes
+                """)
+                result = conn.execute(query, {"mes": mes_atual}).fetchone()
+                if result:
+                    return {
+                        "mes": mes_atual,
+                        "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]),
+                        "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])
+                    }
+        except:
+            pass
+    return {
+        "mes": mes_atual,
+        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
+        "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0
+    }
+
+def salvar_metas_neon(m):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                query = text("""
+                    INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
+                    VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
+                    ON CONFLICT (mes) DO UPDATE SET
+                        pos_geral = EXCLUDED.pos_geral,
+                        pos_fl2 = EXCLUDED.pos_fl2,
+                        pos_fl6 = EXCLUDED.pos_fl6,
+                        fat_geral = EXCLUDED.fat_geral,
+                        fat_fl2 = EXCLUDED.fat_fl2,
+                        fat_fl6 = EXCLUDED.fat_fl6;
+                """)
+                conn.execute(query, m)
+        except Exception as e:
+            st.error(f"Erro ao salvar metas no Neon: {e}")
 
 # --- 📁 SISTEMA DE PERSISTÊNCIA LOCAL (ESTADOS DO APP) ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
@@ -145,19 +189,12 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
+# --- INICIALIZAÇÃO DE METAS VIA NEON (ANTI-RESET NO REBOOT) ---
 if 'metas_config' not in st.session_state:
-    st.session_state.metas_config = progresso_backup.get("metas_config", {
-        "mes": mes_atual_referencia,
-        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
-        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
-    })
+    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
 
 if st.session_state.metas_config.get("mes") != mes_atual_referencia:
-    st.session_state.metas_config = {
-        "mes": mes_atual_referencia,
-        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
-        "fat_geral": 0, "fat_fl2": 0, "fat_fl6": 0
-    }
+    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
     salvar_progresso_atual()
 
 # --- DICIONÁRIO DE REGRAS DE SEGMENTO GLOBAL ---
@@ -354,7 +391,6 @@ df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=Fa
 
 real_pos_fl2 = df_fl2['Cliente'].nunique()
 real_pos_fl6 = df_fl6['Cliente'].nunique()
-# Joga os dois dataframes juntos para contar clientes únicos (sem duplicidades)
 real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.empty or not df_fl6.empty else 0
 
 real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
@@ -379,24 +415,27 @@ if st.button("✏️ Editar Metas do Mês"):
 
 if st.session_state.get('editar_aberto', False):
     with st.expander("Configurar Metas", expanded=True):
-        m = st.session_state.metas_config
+        m = st.session_state.metas_config.copy()
         with st.form("form_metas"):
             st.write("Positivação (Qtd Clientes)")
             c1, c2, c3 = st.columns(3)
-            m['pos_geral'] = c1.number_input("Geral", value=m['pos_geral'])
-            m['pos_fl2'] = c2.number_input("FL2", value=m['pos_fl2'])
-            m['pos_fl6'] = c3.number_input("FL6", value=m['pos_fl6'])
+            # ADICIONADO CHAVES ÚNICAS (KEY) PARA EVITAR DUPLICIDADE E CORRIGIR O ERRO
+            m['pos_geral'] = c1.number_input("Geral", value=int(m['pos_geral']), key="inp_pos_geral")
+            m['pos_fl2'] = c2.number_input("FL2", value=int(m['pos_fl2']), key="inp_pos_fl2")
+            m['pos_fl6'] = c3.number_input("FL6", value=int(m['pos_fl6']), key="inp_pos_fl6")
             
             st.write("Faturamento (R$)")
             c4, c5, c6 = st.columns(3)
-            m['fat_geral'] = c4.number_input("Geral", value=m['fat_geral'])
-            m['fat_fl2'] = c5.number_input("FL2", value=m['fat_fl2'])
-            m['fat_fl6'] = c6.number_input("FL6", value=m['fat_fl6'])
+            m['fat_geral'] = c4.number_input("Geral", value=float(m['fat_geral']), key="inp_fat_geral")
+            m['fat_fl2'] = c5.number_input("FL2", value=float(m['fat_fl2']), key="inp_fat_fl2")
+            m['fat_fl6'] = c6.number_input("FL6", value=float(m['fat_fl6']), key="inp_fat_fl6")
             
             if st.form_submit_button("Salvar Metas"):
                 st.session_state.metas_config = m
+                salvar_metas_neon(m) # SALVA NO NEON PARA EVITAR RESET NO REBOOT
                 salvar_progresso_atual()
                 st.session_state.editar_aberto = False
+                st.toast("Metas salvas com sucesso no Neon!", icon="💾")
                 st.rerun()
 
 st.markdown("### Positivação")
@@ -501,14 +540,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     interessados = set()
                     for c in combs: interessados.update(prod_to_clientes[c])
                     
-                    # --- CRUZAMENTO AVANÇADO: CARDÁPIOS E NOME FANTASIA ---
                     for cli_cad, info_cad in dict_cadastro.items():
-                        # Match de Cardápio (Célula única de texto bruto)
                         cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
                         if cardapio_texto and all(c in cardapio_texto for c in chaves):
                             interessados.add(cli_cad)
                         
-                        # Match de Segmentação Inteligente por Nome Fantasia
                         fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
                         if fantasia_texto:
                             for chave_seg, itens_seg in regras_segmento.items():
@@ -525,14 +561,13 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                                 
                         if cli in st.session_state[id_excluidos]: continue
                         
-                        # --- FILTRO ANTI-SPAM (REGRA DIA SIM, DIA NÃO VIA NEON) ---
                         enviados_recentes = obter_produtos_enviados_recentes(cli)
                         ja_enviado_recentemente = False
                         for p_env in enviados_recentes:
                             if all(c in limpar_texto(p_env) for c in chaves):
                                 ja_enviado_recentemente = True
                                 break
-                        if ja_enviado_recentemente: continue # Pula o cliente para este produto
+                        if ja_enviado_recentemente: continue
                         
                         if cli not in nova_fila: nova_fila[cli] = []
                         if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
@@ -554,7 +589,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         cliente_atual = clientes_restantes[0]
         ofertas_cliente = fila_ativa[cliente_atual]
         
-        # Exibição rica do cabeçalho trazendo Fantasia e Município associados
         info_cad_atual = dict_cadastro.get(cliente_atual, {"fantasia": "", "municipio": ""})
         fantasia_str = f" ({info_cad_atual['fantasia']})" if info_cad_atual['fantasia'] else ""
         municipio_str = f" - 📍 {info_cad_atual['municipio']}" if info_cad_atual['municipio'] else ""
@@ -578,7 +612,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.session_state.envios_hoje += 1
                 st.session_state[id_excluidos].add(cliente_atual)
                 
-                # ENVIA AUTOMATICAMENTE CADA PRODUTO AO NEON PARA BLOQUEAR AMANHÃ
                 for of_linha in ofertas_cliente:
                     registrar_envio_neon(cliente_atual, of_linha)
                     
@@ -694,7 +727,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
                     for chave, itens_sugeridos in regras_segmento.items():
-                        if chave in nome_limpo_cli: geodes.extend(itens_sugeridos)
+                        if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
                     
                     if congest := list(set(sugestoes_seg)):
                         novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
@@ -740,7 +773,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 sugestoes_segmento = []
                 nome_limpo_cli = limpar_texto(c_sel)
                 
-                # Coleta regras baseado no nome ou cadastro fantasia do cliente
                 info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
                 fantasia_limpa = limpar_texto(info_c_extra["fantasia"])
                 
@@ -748,7 +780,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     if chave in nome_limpo_cli or chave in fantasia_limpa:
                         sugestoes_segmento.extend(itens_sugeridos)
                 
-                # Se houver itens explícitos no cardápio de texto do cliente, anexa como sugestão prioritária
                 if info_c_extra["cardapio"]:
                     itens_do_cardapio_bruto = [i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()]
                     sugestoes_segmento.extend(itens_do_cardapio_bruto)
@@ -806,7 +837,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
 
-    # --- NOVA INTERFACE: CLIENTES EXCLUSIVOS FILIAL 6 ---
     elif st.session_state.sub_aba_consulta == "🏢 Exclusivos Filial 6":
         st.subheader("🎯 Clientes Exclusivos da Filial 6 (Oportunidades Filial 2)")
         st.write("Estes clientes compraram somente na Filial 6 este mês. Excelente gancho para oferecer o mix da Filial 2!")
