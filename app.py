@@ -48,8 +48,12 @@ mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 def obter_conexao_neon():
     try:
         url = st.secrets["connections"]["neon_db"]["url"]
+        # O SQLAlchemy exige 'postgresql://' em vez de apenas 'postgres://'
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
         return create_engine(url)
-    except:
+    except Exception as e:
+        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
         return None
 
 def registrar_envio_neon(cliente_nome, produto_enviado):
