@@ -668,9 +668,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.session_state.cliente_ia_atual = "" 
                 salvar_progresso_atual()
                 st.rerun()
-        with col_b2:
+      with col_b2:
             if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
-                st.session_state.excluidos_permanente.add(cliente_atual)
+                # CORREÇÃO: Remove apenas da fila de HOJE. O cliente volta normalmente amanhã!
+                st.session_state[id_excluidos].add(cliente_atual)
+                
                 del st.session_state[id_fila][cliente_atual]
                 st.session_state.cliente_ia_atual = ""
                 salvar_progresso_atual()
