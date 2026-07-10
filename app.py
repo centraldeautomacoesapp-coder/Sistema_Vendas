@@ -983,6 +983,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         with col_btn:
             if not compradores_alvo_df.empty:
                 # Preparar dados para o Excel
+                st.write("Colunas disponíveis no seu DataFrame:", compradores_alvo_df.columns.tolist())
                 df_export = compradores_alvo_df[['Codigo_Cliente', 'Cliente', 'Codigo_Produto', 'Produto']].copy()
                 df_export.columns = ['Código Cliente', 'Nome Cliente', 'Código Produto', 'Descrição do Produto']
                 
