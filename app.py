@@ -12,6 +12,82 @@ import streamlit.components.v1 as components
 import google.generativeai as genai
 from sqlalchemy import create_engine, text
 
+# --- CARREGAMENTO DE DADOS ---
+@st.cache_data(ttl=86400) 
+def carregar_dados_nuvem(data_atual):
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
+    if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
+    try:
+        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
+    except: pass
+    
+    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
+    lista_dfs = []
+    cadastro_clientes = {}
+    
+    for arquivo in arquivos_excel:
+        try:
+            df = pd.read_excel(arquivo)
+            df.columns = df.columns.str.strip()
+            
+            c_cli_cad = next((c for c in df.columns if "cliente" in str(c).lower() or "razão" in str(c).lower()), None)
+            c_fan = next((c for c in df.columns if "fantasia" in str(c).lower()), None)
+            c_mun = next((c for c in df.columns if "município" in str(c).lower() or "municipio" in str(c).lower() or "cidade" in str(c).lower()), None)
+            c_card = next((c for c in df.columns if "cardápio" in str(c).lower() or "cardapio" in str(c).lower() or "itens" in str(c).lower()), None)
+            
+            if c_cli_cad and (c_fan or c_mun or c_card):
+                for _, row in df.iterrows():
+                    cli_nome = str(row[c_cli_cad]).strip()
+                    if pd.isna(row[c_cli_cad]) or cli_nome.lower() == 'nan': continue
+                    if cli_nome not in cadastro_clientes:
+                        cadastro_clientes[cli_nome] = {"fantasia": "", "municipio": "", "cardapio": ""}
+                    if c_fan and pd.notna(row[c_fan]): cadastro_clientes[cli_nome]["fantasia"] = str(row[c_fan]).strip()
+                    if c_mun and pd.notna(row[c_mun]): cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip()
+                    if c_card and pd.notna(row[c_card]): cadastro_clientes[cli_nome]["cardapio"] = str(row[c_card]).strip()
+
+            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
+            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
+            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
+            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
+            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
+            
+            if c_dt and c_cli and c_prod and c_fat:
+                sel = [c_dt, c_cli, c_prod, c_fat]
+                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
+                if c_fil:
+                    sel.append(c_fil)
+                    heads.append('Filial')
+                sub = df[sel].copy()
+                sub.columns = heads
+                if sub['Faturamento Brut'].dtype == 'object':
+                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
+                lista_dfs.append(sub)
+        except: continue
+        
+    if lista_dfs:
+        unificado = pd.concat(lista_dfs, ignore_index=True)
+        unificado = unificado[unificado['Cliente'].notna()]
+        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
+        unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
+        unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
+        unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
+        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
+        return {"df": unificado, "cadastro": cadastro_clientes}
+    return {"df": pd.DataFrame(), "cadastro": {}}
+
+with st.spinner("Sincronizando base de dados..."):
+    dados_carregados = carregar_dados_nuvem()
+    df_total = dados_carregados["df"]
+    dict_cadastro = dados_carregados["cadastro"]
+
+if df_total.empty:
+    st.warning("Base de dados vazia.")
+    st.stop()
+
+df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
+
 # --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -343,82 +419,6 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         for of in ofertas: msg += f"👉 {of}\n"
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
-
-# --- CARREGAMENTO DE DADOS ---
-@st.cache_data(ttl=3600)
-def carregar_dados_nuvem():
-    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-    pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
-    if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
-    try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
-    except: pass
-    
-    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
-    lista_dfs = []
-    cadastro_clientes = {}
-    
-    for arquivo in arquivos_excel:
-        try:
-            df = pd.read_excel(arquivo)
-            df.columns = df.columns.str.strip()
-            
-            c_cli_cad = next((c for c in df.columns if "cliente" in str(c).lower() or "razão" in str(c).lower()), None)
-            c_fan = next((c for c in df.columns if "fantasia" in str(c).lower()), None)
-            c_mun = next((c for c in df.columns if "município" in str(c).lower() or "municipio" in str(c).lower() or "cidade" in str(c).lower()), None)
-            c_card = next((c for c in df.columns if "cardápio" in str(c).lower() or "cardapio" in str(c).lower() or "itens" in str(c).lower()), None)
-            
-            if c_cli_cad and (c_fan or c_mun or c_card):
-                for _, row in df.iterrows():
-                    cli_nome = str(row[c_cli_cad]).strip()
-                    if pd.isna(row[c_cli_cad]) or cli_nome.lower() == 'nan': continue
-                    if cli_nome not in cadastro_clientes:
-                        cadastro_clientes[cli_nome] = {"fantasia": "", "municipio": "", "cardapio": ""}
-                    if c_fan and pd.notna(row[c_fan]): cadastro_clientes[cli_nome]["fantasia"] = str(row[c_fan]).strip()
-                    if c_mun and pd.notna(row[c_mun]): cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip()
-                    if c_card and pd.notna(row[c_card]): cadastro_clientes[cli_nome]["cardapio"] = str(row[c_card]).strip()
-
-            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
-            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
-            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
-            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
-            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
-            
-            if c_dt and c_cli and c_prod and c_fat:
-                sel = [c_dt, c_cli, c_prod, c_fat]
-                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
-                if c_fil:
-                    sel.append(c_fil)
-                    heads.append('Filial')
-                sub = df[sel].copy()
-                sub.columns = heads
-                if sub['Faturamento Brut'].dtype == 'object':
-                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
-                lista_dfs.append(sub)
-        except: continue
-        
-    if lista_dfs:
-        unificado = pd.concat(lista_dfs, ignore_index=True)
-        unificado = unificado[unificado['Cliente'].notna()]
-        unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
-        unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
-        unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
-        unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
-        if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
-        return {"df": unificado, "cadastro": cadastro_clientes}
-    return {"df": pd.DataFrame(), "cadastro": {}}
-
-with st.spinner("Sincronizando base de dados..."):
-    dados_carregados = carregar_dados_nuvem()
-    df_total = dados_carregados["df"]
-    dict_cadastro = dados_carregados["cadastro"]
-
-if df_total.empty:
-    st.warning("Base de dados vazia.")
-    st.stop()
-
-df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
 # --- CABEÇALHO ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
