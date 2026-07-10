@@ -78,7 +78,10 @@ def carregar_dados_nuvem(data_atual):
     return {"df": pd.DataFrame(), "cadastro": {}}
 
 with st.spinner("Sincronizando base de dados..."):
-    dados_carregados = carregar_dados_nuvem()
+    # Chamando a "receita" que definimos acima
+    dados_carregados = carregar_dados_nuvem(date.today())
+    
+    # Separando os dados
     df_total = dados_carregados["df"]
     dict_cadastro = dados_carregados["cadastro"]
 
@@ -87,6 +90,7 @@ if df_total.empty:
     st.stop()
 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
+
 
 # --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
 try:
