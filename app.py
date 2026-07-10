@@ -1041,7 +1041,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                             mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
                             sugestoes_base = df_total[mask_total_marca].groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
                     
-                    # --- CRUZAMENTO COM OFERTAS DO DIA ---
+                   # --- CRUZAMENTO COM OFERTAS DO DIA ---
                     sugestoes_finais = []
                     for item in sugestoes_base:
                         achou_oferta = False
@@ -1049,15 +1049,20 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                         for of_linha in ofertas_memoria:
                             # Tenta combinar o produto sugerido com alguma linha da oferta
                             if chaves_item and all(c in limpar_texto(of_linha) for c in chaves_item[:2]): 
-                                sugestoes_finais.append(f"🔥 {of_linha} (EM OFERTA HOJE!)")
-                                achou_oferta = True
-                                break
+                                # 🔒 TRAVA DE SEGURANÇA 1: A oferta DEVE conter a marca selecionada
+                                if any(p in limpar_texto(of_linha) for p in palavras_da_marca):
+                                    sugestoes_finais.append(f"🔥 {of_linha} (EM OFERTA HOJE!)")
+                                    achou_oferta = True
+                                    break
+                                    
                         if not achou_oferta:
-                            sugestoes_finais.append(f"▪️ {item}")
+                            # 🔒 TRAVA DE SEGURANÇA 2: O item sugerido DEVE conter a marca selecionada
+                            if any(p in limpar_texto(item) for p in palavras_da_marca):
+                                sugestoes_finais.append(f"▪️ {item}")
                             
                     # Remove duplicatas e formata texto
                     sugestoes_finais = list(dict.fromkeys(sugestoes_finais))
-                    texto_sugestoes = "\n".join(sugestoes_finais) if sugestoes_finais else "▪️ Linha completa de produtos."
+                    texto_sugestoes = "\n".join(sugestoes_finais) if sugestoes_finais else f"▪️ Linha completa de produtos {nome_amigavel_marca}."
                     
                     # --- MONTAGEM DA MENSAGEM ---
                     msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
