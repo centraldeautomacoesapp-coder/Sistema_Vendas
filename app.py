@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, text
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=86400) 
-def carregar_dados_nuvem(date.today):
+def carregar_dados_nuvem(date.today()):
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
