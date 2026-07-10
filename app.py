@@ -1067,4 +1067,4 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     # --- MONTAGEM DA MENSAGEM ---
                     msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
                     
-                    st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}")
+                    st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}_{nome_amigavel_marca}")
