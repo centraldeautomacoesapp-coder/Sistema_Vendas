@@ -984,26 +984,25 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         
         with col_btn:
             if not compradores_alvo_df.empty:
-                # 1. Selecionamos as colunas corretas incluindo a data
-                # Usando 'Dt. Delivery' que aparece no seu print
-                df_export = compradores_alvo_df[['Dt. Delivery', 'Cliente', 'Produto']].copy()
+                # 1. Ajuste da Data: converte para formato data e depois para texto DD/MM/AAAA
+                compradores_alvo_df['Data_Formatada'] = pd.to_datetime(compradores_alvo_df['Dt. Delivery']).dt.strftime('%d/%m/%Y')
                 
-                # Renomeamos para o formato amigável
+                # 2. Selecionar e ordenar as colunas
+                df_export = compradores_alvo_df[['Data_Formatada', 'Cliente', 'Produto']].copy()
                 df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
                 
                 import io
                 buffer = io.BytesIO()
                 
-                # 2. Usamos o engine 'openpyxl' (certifique-se de ter instalado no requirements.txt)
+                # 3. Escrita no Excel
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    # Escreve o DataFrame começando na linha 4 (deixando A1, A2, A3 livres)
                     df_export.to_excel(writer, index=False, sheet_name='Positivados', startrow=3)
                     
-                    # 3. Acessa a planilha para escrever os títulos manualmente
                     worksheet = writer.sheets['Positivados']
+                    # Aqui usamos a variável 'nome_amigavel_marca' que já está no seu código
+                    # Ela já contém o nome da marca selecionada (ex: "McCain", "Lebon", "Confrescor")
                     worksheet['A1'] = f"Marca Parceira: {nome_amigavel_marca}"
                     worksheet['A2'] = f"Quantidade de Clientes Positivados: {len(compradores_alvo_df['Cliente'].unique())}"
-                    # A linha A3 ficará em branco para dar um espaço visual
                 
                 st.download_button(
                     label="📥 Baixar Excel (Relatório)",
