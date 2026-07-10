@@ -345,7 +345,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         return msg
 
 # --- CARREGAMENTO DE DADOS ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def carregar_dados_nuvem():
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
