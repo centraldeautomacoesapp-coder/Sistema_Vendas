@@ -966,7 +966,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
         
         # 3. Descobrir quem COMPROU a marca ou o produto específico
-        compradores_alvo_df = pd.DataFrame() # DataFrame para exportação
         if produto_filtro.strip():
             compradores_alvo_df = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
             texto_aviso = f"o produto '{produto_filtro.strip()}'"
@@ -974,34 +973,32 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
             compradores_alvo_df = df_mes_atual[mask_marca]
             texto_aviso = f"nenhum produto da marca selecionada"
+
+        # Criamos a lista para o filtro das oportunidades
+        compradores_alvo = compradores_alvo_df['Cliente'].unique().tolist()
             
         # KPI e BOTÃO DE DOWNLOAD
         col_kpi, col_btn = st.columns([2, 1])
         with col_kpi:
-            st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo_df['Cliente'].unique())}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
+            st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
         
         with col_btn:
             if not compradores_alvo_df.empty:
-                # Selecionamos apenas as colunas que você confirmou que existem
+                # Ajuste: Apenas colunas que existem no seu DataFrame
                 df_export = compradores_alvo_df[['Cliente', 'Produto']].copy()
-                
-                # Renomeamos para ficar bonito no Excel
                 df_export.columns = ['Nome Cliente', 'Descrição do Produto']
                 
-                # Adicionamos uma coluna de "Status" para marcar que ele é positivado
-                df_export['Status'] = 'Positivado'
-                
-                # Converter para Excel em memória
                 import io
                 buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                # DICA: Se o erro do Excel persistir, troque 'xlsxwriter' por 'openpyxl'
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_export.to_excel(writer, index=False, sheet_name='Positivados')
                 
                 st.download_button(
-                    label="📥 Baixar Excel (Positivados)",
+                    label="📥 Baixar Excel",
                     data=buffer.getvalue(),
                     file_name=f"positivados_{nome_amigavel_marca}.xlsx",
-                    mime="application/vnd.ms-excel"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         
         # 4. A Lacuna (White Space) - Todos que não compraram
