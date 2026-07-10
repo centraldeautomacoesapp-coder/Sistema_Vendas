@@ -793,8 +793,16 @@ elif st.session_state.aba_atual == "🚨 Alertas":
 # ==============================================================================
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
+# ==============================================================================
+# --- ABA 3: CONSULTA E ESTRATÉGIA ---
+# ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
-    st.session_state.sub_aba_consulta = st.radio("Filtro de Pesquisa:", ["👤 Por Cliente", "📦 Por Produto", "🏢 Exclusivos Filial 6"], horizontal=True)
+    # --- ADICIONADO A NOVA ABA 'PARCEIROS ESTRATÉGICOS' ---
+    st.session_state.sub_aba_consulta = st.radio(
+        "Filtro de Pesquisa:", 
+        ["👤 Por Cliente", "📦 Por Produto", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
+        horizontal=True
+    )
     st.write("---")
     
     if st.session_state.sub_aba_consulta == "👤 Por Cliente":
@@ -908,7 +916,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     for _, r in top_compras_excl.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
                     
-                    st.markdown("**💡 Sugestões personalizadas para introduzir a Filial 2:**")
+                    st.markdown("**💡 Sugestões personalizadas:**")
                     sug_excl = []
                     nome_l_excl = limpar_texto(c_excl)
                     fan_l_excl = limpar_texto(info_ex['fantasia'])
@@ -924,3 +932,71 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                         for s in sug_excl: st.markdown(f"▪️ Ofertar: **{s}**")
                     else:
                         st.markdown("▪️ Oferecer os campeões gerais de venda da Filial 2.")
+
+    # ==============================================================================
+    # --- NOVA ABA: PARCEIROS ESTRATÉGICOS (Foco em Marcas) ---
+    # ==============================================================================
+    elif st.session_state.sub_aba_consulta == "🏆 Parceiros Estratégicos":
+        st.subheader("🎯 Oportunidades: Marcas Estratégicas")
+        st.write("Filtre clientes que **já compraram no mês**, mas que **não compraram** determinada marca ou produto.")
+        
+        # 1. Dicionário das marcas parceiras (Tudo em minúsculo e sem acentos para busca)
+        marcas_parceiras = {
+            "Marca 1: Lebon, Doriana, Seara, Frangosul": ["lebon", "doriana", "seara", "frangosul"],
+            "Marca 2: Frivatti": ["frivatti"],
+            "Marca 3: Brasa": ["brasa"],
+            "Marca 4: Mccain": ["mccain"],
+            "Marca 5: Ceratti": ["ceratti"],
+            "Marca 6: Confrescor": ["confrescor"]
+        }
+        
+        col_m1, col_m2 = st.columns([1, 1])
+        with col_m1:
+            marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
+        with col_m2:
+            produto_filtro = st.text_input("Filtro Adicional (Cód. ou Nome do Produto):", placeholder="Ex: Batata Mccain 9mm...")
+            
+        palavras_da_marca = marcas_parceiras[marca_selecionada]
+        
+        # 2. Todos os clientes que compraram QUALQUER COISA no mês atual
+        clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
+        
+        # 3. Descobrir quem COMPROU a marca ou o produto específico
+        compradores_alvo = []
+        if produto_filtro.strip():
+            # Filtra estritamente pelo que o usuário digitou (exclui os clientes que compraram ESSE produto)
+            df_filtro = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
+            compradores_alvo = df_filtro['Cliente'].unique()
+            texto_aviso = f"o produto '{produto_filtro.strip()}'"
+        else:
+            # Filtra os clientes que compraram a marca de forma geral
+            mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
+            compradores_alvo = df_mes_atual[mask_marca]['Cliente'].unique()
+            texto_aviso = f"nenhum produto da {marca_selecionada.split(':')[0]}"
+            
+        # 4. A Lacuna (White Space): Quem comprou no mês, mas NÃO comprou o alvo
+        clientes_oportunidade = [c for c in clientes_compraram_mes if c not in compradores_alvo]
+        
+        st.write("---")
+        if not clientes_oportunidade:
+            st.success(f"Excelente! Todos os clientes positivados este mês já compraram {texto_aviso}.")
+        else:
+            st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
+            
+            # Exibir lista interativa
+            for c_op in clientes_oportunidade:
+                info_ex = dict_cadastro.get(c_op, {"fantasia": "", "municipio": "", "cardapio": ""})
+                f_txt = f" ({info_ex['fantasia']})" if info_ex['fantasia'] else ""
+                m_txt = f" - 📍 {info_ex['municipio']}" if info_ex['municipio'] else ""
+                
+                with st.expander(f"📍 {c_op}{f_txt}{m_txt}"):
+                    # Raio-X do cliente no mês
+                    df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
+                    st.markdown("**O que ele comprou neste mês:**")
+                    top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).reset_index()
+                    for _, r in top_compras_op.iterrows():
+                        st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
+                    
+                    # Mensagem sugerida
+                    msg_abordagem = f"Olá! Vi que já fizemos negócio este mês. Você reparou nas condições especiais que liberaram para {texto_aviso}? É uma ótima chance de incluir no seu mix!"
+                    st.text_area(f"Sugestão de Script ({c_op[:10]}...):", value=msg_abordagem, height=100)
