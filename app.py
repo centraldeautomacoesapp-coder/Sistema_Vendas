@@ -950,11 +950,14 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             "Marca 6: Confrescor": ["confrescor"]
         }
         
-        col_m1, col_m2 = st.columns([1, 1])
+        # --- MUDANÇA: Adicionamos 3 colunas para incluir a busca do cliente ---
+        col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
         with col_m1:
             marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
         with col_m2:
-            produto_filtro = st.text_input("Filtro Adicional (Cód. ou Nome do Produto):", placeholder="Ex: Batata Mccain 9mm...")
+            produto_filtro = st.text_input("Filtro Adicional (Cód. ou Produto):", placeholder="Ex: Batata Mccain 9mm...")
+        with col_m3:
+            busca_cliente_op = st.text_input("Localizar Cliente:", placeholder="Código ou Nome...")
             
         palavras_da_marca = marcas_parceiras[marca_selecionada]
         nome_amigavel_marca = marca_selecionada.split(':')[0]
@@ -973,11 +976,17 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             compradores_alvo = df_mes_atual[mask_marca]['Cliente'].unique()
             texto_aviso = f"nenhum produto da marca selecionada"
             
-        # 📈 NOVO: Exibindo o KPI de positivados
+        # KPI: Exibindo o número de positivados globais (ignora o filtro de busca de cliente)
         st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
         
-        # 4. A Lacuna (White Space)
-        clientes_oportunidade = [c for c in clientes_compraram_mes if c not in compradores_alvo]
+        # 4. A Lacuna (White Space) - Todos que não compraram
+        clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
+        
+        # --- MUDANÇA: Aplicar o filtro de busca de cliente caso você tenha digitado algo ---
+        clientes_oportunidade = []
+        for c in clientes_oportunidade_brutos:
+            if busca_cliente_op.strip().upper() in c.upper():
+                clientes_oportunidade.append(c)
         
         st.write("---")
         if not clientes_oportunidade:
