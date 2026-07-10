@@ -984,18 +984,29 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         
         with col_btn:
             if not compradores_alvo_df.empty:
-                # Ajuste: Apenas colunas que existem no seu DataFrame
-                df_export = compradores_alvo_df[['Cliente', 'Produto']].copy()
-                df_export.columns = ['Nome Cliente', 'Descrição do Produto']
+                # 1. Selecionamos as colunas corretas incluindo a data
+                # Usando 'Dt. Delivery' que aparece no seu print
+                df_export = compradores_alvo_df[['Dt. Delivery', 'Cliente', 'Produto']].copy()
+                
+                # Renomeamos para o formato amigável
+                df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
                 
                 import io
                 buffer = io.BytesIO()
-                # DICA: Se o erro do Excel persistir, troque 'xlsxwriter' por 'openpyxl'
+                
+                # 2. Usamos o engine 'openpyxl' (certifique-se de ter instalado no requirements.txt)
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_export.to_excel(writer, index=False, sheet_name='Positivados')
+                    # Escreve o DataFrame começando na linha 4 (deixando A1, A2, A3 livres)
+                    df_export.to_excel(writer, index=False, sheet_name='Positivados', startrow=3)
+                    
+                    # 3. Acessa a planilha para escrever os títulos manualmente
+                    worksheet = writer.sheets['Positivados']
+                    worksheet['A1'] = f"Marca Parceira: {nome_amigavel_marca}"
+                    worksheet['A2'] = f"Quantidade de Clientes Positivados: {len(compradores_alvo_df['Cliente'].unique())}"
+                    # A linha A3 ficará em branco para dar um espaço visual
                 
                 st.download_button(
-                    label="📥 Baixar Excel",
+                    label="📥 Baixar Excel (Relatório)",
                     data=buffer.getvalue(),
                     file_name=f"positivados_{nome_amigavel_marca}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
