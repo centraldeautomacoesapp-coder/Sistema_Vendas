@@ -13,6 +13,26 @@ import google.generativeai as genai
 from sqlalchemy import create_engine, text
 from datetime import date
 
+# --- AUXILIARES ---
+def limpar_texto(texto):
+    if pd.isna(texto): return ""
+    return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
+
+def filtrar_por_palavras(df, coluna_busca, termo_usuario):
+    termo_limpo = limpar_texto(termo_usuario)
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'por']
+    palavras = [p for p in termo_limpo.split() if p not in ignorar and len(p) > 1]
+    if not palavras: palavras = termo_limpo.split()
+    if not palavras: return df
+    return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
+
+def extrair_palavras_produto(linha):
+    linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
+    palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
+    return palavras_validas[:3]
+
+
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=86400) 
 def carregar_dados_nuvem(data_atual):
@@ -343,25 +363,6 @@ regras_segmento = {
     "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
     "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
 }
-
-# --- AUXILIARES ---
-def limpar_texto(texto):
-    if pd.isna(texto): return ""
-    return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
-
-def filtrar_por_palavras(df, coluna_busca, termo_usuario):
-    termo_limpo = limpar_texto(termo_usuario)
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'por']
-    palavras = [p for p in termo_limpo.split() if p not in ignorar and len(p) > 1]
-    if not palavras: palavras = termo_limpo.split()
-    if not palavras: return df
-    return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
-
-def extrair_palavras_produto(linha):
-    linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta']
-    palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
-    return palavras_validas[:3]
 
 # --- 🚀 CALLBACK CORRIGIDO PARA REALIZAR O PUSH DE CLIENTE INSTANTÂNEO ---
 def adiantar_cliente_fila_callback(id_fila_param):
