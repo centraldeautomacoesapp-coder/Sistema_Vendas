@@ -957,6 +957,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             produto_filtro = st.text_input("Filtro Adicional (Cód. ou Nome do Produto):", placeholder="Ex: Batata Mccain 9mm...")
             
         palavras_da_marca = marcas_parceiras[marca_selecionada]
+        nome_amigavel_marca = marca_selecionada.split(':')[0]
         
         # 2. Todos os clientes que compraram QUALQUER COISA no mês atual
         clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
@@ -964,17 +965,18 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         # 3. Descobrir quem COMPROU a marca ou o produto específico
         compradores_alvo = []
         if produto_filtro.strip():
-            # Filtra estritamente pelo que o usuário digitou (exclui os clientes que compraram ESSE produto)
             df_filtro = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
             compradores_alvo = df_filtro['Cliente'].unique()
             texto_aviso = f"o produto '{produto_filtro.strip()}'"
         else:
-            # Filtra os clientes que compraram a marca de forma geral
             mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
             compradores_alvo = df_mes_atual[mask_marca]['Cliente'].unique()
-            texto_aviso = f"nenhum produto da {marca_selecionada.split(':')[0]}"
+            texto_aviso = f"nenhum produto da marca selecionada"
             
-        # 4. A Lacuna (White Space): Quem comprou no mês, mas NÃO comprou o alvo
+        # 📈 NOVO: Exibindo o KPI de positivados
+        st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
+        
+        # 4. A Lacuna (White Space)
         clientes_oportunidade = [c for c in clientes_compraram_mes if c not in compradores_alvo]
         
         st.write("---")
@@ -983,20 +985,81 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         else:
             st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
             
-            # Exibir lista interativa
+            # Carrega a memória de ofertas ativas para cruzar
+            ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
+            
             for c_op in clientes_oportunidade:
                 info_ex = dict_cadastro.get(c_op, {"fantasia": "", "municipio": "", "cardapio": ""})
                 f_txt = f" ({info_ex['fantasia']})" if info_ex['fantasia'] else ""
                 m_txt = f" - 📍 {info_ex['municipio']}" if info_ex['municipio'] else ""
                 
                 with st.expander(f"📍 {c_op}{f_txt}{m_txt}"):
-                    # Raio-X do cliente no mês
                     df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
-                    st.markdown("**O que ele comprou neste mês:**")
-                    top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).reset_index()
+                    st.markdown("**O que ele comprou neste mês (Outras Marcas):**")
+                    top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
                     for _, r in top_compras_op.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
                     
-                    # Mensagem sugerida
-                    msg_abordagem = f"Olá! Vi que já fizemos negócio este mês. Você reparou nas condições especiais que liberaram para {texto_aviso}? É uma ótima chance de incluir no seu mix!"
-                    st.text_area(f"Sugestão de Script ({c_op[:10]}...):", value=msg_abordagem, height=100)
+                    # --- INTELIGÊNCIA DE SUGESTÃO E SUBSTITUIÇÃO ---
+                    df_cli_total = df_total[df_total['Cliente'] == c_op]
+                    mask_cli_marca = df_cli_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
+                    historico_marca_cli = df_cli_total[mask_cli_marca]['Produto'].unique().tolist()
+                    
+                    sugestoes_base = []
+                    
+                    # Cenario 1: Ele tem histórico antigo com a marca
+                    if historico_marca_cli:
+                        sugestoes_base = historico_marca_cli[:3]
+                        
+                    # Cenario 2: Nunca comprou a marca. Buscar similares do segmento
+                    else:
+                        sugestoes_segmento = []
+                        nome_limpo_cli = limpar_texto(c_op)
+                        fan_l_excl = limpar_texto(info_ex['fantasia'])
+                        
+                        palavras_segmento_cli = []
+                        for chave, itens_sug in regras_segmento.items():
+                            if chave in nome_limpo_cli or chave in fan_l_excl:
+                                palavras_segmento_cli.extend([limpar_texto(i) for i in itens_sug])
+                        if info_ex["cardapio"]:
+                            palavras_segmento_cli.extend([limpar_texto(i.strip()) for i in info_ex["cardapio"].split(",")])
+                            
+                        if palavras_segmento_cli:
+                            mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
+                            todos_produtos_marca = df_total[mask_total_marca]['Produto'].unique()
+                            
+                            for prod in todos_produtos_marca:
+                                prod_limpo = limpar_texto(prod)
+                                # Cruza as palavras do segmento com os produtos da marca
+                                if any(p_seg in prod_limpo for p_seg in palavras_segmento_cli if len(p_seg)>2):
+                                    sugestoes_segmento.append(prod)
+                                    
+                        if sugestoes_segmento:
+                            sugestoes_base = list(set(sugestoes_segmento))[:3]
+                        # Cenario 3: Cliente genérico. Pegar mais vendidos da marca
+                        else:
+                            mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
+                            sugestoes_base = df_total[mask_total_marca].groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+                    
+                    # --- CRUZAMENTO COM OFERTAS DO DIA ---
+                    sugestoes_finais = []
+                    for item in sugestoes_base:
+                        achou_oferta = False
+                        chaves_item = extrair_palavras_produto(item)
+                        for of_linha in ofertas_memoria:
+                            # Tenta combinar o produto sugerido com alguma linha da oferta
+                            if chaves_item and all(c in limpar_texto(of_linha) for c in chaves_item[:2]): 
+                                sugestoes_finais.append(f"🔥 {of_linha} (EM OFERTA HOJE!)")
+                                achou_oferta = True
+                                break
+                        if not achou_oferta:
+                            sugestoes_finais.append(f"▪️ {item}")
+                            
+                    # Remove duplicatas e formata texto
+                    sugestoes_finais = list(dict.fromkeys(sugestoes_finais))
+                    texto_sugestoes = "\n".join(sugestoes_finais) if sugestoes_finais else "▪️ Linha completa de produtos."
+                    
+                    # --- MONTAGEM DA MENSAGEM ---
+                    msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
+                    
+                    st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}")
