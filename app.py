@@ -966,18 +966,38 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
         
         # 3. Descobrir quem COMPROU a marca ou o produto específico
-        compradores_alvo = []
+        compradores_alvo_df = pd.DataFrame() # DataFrame para exportação
         if produto_filtro.strip():
-            df_filtro = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
-            compradores_alvo = df_filtro['Cliente'].unique()
+            compradores_alvo_df = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
             texto_aviso = f"o produto '{produto_filtro.strip()}'"
         else:
             mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
-            compradores_alvo = df_mes_atual[mask_marca]['Cliente'].unique()
+            compradores_alvo_df = df_mes_atual[mask_marca]
             texto_aviso = f"nenhum produto da marca selecionada"
             
-        # KPI: Exibindo o número de positivados globais (ignora o filtro de busca de cliente)
-        st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
+        # KPI e BOTÃO DE DOWNLOAD
+        col_kpi, col_btn = st.columns([2, 1])
+        with col_kpi:
+            st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo_df['Cliente'].unique())}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
+        
+        with col_btn:
+            if not compradores_alvo_df.empty:
+                # Preparar dados para o Excel
+                df_export = compradores_alvo_df[['Codigo_Cliente', 'Cliente', 'Codigo_Produto', 'Produto']].copy()
+                df_export.columns = ['Código Cliente', 'Nome Cliente', 'Código Produto', 'Descrição do Produto']
+                
+                # Converter para CSV/Excel em memória
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    df_export.to_excel(writer, index=False, sheet_name='Positivados')
+                
+                st.download_button(
+                    label="📥 Baixar Excel (Positivados)",
+                    data=buffer.getvalue(),
+                    file_name=f"positivados_{nome_amigavel_marca}.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
         
         # 4. A Lacuna (White Space) - Todos que não compraram
         clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
