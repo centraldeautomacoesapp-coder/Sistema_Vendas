@@ -982,12 +982,16 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         
         with col_btn:
             if not compradores_alvo_df.empty:
-                # Preparar dados para o Excel
-                st.write("Colunas disponíveis no seu DataFrame:", compradores_alvo_df.columns.tolist())
-                df_export = compradores_alvo_df[['Codigo_Cliente', 'Cliente', 'Codigo_Produto', 'Produto']].copy()
-                df_export.columns = ['Código Cliente', 'Nome Cliente', 'Código Produto', 'Descrição do Produto']
+                # Selecionamos apenas as colunas que você confirmou que existem
+                df_export = compradores_alvo_df[['Cliente', 'Produto']].copy()
                 
-                # Converter para CSV/Excel em memória
+                # Renomeamos para ficar bonito no Excel
+                df_export.columns = ['Nome Cliente', 'Descrição do Produto']
+                
+                # Adicionamos uma coluna de "Status" para marcar que ele é positivado
+                df_export['Status'] = 'Positivado'
+                
+                # Converter para Excel em memória
                 import io
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
