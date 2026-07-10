@@ -110,6 +110,14 @@ if df_total.empty:
     st.warning("Base de dados vazia.")
     st.stop()
 
+# Logo após carregar os dados (no bloco onde você define df_total e dict_cadastro):
+
+# Define o mês de referência atual (ex: '2026-07')
+mes_atual_referencia = date.today().strftime('%Y-%m') 
+
+# Agora sim, a linha que estava dando erro funcionará:
+df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
+
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
 
