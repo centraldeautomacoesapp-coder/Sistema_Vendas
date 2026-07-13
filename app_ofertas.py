@@ -99,10 +99,7 @@ def carregar_dados_nuvem(data_atual):
     return {"df": pd.DataFrame(), "cadastro": {}}
 
 with st.spinner("Sincronizando base de dados..."):
-    # Chamando a "receita" que definimos acima
     dados_carregados = carregar_dados_nuvem(date.today())
-    
-    # Separando os dados
     df_total = dados_carregados["df"]
     dict_cadastro = dados_carregados["cadastro"]
 
@@ -110,15 +107,11 @@ if df_total.empty:
     st.warning("Base de dados vazia.")
     st.stop()
 
-# Logo após carregar os dados (no bloco onde você define df_total e dict_cadastro):
-
-# Define o mês de referência atual (ex: '2026-07')
 mes_atual_referencia = date.today().strftime('%Y-%m') 
-
-# Agora sim, a linha que estava dando erro funcionará:
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-# --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
+
+# --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     try:
@@ -131,7 +124,6 @@ except Exception as e:
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
-# --- OTIMIZAÇÃO VISUAL PARA CELULAR ---
 st.markdown("""
     <style>
     html, body, [class*=\"css\"], p, span { font-size: 16px !important; }
@@ -145,7 +137,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 📅 CONTROLE DE DATA ATUAL REAL DO CALENDÁRIO
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
@@ -154,42 +145,12 @@ mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 def obter_conexao_neon():
     try:
         url = st.secrets["connections"]["neon_db"]["url"]
-        # O SQLAlchemy exige 'postgresql://' em vez de apenas 'postgres://'
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
         return create_engine(url)
     except Exception as e:
         st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
         return None
-
-def registrar_envio_neon(cliente_nome, produto_enviado):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                query = text("""
-                    INSERT INTO envios_historico (data_envio, cliente_nome, produto_enviado) 
-                    VALUES (:data, :cliente, :produto)
-                """)
-                conn.execute(query, {"data": datetime.date.today(), "cliente": cliente_nome, "produto": produto_enviado})
-        except Exception as e:
-            st.error(f"Erro ao salvar histórico no Neon: {e}")
-
-def obter_produtos_enviados_recentes(cliente_nome):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.connect() as conn:
-                query = text("""
-                    SELECT produto_enviado FROM envios_historico 
-                    WHERE cliente_nome = :cliente AND data_envio >= :data_limite
-                """)
-                data_limite = datetime.date.today() - datetime.timedelta(days=1)
-                result = conn.execute(query, {"cliente": cliente_nome, "data_limite": data_limite})
-                return [row[0] for row in result]
-        except:
-            return []
-    return []
 
 def carregar_metas_neon(mes_atual):
     engine = obter_conexao_neon()
@@ -298,10 +259,8 @@ if 'clientes_processados_aguardando' not in st.session_state: st.session_state.c
 if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
 if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
-# --- 🚀 CORREÇÃO DO CARREGAMENTO SEGURO DE METAS (ANTI-ZERAMENTO EM REFRESH) ---
 if 'metas_config' not in st.session_state:
     db_metas = carregar_metas_neon(mes_atual_referencia)
-    # Se o banco falhar ou retornar zerado, tenta recuperar do JSON local como plano B
     if db_metas.get("pos_geral", 0) == 0 and db_metas.get("fat_geral", 0.0) == 0.0:
         local_metas = progresso_backup.get("metas_config", {})
         if local_metas and local_metas.get("mes") == mes_atual_referencia:
@@ -325,7 +284,6 @@ if st.session_state.metas_config.get("mes") != mes_atual_referencia:
 
 if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
 
-# --- REGRAS DE SEGMENTO GLOBAL ---
 regras_segmento = {
     "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
     "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
@@ -369,7 +327,6 @@ regras_segmento = {
     "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
 }
 
-# --- 🚀 CALLBACK CORRIGIDO PARA REALIZAR O PUSH DE CLIENTE INSTANTÂNEO ---
 def adiantar_cliente_fila_callback(id_fila_param):
     chave_selectbox = f"puxar_frente_{id_fila_param}"
     cliente_escolhido = st.session_state.get(chave_selectbox)
@@ -377,21 +334,16 @@ def adiantar_cliente_fila_callback(id_fila_param):
     if cliente_escolhido and cliente_escolhido != "-- Digite ou selecione um cliente para adiantar --":
         fila_atual = st.session_state.get(id_fila_param)
         if fila_atual and cliente_escolhido in fila_atual:
-            # Move para o topo do dicionário da fila
             dados_alvo = fila_atual.pop(cliente_escolhido)
             nova_fila = {cliente_escolhido: dados_alvo}
             nova_fila.update(fila_atual)
             st.session_state[id_fila_param] = nova_fila
-            
-            # Limpa cache do Gemini para forçar a nova geração do cliente escolhido
             st.session_state.cliente_ia_atual = ""
             salvar_progresso_atual()
             st.toast(f"🏢 {cliente_escolhido} foi puxado para a frente!", icon="⚡")
             
-    # Reseta o valor da caixa de pesquisa para evitar loops infinitos no rerun
     st.session_state[chave_selectbox] = "-- Digite ou selecione um cliente para adiantar --"
 
-# --- GERADOR GEMINI ---
 def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
     texto_ofertas = "\n".join([f"- {of}" for of in ofertas])
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
@@ -431,14 +383,12 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
-# --- CABEÇALHO ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
 if st.button("🔄 Sincronizar Sistema"):
     st.cache_data.clear()
     st.toast("Sincronizando...", icon="🔄")
     st.rerun() 
 
-# --- CÁLCULOS METAS ---
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
 
@@ -500,7 +450,6 @@ exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
 exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
-# --- BOTÕES DE NAVEGAÇÃO ---
 st.write("---")
 col1, col2, col3 = st.columns(3)
 
@@ -573,7 +522,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
-                st.session_state[id_memoria] = linhas
+                st.session_state[id_memoria] = lines
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -610,14 +559,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                                 
                         if cli in st.session_state[id_excluidos]: continue
                         
-                        enviados_recentes = obter_produtos_enviados_recentes(cli)
-                        ja_enviado_recentemente = False
-                        for p_env in enviados_recentes:
-                            if all(c in limpar_texto(p_env) for c in chaves):
-                                ja_enviado_recentemente = True
-                                break
-                        if ja_enviado_recentemente: continue
-                        
                         if cli not in nova_fila: nova_fila[cli] = []
                         if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
                 
@@ -635,7 +576,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         clientes_restantes = list(fila_ativa.keys())
         st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
         
-        # 🔍 CAIXA DE PESQUISA ATUALIZADA COM CALLBACK ANTI-CONGELAMENTO
         st.selectbox(
             "🚀 Puxar cliente para a frente da fila:", 
             options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
@@ -672,9 +612,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 st.session_state.envios_hoje += 1
                 st.session_state[id_excluidos].add(cliente_atual)
                 
-                for of_linha in ofertas_cliente:
-                    registrar_envio_neon(cliente_atual, of_linha)
-                    
                 del st.session_state[id_fila][cliente_atual]
                 st.session_state.cliente_ia_atual = "" 
                 salvar_progresso_atual()
@@ -804,11 +741,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
 # ==============================================================================
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
-# ==============================================================================
-# --- ABA 3: CONSULTA E ESTRATÉGIA ---
-# ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
-    # --- ADICIONADO A NOVA ABA 'PARCEIROS ESTRATÉGICOS' ---
     st.session_state.sub_aba_consulta = st.radio(
         "Filtro de Pesquisa:", 
         ["👤 Por Cliente", "📦 Por Produto", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
@@ -944,14 +877,10 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     else:
                         st.markdown("▪️ Oferecer os campeões gerais de venda da Filial 2.")
 
-    # ==============================================================================
-    # --- NOVA ABA: PARCEIROS ESTRATÉGICOS (Foco em Marcas) ---
-    # ==============================================================================
     elif st.session_state.sub_aba_consulta == "🏆 Parceiros Estratégicos":
         st.subheader("🎯 Oportunidades: Marcas Estratégicas")
         st.write("Filtre clientes que **já compraram no mês**, mas que **não compraram** determinada marca ou produto.")
         
-        # 1. Dicionário das marcas parceiras (Tudo em minúsculo e sem acentos para busca)
         marcas_parceiras = {
             "Marca 1: Lebon, Doriana, Seara, Frangosul": ["lebon", "doriana", "seara", "frangosul"],
             "Marca 2: Frivatti": ["frivatti"],
@@ -961,7 +890,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             "Marca 6: Confrescor": ["confrescor"]
         }
         
-        # --- MUDANÇA: Adicionamos 3 colunas para incluir a busca do cliente ---
         col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
         with col_m1:
             marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
@@ -973,10 +901,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         palavras_da_marca = marcas_parceiras[marca_selecionada]
         nome_amigavel_marca = marca_selecionada.split(':')[0]
         
-        # 2. Todos os clientes que compraram QUALQUER COISA no mês atual
         clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
         
-        # 3. Descobrir quem COMPROU a marca ou o produto específico
         if produto_filtro.strip():
             compradores_alvo_df = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
             texto_aviso = f"o produto '{produto_filtro.strip()}'"
@@ -985,33 +911,25 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             compradores_alvo_df = df_mes_atual[mask_marca]
             texto_aviso = f"nenhum produto da marca selecionada"
 
-        # Criamos a lista para o filtro das oportunidades
         compradores_alvo = compradores_alvo_df['Cliente'].unique().tolist()
             
-        # KPI e BOTÃO DE DOWNLOAD
         col_kpi, col_btn = st.columns([2, 1])
         with col_kpi:
             st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
         
         with col_btn:
             if not compradores_alvo_df.empty:
-                # 1. Ajuste da Data: converte para formato data e depois para texto DD/MM/AAAA
                 compradores_alvo_df['Data_Formatada'] = pd.to_datetime(compradores_alvo_df['Dt. Delivery']).dt.strftime('%d/%m/%Y')
                 
-                # 2. Selecionar e ordenar as colunas
                 df_export = compradores_alvo_df[['Data_Formatada', 'Cliente', 'Produto']].copy()
                 df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
                 
                 import io
                 buffer = io.BytesIO()
                 
-                # 3. Escrita no Excel
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_export.to_excel(writer, index=False, sheet_name='Positivados', startrow=3)
-                    
                     worksheet = writer.sheets['Positivados']
-                    # Aqui usamos a variável 'nome_amigavel_marca' que já está no seu código
-                    # Ela já contém o nome da marca selecionada (ex: "McCain", "Lebon", "Confrescor")
                     worksheet['A1'] = f"Marca Parceira: {nome_amigavel_marca}"
                     worksheet['A2'] = f"Quantidade de Clientes Positivados: {len(compradores_alvo_df['Cliente'].unique())}"
                 
@@ -1022,10 +940,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         
-        # 4. A Lacuna (White Space) - Todos que não compraram
         clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
         
-        # --- MUDANÇA: Aplicar o filtro de busca de cliente caso você tenha digitado algo ---
         clientes_oportunidade = []
         for c in clientes_oportunidade_brutos:
             if busca_cliente_op.strip().upper() in c.upper():
@@ -1037,7 +953,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         else:
             st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
             
-            # Carrega a memória de ofertas ativas para cruzar
             ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
             
             for c_op in clientes_oportunidade:
@@ -1052,18 +967,14 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     for _, r in top_compras_op.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
                     
-                    # --- INTELIGÊNCIA DE SUGESTÃO E SUBSTITUIÇÃO ---
                     df_cli_total = df_total[df_total['Cliente'] == c_op]
                     mask_cli_marca = df_cli_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
                     historico_marca_cli = df_cli_total[mask_cli_marca]['Produto'].unique().tolist()
                     
                     sugestoes_base = []
                     
-                    # Cenario 1: Ele tem histórico antigo com a marca
                     if historico_marca_cli:
                         sugestoes_base = historico_marca_cli[:3]
-                        
-                    # Cenario 2: Nunca comprou a marca. Buscar similares do segmento
                     else:
                         sugestoes_segmento = []
                         nome_limpo_cli = limpar_texto(c_op)
@@ -1082,41 +993,32 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                             
                             for prod in todos_produtos_marca:
                                 prod_limpo = limpar_texto(prod)
-                                # Cruza as palavras do segmento com os produtos da marca
                                 if any(p_seg in prod_limpo for p_seg in palavras_segmento_cli if len(p_seg)>2):
                                     sugestoes_segmento.append(prod)
                                     
                         if sugestoes_segmento:
                             sugestoes_base = list(set(sugestoes_segmento))[:3]
-                        # Cenario 3: Cliente genérico. Pegar mais vendidos da marca
                         else:
                             mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
                             sugestoes_base = df_total[mask_total_marca].groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
                     
-                   # --- CRUZAMENTO COM OFERTAS DO DIA ---
                     sugestoes_finais = []
                     for item in sugestoes_base:
                         achou_oferta = False
                         chaves_item = extrair_palavras_produto(item)
                         for of_linha in ofertas_memoria:
-                            # Tenta combinar o produto sugerido com alguma linha da oferta
                             if chaves_item and all(c in limpar_texto(of_linha) for c in chaves_item[:2]): 
-                                # 🔒 TRAVA DE SEGURANÇA 1: A oferta DEVE conter a marca selecionada
                                 if any(p in limpar_texto(of_linha) for p in palavras_da_marca):
                                     sugestoes_finais.append(f"🔥 {of_linha} (EM OFERTA HOJE!)")
                                     achou_oferta = True
                                     break
                                     
                         if not achou_oferta:
-                            # 🔒 TRAVA DE SEGURANÇA 2: O item sugerido DEVE conter a marca selecionada
                             if any(p in limpar_texto(item) for p in palavras_da_marca):
                                 sugestoes_finais.append(f"▪️ {item}")
                             
-                    # Remove duplicatas e formata texto
                     sugestoes_finais = list(dict.fromkeys(sugestoes_finais))
                     texto_sugestoes = "\n".join(sugestoes_finais) if sugestoes_finais else f"▪️ Linha completa de produtos {nome_amigavel_marca}."
                     
-                    # --- MONTAGEM DA MENSAGEM ---
                     msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
-                    
                     st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}_{nome_amigavel_marca}")
