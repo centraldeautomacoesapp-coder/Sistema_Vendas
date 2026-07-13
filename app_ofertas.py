@@ -118,9 +118,6 @@ mes_atual_referencia = date.today().strftime('%Y-%m')
 # Agora sim, a linha que estava dando erro funcionará:
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
-
-
 # --- CONFIGURAÇÃO DA API DO GEMINI (COM FALLBACK ANTI-ERRO 404) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
