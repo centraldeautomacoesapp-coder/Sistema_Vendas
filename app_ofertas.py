@@ -126,7 +126,7 @@ st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
 st.markdown("""
     <style>
-    html, body, [class*=\"css\"], p, span { font-size: 16px !important; }
+    html, body, [class*="css"], p, span { font-size: 16px !important; }
     h3 { font-size: 20px !important; font-weight: bold !important; }
     h4 { font-size: 18px !important; }
     div.stButton > button {
@@ -151,6 +151,100 @@ def obter_conexao_neon():
     except Exception as e:
         st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
         return None
+
+def criar_tabela_segmentos_neon():
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS segmentos_regras (
+                        segmento VARCHAR(100) PRIMARY KEY,
+                        itens TEXT
+                    );
+                """))
+        except: pass
+
+criar_tabela_segmentos_neon()
+
+regras_segmento_padrao = {
+    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
+    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
+    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
+    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
+    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
+    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
+    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
+    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
+    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
+    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
+    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
+    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
+    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
+    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
+    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
+    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
+    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
+    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
+    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
+    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
+    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
+    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
+    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
+    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
+    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
+    "mercearia": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Molho de Tomate"],
+    "mercado": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Biscoito"],
+    "peixaria": ["Peixe Presco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
+    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
+    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
+    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
+    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
+    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
+    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
+    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
+    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
+    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
+    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+}
+
+def carregar_regras_segmentos_do_neon():
+    engine = obter_conexao_neon()
+    regras = regras_segmento_padrao.copy()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT segmento, itens FROM segmentos_regras;")).fetchall()
+                if res:
+                    for row in res:
+                        seg, itens_str = row[0], row[1]
+                        regras[seg] = json.loads(itens_str)
+                else:
+                    # Se tabela estiver vazia, popula com o padrão inicial
+                    for seg, itens in regras_segmento_padrao.items():
+                        conn.execute(text("INSERT INTO segmentos_regras (segmento, itens) VALUES (:s, :i) ON CONFLICT (segmento) DO NOTHING;"),
+                                     {"s": seg, "i": json.dumps(itens)})
+                    conn.commit()
+        except: pass
+    return regras
+
+regras_segmento = carregar_regras_segmento_do_neon() if 'carregar_regras_segmento_do_neon' else carregar_regras_segmentos_do_neon()
+
+def salvar_novo_item_segmento_neon(segmento, novo_item):
+    if segmento in regras_segmento:
+        if novo_item not in regras_segmento[segmento]:
+            regras_segmento[segmento].append(novo_item)
+            engine = obter_conexao_neon()
+            if engine:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            INSERT INTO segmentos_regras (segmento, itens) VALUES (:seg, :itens)
+                            ON CONFLICT (segmento) DO UPDATE SET itens = EXCLUDED.itens;
+                        """), {"seg": segmento, "itens": json.dumps(regras_segmento[segmento])})
+                except: pass
 
 def carregar_metas_neon(mes_atual):
     engine = obter_conexao_neon()
@@ -284,49 +378,6 @@ if st.session_state.metas_config.get("mes") != mes_atual_referencia:
 
 if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
 
-regras_segmento = {
-    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-    "mercearia": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Molho de Tomate"],
-    "mercado": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Biscoito"],
-    "peixaria": ["Peixe Presco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
-}
-
 def adiantar_cliente_fila_callback(id_fila_param):
     chave_selectbox = f"puxar_frente_{id_fila_param}"
     cliente_escolhido = st.session_state.get(chave_selectbox)
@@ -383,7 +434,6 @@ def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
         msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
-# --- CORREÇÃO DO CONTAINER AQUI: Mudado use_container_width por width='stretch' ---
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", width='stretch')
 
 if st.button("🔄 Sincronizar Sistema"):
@@ -523,7 +573,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
-                # --- CORREÇÃO 1: Limpa as exclusões anteriores para aceitar nova fila sem bugs ---
                 st.session_state[id_excluidos].clear()
                 
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
@@ -539,7 +588,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     
-                    # --- CORREÇÃO 2: Match inteligente e resiliente por proximidade de palavras ---
                     combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
                     if not combs and len(chaves) >= 2:
                         combs = [orig for orig, busca in prod_busca.items() if sum(1 for c in chaves if c in busca) >= 2]
@@ -547,18 +595,24 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     interessados = set()
                     for c in combs: interessados.update(prod_to_clientes[c])
                     
+                    # --- CRUZAMENTO AMPLO E COMPLETO COM TODOS OS ITENS DOS SEGMENTOS ---
                     for cli_cad, info_cad in dict_cadastro.items():
+                        fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
+                        nome_cli_limpo = limpar_texto(cli_cad)
+                        
+                        for chave_seg, itens_seg in regras_segmento.items():
+                            if chave_seg in fantasia_texto or chave_seg in nome_cli_limpo:
+                                for item_seg in itens_seg:
+                                    item_seg_limpo = limpar_texto(item_seg)
+                                    if all(c in item_seg_limpo for c in chaves) or any(c in item_seg_limpo for c in chaves):
+                                        interessados.add(cli_cad)
+                                        # Atualiza/Salva automaticamente no Neon caso ache novas combinações relevantes
+                                        salvar_novo_item_segmento_neon(chave_seg, item_seg)
+                                        break
+                                        
                         cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
                         if cardapio_texto and all(c in cardapio_texto for c in chaves):
                             interessados.add(cli_cad)
-                        
-                        fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
-                        if fantasia_texto:
-                            for chave_seg, itens_seg in regras_segmento.items():
-                                if chave_seg in fantasia_texto:
-                                    for item_seg in itens_seg:
-                                        if all(c in limpar_texto(item_seg) for c in chaves):
-                                            interessados.add(cli_cad)
                     
                     for cli in interessados:
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
@@ -573,7 +627,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada e cruzada com sucesso!")
+                st.success("Fila vinculada e cruzada com sucesso para todos os segmentos e itens essenciais!")
                 st.rerun()
 
     st.write("---")
@@ -651,7 +705,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
             texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
             html_button_js = f"""
-            <button id=\"copyBtn\" style=\"width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;\">📋 Copiar Relatório</button>
+            <button id="copyBtn" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar Relatório</button>
             <script>
             document.getElementById('copyBtn').addEventListener('click', function() {{
                 navigator.clipboard.writeText({texto_js_safe});
