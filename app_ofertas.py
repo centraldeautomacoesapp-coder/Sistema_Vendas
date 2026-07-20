@@ -230,7 +230,7 @@ def carregar_regras_segmentos_do_neon():
         except: pass
     return regras
 
-regras_segmento = carregar_regras_segmento_do_neon() if 'carregar_regras_segmento_do_neon' else carregar_regras_segmentos_do_neon()
+regras_segmento = carregar_regras_segmentos_do_neon()
 
 def salvar_novo_item_segmento_neon(segmento, novo_item):
     if segmento in regras_segmento:
