@@ -167,47 +167,56 @@ def criar_tabela_segmentos_neon():
 
 criar_tabela_segmentos_neon()
 
-regras_segmento_padrao = {
-    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó"],
-    "açougue": ["Carnes", "Bandejas", "Papel Filme", "Facas", "Sacos plásticos"],
-    "bar": ["Cerveja", "Gelo", "Energético", "Destilados", "Amendoim", "Batata Frita"],
-    "buffet": ["Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de festa"],
-    "burguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "cafeteria": ["Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis", "Xaropes"],
-    "cantina": ["Massas", "Molho de Tomate", "Queijo Ralado", "Embalagens"],
-    "churrascaria": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha"],
-    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso"],
-    "confeitaria": ["Farinha", "Açúcar", "Ovos", "Leite Condensado", "Chocolate", "Manteiga", "Fermento"],
-    "conveniencia": ["Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão"],
-    "distribuidora": ["Cerveja", "Refrigerante", "Gelo", "Água", "Carvão"],
-    "doceria": ["Chantilly", "Leite Condensado", "Chocolate", "Confeitos", "Formas", "Açúcar"],
-    "espetinho": ["Linguiça", "Carne", "Frango", "Carvão", "Sal Grosso"],
-    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis"],
-    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos"],
-    "hamburguer": ["Hambúrguer", "Cheddar", "Bacon", "Pão de Hambúrguer", "Maionese Artesanal"],
-    "hotel": ["Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Descartáveis", "Amenities"],
-    "italiano": ["Macarrão", "Molho", "Azeite", "Queijo Parmesão", "Manjericão", "Vinho"],
-    "japones": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "lanches": ["Hambúrguer", "Batata Frita", "Cheddar", "Maionese", "Ketchup", "Pão de Hambúrguer", "Bacon"],
-    "massa": ["Farinha", "Ovos", "Molho de Tomate", "Parmesão", "Manjericão"],
-    "mexicano": ["Tortilha", "Guacamole", "Pimenta", "Nachos", "Feijão Mexicano", "Carne Moída"],
-    "padaria": ["Pão Francês", "Leite", "Manteiga", "Presunto", "Queijo", "Café", "Farinha"],
-    "panificadora": ["Farinha", "Fermento", "Ovos", "Leite", "Margarina", "Embalagens de Pão"],
-    "pastel": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo"],
-    "pastelaria": ["Massa de Pastel", "Carne Moída", "Queijo", "Caldo de Cana", "Óleo", "Embalagens"],
-    "mercearia": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Molho de Tomate"],
-    "mercado": ["Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Biscoito"],
-    "peixaria": ["Peixe Presco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo"],
-    "pizza": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Manjericão"],
-    "pizzaria": ["Calabresa", "Muçarela", "Presunto", "Molho de Tomate", "Azeitona", "Orégano", "Farinha", "Fermento"],
-    "pousada": ["Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"],
-    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas"],
-    "pub": ["Cerveja Artesanal", "Gelo", "Amendoim", "Batata Frita", "Hambúrguer"],
-    "restaurante": ["Arroz", "Feijão", "Óleo", "Tempero", "Embalagens", "Descartáveis"],
-    "sorveteria": ["Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow"],
-    "sushi": ["Salmão", "Cream Cheese", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Alga Nori"],
-    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída"],
-    "temaki": ["Salmão", "Cream Cheese", "Shoyu", "Alga Nori"]
+regras_segmento = {
+    # --- FOODSERVICE & LANCHES ---
+    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó", "Xarope de Guaraná", "Embalagens Térmicas", "Colheres Descartáveis", "Creme de Avelã", "Paçoca Rolha"],
+    "burguer": ["Preparado Sabor Cheddar", "Catchup/Maionese Sachê", "Bacon Fatiado", "Batata Fininhas", "Hambúrguer", "Pão de Hambúrguer", "Anéis de Cebola", "Empanados", "Embalagem Kraft", "Papel Acoplado"],
+    "hamburguer": ["Preparado Sabor Cheddar", "Catchup/Maionese Sachê", "Bacon Fatiado", "Batata Fininhas", "Hambúrguer", "Pão de Hambúrguer", "Anéis de Cebola", "Empanados", "Embalagem Kraft", "Papel Acoplado"],
+    "lanches": ["Batata 9mm / Surecrisp", "Requeijão Cheddar", "Anéis de Cebola", "Frango Sassami", "Linguiça Toscana", "Pão de Cachorro Quente", "Saches de Molho", "Embalagens Take-away", "Guardanapos"],
+    "pastel": ["Requeijão c/ Amido Bisnaga", "Energéticos Baly", "Catchup", "Óleo de Algodão/Soja", "Massa de Pastel", "Carne Moída", "Molho Cheddar", "Bobina de Papel Toalha", "Aparelho de Fechar Pastel", "Caldo de Cana"],
+    "pastelaria": ["Requeijão c/ Amido Bisnaga", "Energéticos Baly", "Catchup", "Óleo de Algodão/Soja", "Massa de Pastel", "Carne Moída", "Molho Cheddar", "Bobina de Papel Toalha", "Aparelho de Fechar Pastel", "Caldo de Cana"],
+    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos em Sachê", "Batata Congelada", "Bacon Fatiado", "Refrigerante Lata", "Água Mineral"],
+
+    # --- RESTAURANTES TÍPICOS ---
+    "japones": ["Alga Nori Gold", "Guioza Bovina/Suína", "Farinha Panko", "Cream Cheese", "Salmão Eviscerado", "Camarão Cinza", "Doce de Goiabada", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Embalagens para Combinados"],
+    "sushi": ["Alga Nori Gold", "Guioza Bovina/Suína", "Farinha Panko", "Cream Cheese", "Salmão Eviscerado", "Camarão Cinza", "Doce de Goiabada", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Embalagens para Combinados"],
+    "temaki": ["Alga Nori Gold", "Farinha Panko", "Cream Cheese", "Salmão", "Camarão", "Shoyu", "Cebolinha", "Embalagens para Temaki"],
+    "italiano": ["Mandioca Noisette", "Polenta Palito", "Batata Congelada", "Queijo Parmesão", "Macarrão", "Molho de Tomate Tradicional", "Azeite", "Manjericão", "Vinho Tinto", "Farinha de Trigo"],
+    "cantina": ["Mandioca Noisette", "Polenta Palito", "Batata Congelada", "Queijo Parmesão", "Macarrão", "Molho de Tomate", "Azeite", "Manjericão", "Embalagens para Viagem"],
+    "massa": ["Farinha de Trigo Premium", "Ovos", "Molho de Tomate", "Queijo Parmesão", "Manjericão", "Azeite", "Queijo Muçarela"],
+    "mexicano": ["Tortilha", "Guacamole", "Pimenta Jalapeño", "Nachos", "Feijão Mexicano", "Carne Moída", "Queijo Cheddar", "Molho Sour Cream"],
+    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída", "Páprica Doce/Picante", "Guacamole"],
+    "pizza": ["Farinha de Trigo Premium", "Carne Moída", "Presunto Cru/Parma", "Palmito Inteiro", "Molho de Tomate Sachê", "Linguiça Pepperoni", "Alho Descascado", "Muçarela", "Orégano", "Caixas para Pizza"],
+    "pizzaria": ["Farinha de Trigo Premium", "Carne Moída", "Presunto Cru/Parma", "Palmito Inteiro", "Molho de Tomate Sachê", "Linguiça Pepperoni", "Alho Descascado", "Muçarela", "Orégano", "Caixas para Pizza", "Lenha/Carvão Ecológico"],
+    "restaurante": ["Frango Coxa/Sobrecoxa", "Queijo Gouda", "Batata Canoa", "Catchup/Maionese Sachê", "Farinha de Trigo", "Queijo Parmesão", "Arroz", "Feijão", "Óleo", "Tempero", "Marmitex/Descartáveis"],
+    "churrascaria": ["Frango (Coxa/Sobrecoxa)", "Preparado Sabor Muçarela", "Picanha", "Alcatra", "Linguiça Toscana", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha", "Pão de Alho"],
+    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Pão de Alho", "Faca para Carne", "Tábuas de Corte"],
+    "espetinho": ["Linguiça", "Carne Bovina", "Frango (Meio da Asa/Coxinha)", "Carvão", "Sal Grosso", "Espeto de Bambu", "Mandioca/Macaxeira"],
+
+    # --- COMÉRCIO, BEBIDAS & ENTRETENIMENTO ---
+    "bar": ["Batata Surecrisp/Fininha", "Bacon", "Lagarto Bovino", "Queijo Provolone", "Almôndegas", "Cerveja", "Gelo", "Amendoim", "Porções Congeladas", "Energético"],
+    "pub": ["Batata Surecrisp/Fininha", "Bacon", "Lagarto Bovino", "Queijo Provolone", "Cerveja Artesanal", "Gelo", "Amendoim", "Hambúrguer", "Destilados"],
+    "distribuidora": ["Vodka", "Xaropes (Maçã Verde, Framboesa, etc.)", "Gin", "Água Tônica", "Cerveja", "Refrigerante", "Gelo", "Carvão", "Copos Descartáveis", "Canudos"],
+    "conveniencia": ["Energéticos Baly (Trad/Sabores)", "Sanduíche Hot Pocket", "Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão", "Isqueiros", "Chocolates"],
+    "buffet": ["Alcatra/Maminha", "Frango", "Mandioca Noisette", "Requeijão Bisnaga", "Extrato de Tomate", "Farinha Panko", "Feijão Preto", "Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de Festa"],
+
+    # --- PADARIA, DOCERIA E CAFÉ ---
+    "padaria": ["Batata Airfryer", "Refrigerantes Sem Açúcar", "Patês (Frango, Presunto, Fígado)", "Margarina c/ Sal", "Pão Francês", "Leite", "Café", "Farinha", "Frios (Muçarela, Presunto)", "Bobina Plástica"],
+    "panificadora": ["Batata Airfryer", "Refrigerantes", "Patês", "Margarina", "Farinha", "Fermento", "Ovos", "Leite", "Embalagens de Pão", "Frios Fatiados"],
+    "confeitaria": ["Farinha de Trigo", "Açúcar", "Ovos", "Leite Condensado", "Chocolate/Cacau em Pó", "Manteiga/Margarina", "Fermento", "Chantilly", "Formas de Papel"],
+    "doceria": ["Chantilly", "Leite Condensado", "Chocolate em Pó/Barra", "Confeitos", "Formas", "Açúcar", "Embalagens para Presente", "Fitas Decorativas"],
+    "cafeteria": ["Energéticos (Diversos Sabores)", "Óleo Vegetal (Fritura)", "Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis térmicos", "Xaropes (Baunilha, Caramelo)"],
+    "sorveteria": ["Petit Gateau", "Queijo Muçarela/Presunto (Para crepes)", "Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow", "Coberturas Diversas", "Copos e Potes Descartáveis"],
+
+    # --- VAREJO E OUTROS ---
+    "mercado": ["Pizza Pronta Congelada", "Batata Congelada", "Margarina c/ Sal", "Carne Moída", "Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Biscoito"],
+    "mercearia": ["Pizza Pronta Congelada", "Batata Congelada", "Margarina c/ Sal", "Carne Moída", "Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Molho de Tomate"],
+    "açougue": ["Bacon Manta", "Frango (Coxinha/Asa)", "Muçarela", "Moela de Frango", "Queijo Parmesão", "Carnes Variadas", "Bandejas de Isopor", "Papel Filme", "Facas", "Sacos plásticos"],
+    "peixaria": ["Salmão Eviscerado", "Tilápia Filé", "Lula em Anéis", "Camarão Cinza", "Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo", "Farinha para Empanar"],
+    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas", "Aveia", "Mel", "Óleo de Coco", "Embalagens Pouch"],
+    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis", "Batata Doce", "Frango Desfiado", "Ovos"],
+    "hotel": ["Massa Lasanha/Pastel", "Presunto e Muçarela", "Frango Filé Peito", "Batata Congelada", "Cream Cheese", "Frutas Vermelhas IQF", "Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Amenities (Sabonete/Shampoo)"],
+    "pousada": ["Massa Lasanha/Pastel", "Frios (Muçarela/Presunto)", "Frango", "Batata Congelada", "Cream Cheese", "Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"]
 }
 
 def carregar_regras_segmentos_do_neon():
