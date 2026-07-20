@@ -167,7 +167,7 @@ def criar_tabela_segmentos_neon():
 
 criar_tabela_segmentos_neon()
 
-regras_segmento = {
+regras_segmento_padrao = {
     # --- FOODSERVICE & LANCHES ---
     "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó", "Xarope de Guaraná", "Embalagens Térmicas", "Colheres Descartáveis", "Creme de Avelã", "Paçoca Rolha"],
     "burguer": ["Preparado Sabor Cheddar", "Catchup/Maionese Sachê", "Bacon Fatiado", "Batata Fininhas", "Hambúrguer", "Pão de Hambúrguer", "Anéis de Cebola", "Empanados", "Embalagem Kraft", "Papel Acoplado"],
