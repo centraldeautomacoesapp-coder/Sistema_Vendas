@@ -81,9 +81,9 @@ def carregar_dados_nuvem(data_atual):
                     heads.append('Filial')
                 sub = df[sel].copy()
                 sub.columns = heads
-                if sub['Faturamento Brut'].dtype == 'object':
-                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
+                if sub['Faturamento Bruto'].dtype == 'object':
+                    sub['Faturamento Brut'] = sub['Faturamento Bruto'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                sub['Faturamento Bruto'] = pd.to_numeric(sub['Faturamento Bruto'], errors='coerce')
                 lista_dfs.append(sub)
         except: continue
         
