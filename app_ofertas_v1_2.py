@@ -40,7 +40,7 @@ def carregar_dados_nuvem(data_atual):
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu", output=pasta_destino, quiet=True)
+        gdown.download_folder("https://drive.google.com/drive/folders/1pf8eOlZthjVZPgDubgvr79Fr0mW0VPQ7", output=pasta_destino, quiet=True)
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
