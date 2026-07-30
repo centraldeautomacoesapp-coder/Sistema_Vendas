@@ -133,7 +133,6 @@ def criar_tabelas_neon():
     if engine:
         try:
             with engine.begin() as conn:
-                # Modificado para incluir o cod_produto na frente
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
                         cod_produto VARCHAR(50),
@@ -186,7 +185,6 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
     if engine:
         try:
             with engine.begin() as conn:
-                # Adicionado fantasia no EXCLUDED para garantir a atualização
                 conn.execute(text("""
                     INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
                     VALUES (:c, :f, :p)
@@ -195,37 +193,42 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
         except: pass
 
 def extrair_segmentos_reais_base(dict_cad):
-    """Extrai palavras-chave dos nomes fantasia para orientar a IA."""
+    """Extrai APENAS palavras-chave dos nomes fantasia reais da base do Drive."""
     palavras = []
-    ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado']
+    # Palavras genéricas que a IA não deve considerar como segmento útil
+    ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado', 'distribuidora', 'hortifruti']
     for info in dict_cad.values():
         fantasia = limpar_texto(info.get('fantasia', ''))
         for p in fantasia.split():
             if len(p) > 3 and p not in ignorar: palavras.append(p)
     contagem = collections.Counter(palavras)
-    # Retorna os 30 termos mais comuns + termos fixos garantidos
+    # Retorna APENAS os 30 termos mais comuns encontrados nos SEUS clientes
     top_termos = [p[0].capitalize() for p in contagem.most_common(30)]
-    return list(set(top_termos + ["Pizzaria", "Hamburgueria", "Sushi", "Padaria", "Pub", "Churrascaria", "Cafeteria"]))
+    return list(set(top_termos))
 
 def classificar_produtos_lote_ia(lista_produtos, dict_cad):
-    """Classifica produtos em lote baseando-se nos nomes fantasia reais da base."""
+    """Classifica produtos usando estritamente os segmentos do Drive."""
     if not lista_produtos: return
     
     segmentos_reais = extrair_segmentos_reais_base(dict_cad)
     
     prompt = f"""Atue como um analista de Food Service.
-    Vou te passar uma lista de produtos. Você deve me retornar APENAS um objeto JSON válido.
+    Vou te passar uma lista de produtos. Retorne APENAS um objeto JSON válido.
     As chaves devem ser o nome exato do produto fornecido.
-    Os valores devem ser uma lista com 2 a 4 tipos de estabelecimentos (segmentos) que compram isso.
+    Os valores devem ser uma lista com 2 a 4 tipos de estabelecimentos que compram isso.
     
-    IMPORTANTE: Tente priorizar e usar segmentos que existam nesta lista extraída da nossa base de clientes:
+    REGRA ABSOLUTA: Você deve usar APENAS segmentos desta lista abaixo (são os que existem na base de clientes):
     {', '.join(segmentos_reais)}
+    Não invente nenhum outro segmento.
     
     Produtos para classificar: {json.dumps(lista_produtos)}"""
     
     try:
         resp = modelo_ia.generate_content(prompt)
-        match = re.search(r'\{.*\}', resp.text, re.DOTALL)
+        # Limpa formatação markdown caso a IA coloque ```json ... ```
+        texto_limpo = resp.text.replace('```json', '').replace('```', '').strip()
+        match = re.search(r'\{.*\}', texto_limpo, re.DOTALL)
+        
         if match:
             dados_json = json.loads(match.group(0))
             engine = obter_conexao_neon()
@@ -239,8 +242,10 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
                         """), {"c": cod, "p": nome if nome else linha_original, "s": json.dumps(segs)})
                         # Atualiza a memória local para usar imediatamente
                         dict_produtos_segmentos[nome if nome else linha_original] = segs
+        else:
+            st.error("⚠️ A IA não retornou um formato JSON válido. Tente processar as ofertas novamente.")
     except Exception as e:
-        pass
+        st.error(f"⚠️ Erro de comunicação com o banco Neon ou com a IA: {e}")
 
 with st.spinner("Sincronizando base de dados e IA..."):
     dados_carregados = carregar_dados_nuvem(date.today())
@@ -279,6 +284,21 @@ st.markdown("""
     code { font-size: 14px !important; white-space: pre-wrap !important; }
     </style>
 """, unsafe_allow_html=True)
+
+# --- MENU LATERAL: MANUTENÇÃO ---
+with st.sidebar:
+    st.write("---")
+    with st.expander("⚙️ Manutenção do Sistema (Neon)"):
+        st.write("Se os segmentos estiverem estáticos ou errados, use o botão abaixo para limpar a memória. A IA reclassificará tudo do zero ao colar novas ofertas.")
+        if st.button("🧹 Limpar Banco de Segmentos"):
+            engine = obter_conexao_neon()
+            if engine:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("TRUNCATE TABLE produtos_segmentos;"))
+                    st.success("✅ Tabela limpa com sucesso! Pode colar as ofertas novamente na aba principal.")
+                except Exception as e:
+                    st.error(f"Erro ao limpar: {e}")
 
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
