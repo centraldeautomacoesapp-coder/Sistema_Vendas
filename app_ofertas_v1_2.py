@@ -13,7 +13,10 @@ import google.generativeai as genai
 from sqlalchemy import create_engine, text
 from datetime import date
 
-# --- AUXILIARES ---
+# ==========================================
+# 1. DEFINIÇÃO DE TODAS AS FUNÇÕES PRIMEIRO
+# ==========================================
+
 def limpar_texto(texto):
     if pd.isna(texto): return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
@@ -32,22 +35,121 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
-# --- INICIALIZAÇÃO DE DATAS ---
+def obter_conexao_neon():
+    try:
+        url = st.secrets["connections"]["neon_db"]["url"]
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return create_engine(url)
+    except Exception as e:
+        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
+        return None
+
+def criar_tabelas_neon():
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS produtos_segmentos (
+                        codigo_produto TEXT PRIMARY KEY, 
+                        produto VARCHAR(255),
+                        segmentos TEXT
+                    );
+                """))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS cardapios_clientes (
+                        cliente VARCHAR(255) PRIMARY KEY,
+                        fantasia VARCHAR(255),
+                        produtos TEXT
+                    );
+                """))
+        except Exception as e: pass
+
+def carregar_produtos_segmentos():
+    engine = obter_conexao_neon()
+    mapa = {}
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT codigo_produto, segmentos FROM produtos_segmentos;")).fetchall()
+                for row in res:
+                    if row[0]:
+                        mapa[str(row[0])] = json.loads(row[1])
+        except: pass
+    return mapa
+
+def carregar_cardapios_neon():
+    engine = obter_conexao_neon()
+    mapa = {}
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT cliente, produtos FROM cardapios_clientes;")).fetchall()
+                for row in res:
+                    mapa[row[0]] = json.loads(row[1])
+        except: pass
+    return mapa
+
+def salvar_cardapio_neon(cliente, produtos, fantasia=""):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
+                    VALUES (:c, :f, :p)
+                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos;
+                """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
+        except: pass
+
+def carregar_metas_neon(mes_atual):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                query = text("SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 FROM metas_mensais WHERE mes = :mes")
+                result = conn.execute(query, {"mes": mes_atual}).fetchone()
+                if result:
+                    return {"mes": mes_atual, "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]), "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])}
+        except: pass
+    return {"mes": mes_atual, "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0, "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0}
+
+def salvar_metas_neon(m):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                query = text("""
+                    INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
+                    VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
+                    ON CONFLICT (mes) DO UPDATE SET pos_geral = EXCLUDED.pos_geral, pos_fl2 = EXCLUDED.pos_fl2, pos_fl6 = EXCLUDED.pos_fl6, fat_geral = EXCLUDED.fat_geral, fat_fl2 = EXCLUDED.fat_fl2, fat_fl6 = EXCLUDED.fat_fl6;
+                """)
+                conn.execute(query, m)
+        except: pass
+
+# Certifique-se de que sua função carregar_dados_nuvem também está declarada aqui:
+# def carregar_dados_nuvem(data):
+#     ...
+#     return {"df": df, "cadastro": cadastro}
+
+
+# ==========================================
+# 2. EXECUÇÃO E CARREGAMENTO DOS DADOS (APÓS AS FUNÇÕES)
+# ==========================================
+
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- CARREGAMENTO DOS DADOS (DEVE VIR ANTES DE USAR df_total) ---
-# (Certifique-se de que a sua função carregar_dados_nuvem está declarada acima ou logo aqui)
 dados_carregados = carregar_dados_nuvem(date.today())
 df_total = dados_carregados["df"]
 dict_cadastro = dados_carregados["cadastro"]
 
-# --- FILTRAGEM DO MÊS ATUAL ---
 if 'Ano_Mes' in df_total.columns:
     df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 else:
-    df_mes_atual = df_total.copy() # fallback de segurança caso a coluna mude de nome
+    df_mes_atual = df_total.copy()
 
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
