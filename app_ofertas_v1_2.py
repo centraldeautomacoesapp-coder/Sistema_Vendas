@@ -32,21 +32,22 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
-# --- INICIALIZAÇÃO DE DATAS (Coloque no topo do script) ---
+# --- INICIALIZAÇÃO DE DATAS ---
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
+# --- CARREGAMENTO DOS DADOS (DEVE VIR ANTES DE USAR df_total) ---
+# (Certifique-se de que a sua função carregar_dados_nuvem está declarada acima ou logo aqui)
+dados_carregados = carregar_dados_nuvem(date.today())
+df_total = dados_carregados["df"]
+dict_cadastro = dados_carregados["cadastro"]
 
-# Logo após carregar os dados (df_total) e definir as datas:
-mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
-
-# Garanta que df_mes_atual é gerado aqui:
+# --- FILTRAGEM DO MÊS ATUAL ---
 if 'Ano_Mes' in df_total.columns:
     df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 else:
     df_mes_atual = df_total.copy() # fallback de segurança caso a coluna mude de nome
-
 
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
