@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, text
 from datetime import date
 
 # ==========================================
-# 1. DEFINIÇÃO DE TODAS AS FUNÇÕES PRIMEIRO
+# 1. DECLARAÇÃO DE TODAS AS FUNÇÕES (PRIMEIRO)
 # ==========================================
 
 def limpar_texto(texto):
@@ -128,14 +128,14 @@ def salvar_metas_neon(m):
                 conn.execute(query, m)
         except: pass
 
-# Certifique-se de que sua função carregar_dados_nuvem também está declarada aqui:
-# def carregar_dados_nuvem(data):
-#     ...
-#     return {"df": df, "cadastro": cadastro}
+# Certifique-se de que sua função de carregamento da nuvem está definida aqui antes de ser chamada:
+def carregar_dados_nuvem(data):
+    # Insira aqui o código que baixa os dados do Google Drive e retorna o dicionário {"df": df, "cadastro": cadastro}
+    pass
 
 
 # ==========================================
-# 2. EXECUÇÃO E CARREGAMENTO DOS DADOS (APÓS AS FUNÇÕES)
+# 2. BLOCO DE EXECUÇÃO PRINCIPAL (DEPOIS)
 # ==========================================
 
 data_atual_sistema = pd.Timestamp.now().normalize()
@@ -150,6 +150,7 @@ if 'Ano_Mes' in df_total.columns:
     df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 else:
     df_mes_atual = df_total.copy()
+
 
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
