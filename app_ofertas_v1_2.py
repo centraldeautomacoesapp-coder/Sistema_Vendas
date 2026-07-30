@@ -17,13 +17,14 @@ from datetime import date
 # ==========================================
 # 1. CONFIGURAÇÕES E CHAVES FIXAS
 # ==========================================
-# Acessando as chaves e links salvos
-gemini_key = st.secrets["GEMINI_API_KEY"]
-neon_url = st.secrets["NEON_DB_URL"]
-link_vendas = st.secrets["DRIVE_VENDAS"]
-link_cadastro = st.secrets["DRIVE_CADASTRO"]
 
-st.write("Variáveis carregadas com sucesso!")
+# Correção: Puxe os valores corretamente do st.secrets
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+NEON_DB_URL = st.secrets["NEON_DB_URL"]
+
+# Se estiver usando os links do Drive também:
+DRIVE_VENDAS = st.secrets["DRIVE_VENDAS"]
+DRIVE_CADASTRO = st.secrets["DRIVE_CADASTRO"]
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
