@@ -14,6 +14,17 @@ import google.generativeai as genai
 from sqlalchemy import create_engine, text
 from datetime import date
 
+# ==========================================
+# 1. CONFIGURAÇÕES E CHAVES FIXAS
+# ==========================================
+# Acessando as chaves e links salvos
+gemini_key = st.secrets["GEMINI_API_KEY"]
+neon_url = st.secrets["NEON_DB_URL"]
+link_vendas = st.secrets["DRIVE_VENDAS"]
+link_cadastro = st.secrets["DRIVE_CADASTRO"]
+
+st.write("Variáveis carregadas com sucesso!")
+
 # --- AUXILIARES ---
 def limpar_texto(texto):
     if pd.isna(texto): return ""
@@ -28,7 +39,6 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
 def extrair_codigo_nome(linha):
-    """Extrai código numérico inicial e o nome do produto da linha colada."""
     match = re.match(r'^(\d+)\s*[-|–]?\s*(.*)', str(linha).strip())
     if match:
         return match.group(1).strip(), match.group(2).strip()
@@ -43,23 +53,25 @@ def extrair_palavras_produto(linha):
 
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    try:
-        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
-    except:
-        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-pro')
+    genai.configure(api_key=GEMINI_API_KEY)
+    # Força a IA a retornar SEMPRE um JSON válido, evitando erros nas telas
+    modelo_ia = genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        generation_config={"response_mime_type": "application/json"}
+    )
 except Exception as e:
-    st.error("Erro ao configurar a API. Verifique se a GEMINI_API_KEY está nos Secrets do Streamlit.")
+    st.error(f"Erro ao configurar a API do Gemini: {e}")
 
-# --- CARREGAMENTO DE DADOS ---
+# --- CARREGAMENTO DE DADOS (DRIVE) ---
 @st.cache_data(ttl=86400) 
 def carregar_dados_nuvem(data_atual):
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
+    
     try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
-        gdown.download_folder("https://drive.google.com/drive/folders/1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu", output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_VENDAS, output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_CADASTRO, output=pasta_destino, quiet=True)
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
@@ -69,46 +81,54 @@ def carregar_dados_nuvem(data_atual):
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
-            df.columns = df.columns.str.strip()
+            df.columns = df.columns.str.strip().str.lower()
             
-            c_cli_cad = next((c for c in df.columns if "cliente" in str(c).lower() or "razão" in str(c).lower()), None)
-            c_fan = next((c for c in df.columns if "fantasia" in str(c).lower()), None)
-            c_mun = next((c for c in df.columns if "município" in str(c).lower() or "municipio" in str(c).lower() or "cidade" in str(c).lower()), None)
-            c_card = next((c for c in df.columns if "cardápio" in str(c).lower() or "cardapio" in str(c).lower() or "itens" in str(c).lower()), None)
+            # Mapeamento estrito para as planilhas de cadastro (Fantasia e Município)
+            c_cli_cad = next((c for c in df.columns if "nome cliente" in c or "cliente" in c), None)
+            c_fan = next((c for c in df.columns if "fantasia" in c), None)
+            c_mun = next((c for c in df.columns if "município" in c or "municipio" in c or "cidade" in c), None)
             
-            if c_cli_cad and (c_fan or c_mun or c_card):
+            if c_cli_cad and (c_fan or c_mun):
                 for _, row in df.iterrows():
-                    cli_nome = str(row[c_cli_cad]).strip()
-                    if pd.isna(row[c_cli_cad]) or cli_nome.lower() == 'nan': continue
+                    cli_nome = str(row[c_cli_cad]).strip().upper() # Padronizado em Maiúsculo
+                    if pd.isna(row[c_cli_cad]) or cli_nome == 'NAN' or not cli_nome: continue
+                    
                     if cli_nome not in cadastro_clientes:
                         cadastro_clientes[cli_nome] = {"fantasia": "", "municipio": "", "cardapio": ""}
-                    if c_fan and pd.notna(row[c_fan]): cadastro_clientes[cli_nome]["fantasia"] = str(row[c_fan]).strip()
-                    if c_mun and pd.notna(row[c_mun]): cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip()
-                    if c_card and pd.notna(row[c_card]): cadastro_clientes[cli_nome]["cardapio"] = str(row[c_card]).strip()
+                    
+                    if c_fan and pd.notna(row[c_fan]): 
+                        cadastro_clientes[cli_nome]["fantasia"] = str(row[c_fan]).strip().upper()
+                    if c_mun and pd.notna(row[c_mun]): 
+                        cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip().upper()
 
-            c_dt = next((c for c in df.columns if "dt" in str(c).lower() and "entrega" in str(c).lower()), None)
-            c_cli = next((c for c in df.columns if "cliente" in str(c).lower()), None)
-            c_prod = next((c for c in df.columns if "produto" in str(c).lower()), None)
-            c_fat = next((c for c in df.columns if "faturamento" in str(c).lower() and "brut" in str(c).lower()), None)
-            c_fil = next((c for c in df.columns if "filial" in str(c).lower() or "empresa" in str(c).lower() or "cod.filial" in str(c).lower()), None)
+            # Mapeamento para faturamento / histórico de vendas
+            c_dt = next((c for c in df.columns if "dt" in c and "entrega" in c), None)
+            c_prod = next((c for c in df.columns if "produto" in c), None)
+            c_fat = next((c for c in df.columns if "faturamento" in c and "brut" in c), None)
+            c_fil = next((c for c in df.columns if "filial" in c or "empresa" in c), None)
             
-            if c_dt and c_cli and c_prod and c_fat:
-                sel = [c_dt, c_cli, c_prod, c_fat]
+            if c_dt and c_cli_cad and c_prod and c_fat:
+                sel = [c_dt, c_cli_cad, c_prod, c_fat]
                 heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
                 if c_fil:
                     sel.append(c_fil)
                     heads.append('Filial')
                 sub = df[sel].copy()
                 sub.columns = heads
+                
+                # Garante que o Cliente de Vendas seja Maiúsculo para cruzar com o Cadastro
+                sub['Cliente'] = sub['Cliente'].astype(str).str.strip().str.upper()
+                
                 if sub['Faturamento Brut'].dtype == 'object':
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
-        except: continue
+        except Exception as e: 
+            continue
         
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
-        unificado = unificado[unificado['Cliente'].notna()]
+        unificado = unificado[unificado['Cliente'] != 'NAN']
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
         unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
@@ -119,20 +139,20 @@ def carregar_dados_nuvem(data_atual):
 
 # --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
+    """Conexão otimizada com AUTOCOMMIT para evitar travamentos nos INSERTS."""
     try:
-        url = st.secrets["connections"]["neon_db"]["url"]
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
-        return create_engine(url)
+        url = NEON_DB_URL.replace("postgres://", "postgresql://", 1)
+        # pool_pre_ping e autocommit são a melhor ideia para o Streamlit + Neon
+        return create_engine(url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
     except Exception as e:
-        st.error(f"⚠️ Erro ao conectar ao Neon DB. Verifique os Secrets.")
+        st.error(f"⚠️ Erro ao conectar ao Neon DB: {e}")
         return None
 
 def criar_tabelas_neon():
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.begin() as conn:
+            with engine.connect() as conn:
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
                         cod_produto VARCHAR(50),
@@ -154,7 +174,7 @@ def criar_tabelas_neon():
                         fat_geral NUMERIC, fat_fl2 NUMERIC, fat_fl6 NUMERIC
                     );
                 """))
-        except Exception as e: pass
+        except Exception as e: print(f"Erro ao criar tabelas: {e}")
 
 def carregar_produtos_segmentos():
     engine = obter_conexao_neon()
@@ -184,66 +204,57 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.begin() as conn:
+            with engine.connect() as conn:
+                # O Upsert agora funcionará perfeitamente e salvará a Fantasia
                 conn.execute(text("""
                     INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
                     VALUES (:c, :f, :p)
                     ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos, fantasia = EXCLUDED.fantasia;
                 """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
-        except: pass
+        except Exception as e: st.error(f"Erro ao salvar cardápio no Neon: {e}")
 
 def extrair_segmentos_reais_base(dict_cad):
-    """Extrai APENAS palavras-chave dos nomes fantasia reais da base do Drive."""
     palavras = []
-    # Palavras genéricas que a IA não deve considerar como segmento útil
     ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado', 'distribuidora', 'hortifruti']
     for info in dict_cad.values():
         fantasia = limpar_texto(info.get('fantasia', ''))
         for p in fantasia.split():
             if len(p) > 3 and p not in ignorar: palavras.append(p)
     contagem = collections.Counter(palavras)
-    # Retorna APENAS os 30 termos mais comuns encontrados nos SEUS clientes
     top_termos = [p[0].capitalize() for p in contagem.most_common(30)]
     return list(set(top_termos))
 
 def classificar_produtos_lote_ia(lista_produtos, dict_cad):
-    """Classifica produtos usando estritamente os segmentos do Drive."""
     if not lista_produtos: return
     
     segmentos_reais = extrair_segmentos_reais_base(dict_cad)
     
     prompt = f"""Atue como um analista de Food Service.
-    Vou te passar uma lista de produtos. Retorne APENAS um objeto JSON válido.
+    Vou te passar uma lista de produtos. Retorne um JSON válido.
     As chaves devem ser o nome exato do produto fornecido.
     Os valores devem ser uma lista com 2 a 4 tipos de estabelecimentos que compram isso.
     
-    REGRA ABSOLUTA: Você deve usar APENAS segmentos desta lista abaixo (são os que existem na base de clientes):
+    REGRA ABSOLUTA: Use APENAS segmentos desta lista abaixo (existem na base):
     {', '.join(segmentos_reais)}
-    Não invente nenhum outro segmento.
     
     Produtos para classificar: {json.dumps(lista_produtos)}"""
     
     try:
+        # A API já está configurada para retornar apenas JSON, então não precisamos limpar Markdown
         resp = modelo_ia.generate_content(prompt)
-        # Limpa formatação markdown caso a IA coloque ```json ... ```
-        texto_limpo = resp.text.replace('```json', '').replace('```', '').strip()
-        match = re.search(r'\{.*\}', texto_limpo, re.DOTALL)
+        dados_json = json.loads(resp.text)
         
-        if match:
-            dados_json = json.loads(match.group(0))
-            engine = obter_conexao_neon()
-            if engine:
-                with engine.begin() as conn:
-                    for linha_original, segs in dados_json.items():
-                        cod, nome = extrair_codigo_nome(linha_original)
-                        conn.execute(text("""
-                            INSERT INTO produtos_segmentos (cod_produto, produto, segmentos) VALUES (:c, :p, :s)
-                            ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos, cod_produto = EXCLUDED.cod_produto;
-                        """), {"c": cod, "p": nome if nome else linha_original, "s": json.dumps(segs)})
-                        # Atualiza a memória local para usar imediatamente
-                        dict_produtos_segmentos[nome if nome else linha_original] = segs
-        else:
-            st.error("⚠️ A IA não retornou um formato JSON válido. Tente processar as ofertas novamente.")
+        engine = obter_conexao_neon()
+        if engine:
+            with engine.connect() as conn:
+                for linha_original, segs in dados_json.items():
+                    cod, nome = extrair_codigo_nome(linha_original)
+                    conn.execute(text("""
+                        INSERT INTO produtos_segmentos (cod_produto, produto, segmentos) VALUES (:c, :p, :s)
+                        ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos, cod_produto = EXCLUDED.cod_produto;
+                    """), {"c": cod, "p": nome if nome else linha_original, "s": json.dumps(segs)})
+                    
+                    dict_produtos_segmentos[nome if nome else linha_original] = segs
     except Exception as e:
         st.error(f"⚠️ Erro de comunicação com o banco Neon ou com a IA: {e}")
 
@@ -256,7 +267,6 @@ with st.spinner("Sincronizando base de dados e IA..."):
     dict_produtos_segmentos = carregar_produtos_segmentos()
     dict_cardapios_neon = carregar_cardapios_neon()
     
-    # Injetar os cardápios do Neon na memória principal
     for cli_neon, prods_neon in dict_cardapios_neon.items():
         if cli_neon in dict_cadastro:
             dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
@@ -264,13 +274,12 @@ with st.spinner("Sincronizando base de dados e IA..."):
             dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
 
 if df_total.empty:
-    st.warning("Base de dados vazia.")
+    st.warning("Base de dados de vendas vazia ou pendente de processamento no Drive.")
     st.stop()
 
 mes_atual_referencia = date.today().strftime('%Y-%m') 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-# Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 st.markdown("""
     <style>
@@ -285,18 +294,17 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- MENU LATERAL: MANUTENÇÃO ---
 with st.sidebar:
     st.write("---")
     with st.expander("⚙️ Manutenção do Sistema (Neon)"):
-        st.write("Se os segmentos estiverem estáticos ou errados, use o botão abaixo para limpar a memória. A IA reclassificará tudo do zero ao colar novas ofertas.")
+        st.write("Se os segmentos estiverem estáticos ou errados, limpe a memória.")
         if st.button("🧹 Limpar Banco de Segmentos"):
             engine = obter_conexao_neon()
             if engine:
                 try:
-                    with engine.begin() as conn:
+                    with engine.connect() as conn:
                         conn.execute(text("TRUNCATE TABLE produtos_segmentos;"))
-                    st.success("✅ Tabela limpa com sucesso! Pode colar as ofertas novamente na aba principal.")
+                    st.success("✅ Tabela limpa com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao limpar: {e}")
 
@@ -319,7 +327,7 @@ def salvar_metas_neon(m):
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.begin() as conn:
+            with engine.connect() as conn:
                 query = text("""
                     INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
                     VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
@@ -328,7 +336,6 @@ def salvar_metas_neon(m):
                 conn.execute(query, m)
         except: pass
 
-# --- 📁 PERSISTÊNCIA LOCAL ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 
 def carregar_progresso_salvo():
@@ -425,9 +432,14 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
     Histórico: {texto_historico}
     Ofertas do que já compra: {texto_ofertas_hist}
     Ofertas indicadas p/ segmento: {texto_ofertas_seg}
-    REGRAS: Pule linhas. Use negrito (*). Seja natural. Emojis. Termine chamando pra ação. Sem 'Assinado'."""
-    try: return modelo_ia.generate_content(prompt).text.strip()
-    except: return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
+    REGRAS: Retorne a mensagem em texto puro formatado para WhatsApp (com pular linhas e emojis). NÃO retorne em formato JSON para esta tarefa. Termine chamando pra ação. Sem 'Assinado'."""
+    
+    try: 
+        # Aqui usamos o config padrao para retornar texto puro no WhatsApp
+        modelo_txt = genai.GenerativeModel('gemini-1.5-flash')
+        return modelo_txt.generate_content(prompt).text.strip()
+    except: 
+        return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
 
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", width='stretch')
 
@@ -566,7 +578,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
                 
-                # --- NOVA LÓGICA DE CLASSIFICAÇÃO EM LOTE ---
                 produtos_desconhecidos = []
                 for linha in linhas:
                     cod, nome = extrair_codigo_nome(linha)
@@ -577,7 +588,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 if produtos_desconhecidos:
                     with st.spinner(f"🧠 IA aprendendo e classificando {len(produtos_desconhecidos)} novos produtos..."):
                         classificar_produtos_lote_ia(produtos_desconhecidos, dict_cadastro)
-                # ---------------------------------------------
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
@@ -928,9 +938,11 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     """
                     with st.spinner("Conectando ao Gemini..."):
                         try:
-                            st.session_state[chave_sessao_msg] = modelo_ia.generate_content(prompt_cruzada).text
-                        except:
-                            st.error("Erro ao gerar com IA. Tente novamente.")
+                            # Usa um modelo de texto livre para WhatsApp, sem obrigação de JSON
+                            modelo_msg = genai.GenerativeModel('gemini-1.5-flash')
+                            st.session_state[chave_sessao_msg] = modelo_msg.generate_content(prompt_cruzada).text
+                        except Exception as e:
+                            st.error(f"Erro ao gerar com IA: {e}")
                 
                 if chave_sessao_msg in st.session_state and st.session_state[chave_sessao_msg]:
                     st.text_area("Mensagem Formatada:", value=st.session_state[chave_sessao_msg], height=220)
