@@ -40,7 +40,10 @@ def carregar_dados_nuvem(data_atual):
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     try:
+        # Link 1: Pasta original (Histórico/Vendas)
         gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
+        # Link 2: Nova pasta (Cadastro de Clientes e Municípios)
+        gdown.download_folder("https://drive.google.com/drive/folders/1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu", output=pasta_destino, quiet=True)
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
@@ -532,7 +535,6 @@ exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
 st.write("---")
-# ADICIONADA A COLUNA DE COTAÇÃO AQUI
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -603,7 +605,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # --- FILTRO DE MUNICÍPIO ADICIONADO AQUI ---
     cidades_disponiveis = sorted([m for m in {info.get("municipio") for info in dict_cadastro.values()} if m and str(m).strip() != 'nan'])
     cidades_selecionadas = st.multiselect("📍 Filtrar clientes por Município(s) de entrega hoje:", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
 
@@ -626,7 +627,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     
-                    # --- Identificando quem compra pelo HISTÓRICO ---
                     combs_hist = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
                     if not combs_hist and len(chaves) >= 2:
                         combs_hist = [orig for orig, busca in prod_busca.items() if sum(1 for c in chaves if c in busca) >= 2]
@@ -634,7 +634,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     interessados_hist = set()
                     for c in combs_hist: interessados_hist.update(prod_to_clientes[c])
                     
-                    # --- Identificando quem deveria comprar pelo SEGMENTO ---
                     interessados_seg = set()
                     for cli_cad, info_cad in dict_cadastro.items():
                         fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
@@ -653,7 +652,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                         if cardapio_texto and all(c in cardapio_texto for c in chaves):
                             interessados_seg.add(cli_cad)
                     
-                    # --- Unindo e distribuindo nas categorias corretas da Fila ---
                     for cli in (interessados_hist | interessados_seg):
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
                         if cli in st.session_state.excluidos_permanente:
@@ -662,13 +660,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                                 
                         if cli in st.session_state[id_excluidos]: continue
                         
-                        # Transforma a fila em dicionário com as subcategorias
                         if cli not in nova_fila: nova_fila[cli] = {"historico": [], "segmento": []}
                         
                         if cli in interessados_hist:
                             if linha not in nova_fila[cli]["historico"]: nova_fila[cli]["historico"].append(linha)
                         elif cli in interessados_seg:
-                            # Se não é do histórico, cai no segmento
                             if linha not in nova_fila[cli]["segmento"]: nova_fila[cli]["segmento"].append(linha)
                 
                 st.session_state[id_fila] = nova_fila
@@ -682,7 +678,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     if fila_ativa is None or len(fila_ativa) == 0:
         st.info("Nenhum cliente na fila de transmissão pendente.")
     else:
-        # AQUI É APLICADO O FILTRO DE CIDADES NA VISUALIZAÇÃO
         clientes_restantes = list(fila_ativa.keys())
         if cidades_selecionadas:
             clientes_restantes = [c for c in clientes_restantes if dict_cadastro.get(c, {}).get("municipio") in cidades_selecionadas]
@@ -1164,7 +1159,6 @@ elif st.session_state.aba_atual == "💲 Cotação":
                     
                     if chaves_cot:
                         for of in ofertas_memoria:
-                            # Se pelo menos 2 palavras-chave baterem (ou se tiver só 1, ela bater)
                             if len(chaves_cot) >= 2:
                                 if all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
                                     resultado_final.append(of)
@@ -1177,7 +1171,7 @@ elif st.session_state.aba_atual == "💲 Cotação":
                                     break
                                 
                     if not match_encontrado:
-                        resultado_final.append(linha_cot) # Mantém original se não achou oferta
+                        resultado_final.append(linha_cot) 
                         
                 texto_resultado = "\n".join(resultado_final)
                 st.session_state.resultado_cotacao = texto_resultado
