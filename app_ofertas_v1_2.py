@@ -32,6 +32,12 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
+# --- INICIALIZAÇÃO DE DATAS (Coloque no topo do script) ---
+data_atual_sistema = pd.Timestamp.now().normalize()
+data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
+mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
+
+
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
