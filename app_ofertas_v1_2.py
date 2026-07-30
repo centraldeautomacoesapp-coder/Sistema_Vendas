@@ -40,7 +40,7 @@ def carregar_dados_nuvem(data_atual):
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     try:
-        gdown.download_folder("https://drive.google.com/drive/folders/1pf8eOlZthjVZPgDubgvr79Fr0mW0VPQ7", output=pasta_destino, quiet=True)
+        gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
@@ -81,9 +81,9 @@ def carregar_dados_nuvem(data_atual):
                     heads.append('Filial')
                 sub = df[sel].copy()
                 sub.columns = heads
-                if sub['Faturamento Bruto'].dtype == 'object':
-                    sub['Faturamento Brut'] = sub['Faturamento Bruto'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                sub['Faturamento Bruto'] = pd.to_numeric(sub['Faturamento Bruto'], errors='coerce')
+                if sub['Faturamento Brut'].dtype == 'object':
+                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
         except: continue
         
@@ -231,6 +231,7 @@ def carregar_regras_segmentos_do_neon():
                         seg, itens_str = row[0], row[1]
                         regras[seg] = json.loads(itens_str)
                 else:
+                    # Se tabela estiver vazia, popula com o padrão inicial
                     for seg, itens in regras_segmento_padrao.items():
                         conn.execute(text("INSERT INTO segmentos_regras (segmento, itens) VALUES (:s, :i) ON CONFLICT (segmento) DO NOTHING;"),
                                      {"s": seg, "i": json.dumps(itens)})
@@ -403,44 +404,63 @@ def adiantar_cliente_fila_callback(id_fila_param):
             
     st.session_state[chave_selectbox] = "-- Digite ou selecione um cliente para adiantar --"
 
-def gerar_mensagem_ia(nome_cliente, ofertas, historico_compras):
-    texto_ofertas = "\n".join([f"- {of}" for of in ofertas])
+def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
+    # Compatibilidade caso o state antigo ainda seja uma lista
+    if isinstance(ofertas_dict, list):
+        ofertas_hist = ofertas_dict
+        ofertas_seg = []
+    else:
+        ofertas_hist = ofertas_dict.get("historico", [])
+        ofertas_seg = ofertas_dict.get("segmento", [])
+    
+    texto_ofertas_hist = "\n".join([f"- {of}" for of in ofertas_hist]) if ofertas_hist else "Nenhum no momento."
+    texto_ofertas_seg = "\n".join([f"- {of}" for of in ofertas_seg]) if ofertas_seg else "Nenhum no momento."
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
     
     prompt = f"""
-    Você é um vendedor(a) experiente e simpático da distribuidora de alimentos Delly's.
-    Escreva uma mensagem de WhatsApp persuasiva e personalizada para o cliente '{nome_cliente}'.
+    Você é um vendedor(a) experiente, simpático e direto ao ponto da distribuidora de alimentos Delly's.
+    Escreva uma mensagem de WhatsApp persuasiva para o cliente '{nome_cliente}'.
     
     O cliente já costuma comprar estes produtos conosco (este é o histórico dele):
     {texto_historico}
     
-    Hoje nós temos as seguintes OFERTAS que deram match com o perfil de compra dele ou com a estrutura de receitas/cardápio dele:
-    {texto_ofertas}
+    Hoje nós temos as seguintes OFERTAS separadas estrategicamente:
     
-    REGRAS DA MENSAGEM:
-    1. Seja natural, caloroso, mas direto ao ponto.
-    2. Mostre que você lembrou dele ao ver as ofertas.
-    3. Apresente os produtos da oferta de forma clara.
-    4. Use emojis com moderação, sem exagerar.
-    5. Termine com uma chamada para ação suave.
-    6. Não inclua placeholders como [Seu Nome]. Aja como se a mensagem já estivesse pronta.
-    7. Desconsidere títulos genéricos na listagem dos produtos para que o texto flua de forma limpa.
+    1. PRODUTOS QUE ELE JÁ COMPRA E ESTÃO EM OFERTA:
+    {texto_ofertas_hist}
+    
+    2. NOVIDADES E OFERTAS INDICADAS PARA O SEGMENTO/CARDÁPIO DELE:
+    {texto_ofertas_seg}
+    
+    REGRAS RÍGIDAS DE FORMATAÇÃO PARA WHATSAPP:
+    1. NÃO deixe o texto amontoado. Você DEVE pular linhas (quebra de linha dupla) entre os parágrafos e as categorias de produtos.
+    2. Use destaques em negrito (exemplo: *Produto e Preço*).
+    3. Se a categoria 1 estiver vazia ("Nenhum..."), não cite nada sobre produtos do histórico dele.
+    4. Se a categoria 2 estiver vazia ("Nenhum..."), não cite nada sobre novidades e ofertas indicadas.
+    5. Seja natural e caloroso. Demonstre que você separou as ofertas a dedo para o negócio dele.
+    6. Use emojis com sabedoria.
+    7. Termine com uma chamada para ação suave perguntando se pode fechar o pedido.
+    8. Aja como se a mensagem já estivesse pronta. Não coloque "Assinado:" ou "[Seu Nome]".
     """
     
     try:
         response = modelo_ia.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        frases_ofertas = [
-            "Olha só as ofertas que separei com base nos produtos que você costuma levar ou usa no seu estabelecimento:",
-            "Preparei uma lista especial de ofertas pensada no seu perfil:",
-            "Separei algumas sugestões que têm tudo a ver com o seu negócio:",
-            "Confira estas condições exclusivas que selecionei especialmente para você hoje:"
-        ]
         saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
-        msg = f"{random.choice(saudacoes)}\n{random.choice(frases_ofertas)}\n\n"
-        for of in ofertas: msg += f"👉 {of}\n"
-        msg += "\nMe avisa aqui se posso garantir o seu pedido! 👍"
+        msg = f"{random.choice(saudacoes)}\n\nSeparei umas ofertas exclusivas para você hoje pensando no seu negócio:\n\n"
+        
+        if ofertas_hist:
+            msg += "*🛒 Produtos do seu histórico que entraram em oferta:*\n"
+            for of in ofertas_hist: msg += f"👉 {of}\n"
+            msg += "\n"
+        
+        if ofertas_seg:
+            msg += "*🚀 Oportunidades indicadas para o seu segmento:*\n"
+            for of in ofertas_seg: msg += f"👉 {of}\n"
+            msg += "\n"
+            
+        msg += "Me avisa aqui se posso garantir o seu pedido! 👍"
         return msg
 
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", width='stretch')
@@ -512,7 +532,8 @@ exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
 st.write("---")
-col1, col2, col3 = st.columns(3)
+# ADICIONADA A COLUNA DE COTAÇÃO AQUI
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
@@ -525,6 +546,10 @@ with col2:
 with col3:
     if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
         st.session_state.aba_atual = "🔍 Consulta"
+        st.rerun()
+with col4:
+    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"):
+        st.session_state.aba_atual = "💲 Cotação"
         st.rerun()
 
 st.write("---")
@@ -578,27 +603,17 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # --- FILTRO DE MUNICÍPIOS ---
-    st.markdown("### 📍 Filtro de Localização")
-    municipios_disponiveis = sorted(list(set([info.get("municipio") for info in dict_cadastro.values() if info.get("municipio")])))
-    if municipios_disponiveis:
-        cidades_selecionadas = st.multiselect(
-            "Selecione as Cidades para gerar as ofertas:", 
-            options=municipios_disponiveis, 
-            default=municipios_disponiveis
-        )
-    else:
-        cidades_selecionadas = []
-        st.info("Nenhum município mapeado no cadastro atual.")
+    # --- FILTRO DE MUNICÍPIO ADICIONADO AQUI ---
+    cidades_disponiveis = sorted([m for m in {info.get("municipio") for info in dict_cadastro.values()} if m and str(m).strip() != 'nan'])
+    cidades_selecionadas = st.multiselect("📍 Filtrar clientes por Município(s) de entrega hoje:", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
 
     with st.expander("📝 Inserir Bloco de Ofertas"):
-        txt_novas = st.text_area("Cole as linhas de ofertas aqui (títulos serão ignorados):", height=100, key=f"txt_{id_fila}")
+        txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 st.session_state[id_excluidos].clear()
                 
-                # Ignora linhas muito curtas (possíveis títulos que atrapalham)
-                linhas = [l.strip() for l in txt_novas.split('\n') if l.strip() and len(l.strip()) >= 5]
+                linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
@@ -611,20 +626,17 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     chaves = extrair_palavras_produto(linha)
                     if not chaves: continue
                     
-                    combs = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
-                    if not combs and len(chaves) >= 2:
-                        combs = [orig for orig, busca in prod_busca.items() if sum(1 for c in chaves if c in busca) >= 2]
+                    # --- Identificando quem compra pelo HISTÓRICO ---
+                    combs_hist = [orig for orig, busca in prod_busca.items() if all(c in busca for c in chaves)]
+                    if not combs_hist and len(chaves) >= 2:
+                        combs_hist = [orig for orig, busca in prod_busca.items() if sum(1 for c in chaves if c in busca) >= 2]
                     
-                    interessados = set()
-                    for c in combs: interessados.update(prod_to_clientes[c])
+                    interessados_hist = set()
+                    for c in combs_hist: interessados_hist.update(prod_to_clientes[c])
                     
-                    # --- CRUZAMENTO AMPLO E COMPLETO COM TODOS OS ITENS DOS SEGMENTOS ---
+                    # --- Identificando quem deveria comprar pelo SEGMENTO ---
+                    interessados_seg = set()
                     for cli_cad, info_cad in dict_cadastro.items():
-                        # Aplica filtro de município se selecionado
-                        mun_cliente = info_cad.get("municipio", "")
-                        if cidades_selecionadas and mun_cliente and mun_cliente not in cidades_selecionadas:
-                            continue
-                            
                         fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
                         nome_cli_limpo = limpar_texto(cli_cad)
                         
@@ -633,101 +645,108 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                                 for item_seg in itens_seg:
                                     item_seg_limpo = limpar_texto(item_seg)
                                     if all(c in item_seg_limpo for c in chaves) or any(c in item_seg_limpo for c in chaves):
-                                        interessados.add(cli_cad)
+                                        interessados_seg.add(cli_cad)
                                         salvar_novo_item_segmento_neon(chave_seg, item_seg)
                                         break
                                         
                         cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
                         if cardapio_texto and all(c in cardapio_texto for c in chaves):
-                            interessados.add(cli_cad)
+                            interessados_seg.add(cli_cad)
                     
-                    for cli in interessados:
+                    # --- Unindo e distribuindo nas categorias corretas da Fila ---
+                    for cli in (interessados_hist | interessados_seg):
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
-                        
-                        # Validação de município para clientes encontrados via histórico de produtos
-                        if cidades_selecionadas:
-                            mun_cli_atual = dict_cadastro.get(cli, {}).get("municipio", "")
-                            if mun_cli_atual and mun_cli_atual not in cidades_selecionadas:
-                                continue
-
                         if cli in st.session_state.excluidos_permanente:
                             if cli in clientes_com_compra_mes_atual: st.session_state.excluidos_permanente.remove(cli)
                             else: continue
                                 
                         if cli in st.session_state[id_excluidos]: continue
                         
-                        if cli not in nova_fila: nova_fila[cli] = []
-                        if linha not in nova_fila[cli]: nova_fila[cli].append(linha)
+                        # Transforma a fila em dicionário com as subcategorias
+                        if cli not in nova_fila: nova_fila[cli] = {"historico": [], "segmento": []}
+                        
+                        if cli in interessados_hist:
+                            if linha not in nova_fila[cli]["historico"]: nova_fila[cli]["historico"].append(linha)
+                        elif cli in interessados_seg:
+                            # Se não é do histórico, cai no segmento
+                            if linha not in nova_fila[cli]["segmento"]: nova_fila[cli]["segmento"].append(linha)
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada e cruzada com sucesso (títulos desconsiderados)!")
+                st.success("Fila vinculada! As ofertas foram devidamente separadas entre Histórico e Segmento de cada cliente!")
                 st.rerun()
 
     st.write("---")
     fila_ativa = st.session_state[id_fila]
     
     if fila_ativa is None or len(fila_ativa) == 0:
-        st.info("Nenhum cliente na fila de transmissão pendente para os filtros selecionados.")
+        st.info("Nenhum cliente na fila de transmissão pendente.")
     else:
+        # AQUI É APLICADO O FILTRO DE CIDADES NA VISUALIZAÇÃO
         clientes_restantes = list(fila_ativa.keys())
-        st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
+        if cidades_selecionadas:
+            clientes_restantes = [c for c in clientes_restantes if dict_cadastro.get(c, {}).get("municipio") in cidades_selecionadas]
         
-        st.selectbox(
-            "🚀 Puxar cliente para a frente da fila:", 
-            options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
-            key=f"puxar_frente_{id_fila}",
-            on_change=adiantar_cliente_fila_callback,
-            args=(id_fila,)
-        )
+        if not clientes_restantes:
+            st.info("Nenhum cliente pendente na fila para os municípios selecionados.")
+        else:
+            st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
             
-        st.write("---")
-        
-        cliente_atual = clientes_restantes[0]
-        ofertas_cliente = fila_ativa[cliente_atual]
-        
-        info_cad_atual = dict_cadastro.get(cliente_atual, {"fantasia": "", "municipio": ""})
-        fantasia_str = f" ({info_cad_atual['fantasia']})" if info_cad_atual['fantasia'] else ""
-        municipio_str = f" - 📍 {info_cad_atual['municipio']}" if info_cad_atual['municipio'] else ""
-        
-        st.markdown(f"**🏢 {cliente_atual}{fantasia_str}{municipio_str}**")
-        st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
-        st.write("")
-        
-        if st.session_state.cliente_ia_atual != cliente_atual:
-            st.session_state.cliente_ia_atual = cliente_atual
-            historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
-            
-            with st.spinner("🧠 Gemini analisando histórico + cardápio e escrevendo mensagem..."):
-                st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
-        
-        st.code(st.session_state.msg_ia_atual, language=None)
-        
-        col_b1, col_b2, col_b3 = st.columns(3)
-        with col_b1:
-            if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
-                st.session_state.envios_hoje += 1
-                st.session_state[id_excluidos].add(cliente_atual)
+            st.selectbox(
+                "🚀 Puxar cliente para a frente da fila:", 
+                options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
+                key=f"puxar_frente_{id_fila}",
+                on_change=adiantar_cliente_fila_callback,
+                args=(id_fila,)
+            )
                 
-                del st.session_state[id_fila][cliente_atual]
-                st.session_state.cliente_ia_atual = "" 
-                salvar_progresso_atual()
-                st.rerun()
-        with col_b2:
-            if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
-                st.session_state[id_excluidos].add(cliente_atual)
-                del st.session_state[id_fila][cliente_atual]
-                st.session_state.cliente_ia_atual = ""
-                salvar_progresso_atual()
-                st.rerun()
-        with col_b3:
-            if st.button("⏭️ Pular p/ Final", key=f"pular_{str(cliente_atual)[:5]}"):
-                dados_cliente = st.session_state[id_fila].pop(cliente_atual)
-                st.session_state[id_fila][cliente_atual] = dados_cliente
-                st.session_state.cliente_ia_atual = ""
-                salvar_progresso_atual()
-                st.toast(f"{cliente_atual} jogado para o final da fila!", icon="⏭️")
-                st.rerun()
+            st.write("---")
+            
+            cliente_atual = clientes_restantes[0]
+            ofertas_cliente = fila_ativa[cliente_atual]
+            
+            info_cad_atual = dict_cadastro.get(cliente_atual, {"fantasia": "", "municipio": ""})
+            fantasia_str = f" ({info_cad_atual['fantasia']})" if info_cad_atual['fantasia'] else ""
+            municipio_str = f" - 📍 {info_cad_atual['municipio']}" if info_cad_atual['municipio'] else ""
+            
+            st.markdown(f"**🏢 {cliente_atual}{fantasia_str}{municipio_str}**")
+            st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
+            st.write("")
+            
+            if st.session_state.cliente_ia_atual != cliente_atual:
+                st.session_state.cliente_ia_atual = cliente_atual
+                historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+                
+                with st.spinner("🧠 Gemini analisando cruzamentos e organizando formatação para WhatsApp..."):
+                    st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
+            
+            st.code(st.session_state.msg_ia_atual, language=None)
+            
+            col_b1, col_b2, col_b3 = st.columns(3)
+            with col_b1:
+                if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
+                    st.session_state.envios_hoje += 1
+                    st.session_state[id_excluidos].add(cliente_atual)
+                    
+                    del st.session_state[id_fila][cliente_atual]
+                    st.session_state.cliente_ia_atual = "" 
+                    salvar_progresso_atual()
+                    st.rerun()
+            with col_b2:
+                if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
+                    st.session_state[id_excluidos].add(cliente_atual)
+                    del st.session_state[id_fila][cliente_atual]
+                    st.session_state.cliente_ia_atual = ""
+                    salvar_progresso_atual()
+                    st.rerun()
+            with col_b3:
+                if st.button("⏭️ Pular p/ Final", key=f"pular_{str(cliente_atual)[:5]}"):
+                    dados_cliente = st.session_state[id_fila].pop(cliente_atual)
+                    st.session_state[id_fila][cliente_atual] = dados_cliente
+                    st.session_state.cliente_ia_atual = ""
+                    salvar_progresso_atual()
+                    st.toast(f"{cliente_atual} jogado para o final da fila!", icon="⏭️")
+                    st.rerun()
 
 # ==============================================================================
 # --- ABA 2: ALERTAS ---
@@ -1119,3 +1138,65 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     
                     msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
                     st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}_{nome_amigavel_marca}")
+
+# ==============================================================================
+# --- ABA 4: COTAÇÃO ---
+# ==============================================================================
+elif st.session_state.aba_atual == "💲 Cotação":
+    st.subheader("💲 Sistema Ágil de Cotação")
+    st.markdown("Cole sua lista de produtos solicitados pelo cliente. O sistema vai cruzar com as ofertas ativas hoje.")
+    
+    texto_cotacao = st.text_area("📋 Cole a lista de produtos (um por linha):", height=200, placeholder="Ex:\nArroz\nFeijão\nÓleo...")
+    
+    if st.button("🔍 Cruzar com Ofertas da Memória", type="primary"):
+        if texto_cotacao.strip():
+            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
+            
+            if not ofertas_memoria:
+                st.warning("⚠️ Você precisa colar as ofertas do dia na aba 'Ofertas' antes de realizar cotações cruzadas.")
+            else:
+                linhas_cot = [l.strip() for l in texto_cotacao.split('\n') if l.strip()]
+                resultado_final = []
+                
+                for linha_cot in linhas_cot:
+                    chaves_cot = extrair_palavras_produto(linha_cot)
+                    match_encontrado = False
+                    
+                    if chaves_cot:
+                        for of in ofertas_memoria:
+                            # Se pelo menos 2 palavras-chave baterem (ou se tiver só 1, ela bater)
+                            if len(chaves_cot) >= 2:
+                                if all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
+                                    resultado_final.append(of)
+                                    match_encontrado = True
+                                    break
+                            else:
+                                if limpar_texto(chaves_cot[0]) in limpar_texto(of):
+                                    resultado_final.append(of)
+                                    match_encontrado = True
+                                    break
+                                
+                    if not match_encontrado:
+                        resultado_final.append(linha_cot) # Mantém original se não achou oferta
+                        
+                texto_resultado = "\n".join(resultado_final)
+                st.session_state.resultado_cotacao = texto_resultado
+                st.success("✅ Cotação cruzada com sucesso!")
+        else:
+            st.warning("Cole alguma lista de produtos para cruzar.")
+            
+    if "resultado_cotacao" in st.session_state and st.session_state.resultado_cotacao:
+        st.text_area("🎯 Lista Pronta para Retorno:", value=st.session_state.resultado_cotacao, height=300, key="txt_cotacao_final")
+        
+        texto_js_safe_cot = json.dumps(st.session_state.resultado_cotacao)
+        html_btn_cot = f"""
+        <button id="copyBtnCot" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar para WhatsApp</button>
+        <script>
+        document.getElementById('copyBtnCot').addEventListener('click', function() {{
+            navigator.clipboard.writeText({texto_js_safe_cot});
+            this.innerText = '✅ Copiado com sucesso!';
+            setTimeout(() => {{ this.innerText = '📋 Copiar para WhatsApp'; }}, 2000);
+        }});
+        </script>
+        """
+        components.html(html_btn_cot, height=55)
