@@ -38,6 +38,16 @@ data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
 
+# Logo após carregar os dados (df_total) e definir as datas:
+mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
+
+# Garanta que df_mes_atual é gerado aqui:
+if 'Ano_Mes' in df_total.columns:
+    df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
+else:
+    df_mes_atual = df_total.copy() # fallback de segurança caso a coluna mude de nome
+
+
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
