@@ -13,10 +13,7 @@ import google.generativeai as genai
 from sqlalchemy import create_engine, text
 from datetime import date
 
-# ==========================================
-# 1. DECLARAÇÃO DE TODAS AS FUNÇÕES (PRIMEIRO)
-# ==========================================
-
+# --- AUXILIARES ---
 def limpar_texto(texto):
     if pd.isna(texto): return ""
     return unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('ASCII').strip().lower()
@@ -34,123 +31,6 @@ def extrair_palavras_produto(linha):
     ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
-
-def obter_conexao_neon():
-    try:
-        url = st.secrets["connections"]["neon_db"]["url"]
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
-        return create_engine(url)
-    except Exception as e:
-        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
-        return None
-
-def criar_tabelas_neon():
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS produtos_segmentos (
-                        codigo_produto TEXT PRIMARY KEY, 
-                        produto VARCHAR(255),
-                        segmentos TEXT
-                    );
-                """))
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS cardapios_clientes (
-                        cliente VARCHAR(255) PRIMARY KEY,
-                        fantasia VARCHAR(255),
-                        produtos TEXT
-                    );
-                """))
-        except Exception as e: pass
-
-def carregar_produtos_segmentos():
-    engine = obter_conexao_neon()
-    mapa = {}
-    if engine:
-        try:
-            with engine.connect() as conn:
-                res = conn.execute(text("SELECT codigo_produto, segmentos FROM produtos_segmentos;")).fetchall()
-                for row in res:
-                    if row[0]:
-                        mapa[str(row[0])] = json.loads(row[1])
-        except: pass
-    return mapa
-
-def carregar_cardapios_neon():
-    engine = obter_conexao_neon()
-    mapa = {}
-    if engine:
-        try:
-            with engine.connect() as conn:
-                res = conn.execute(text("SELECT cliente, produtos FROM cardapios_clientes;")).fetchall()
-                for row in res:
-                    mapa[row[0]] = json.loads(row[1])
-        except: pass
-    return mapa
-
-def salvar_cardapio_neon(cliente, produtos, fantasia=""):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("""
-                    INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
-                    VALUES (:c, :f, :p)
-                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos;
-                """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
-        except: pass
-
-def carregar_metas_neon(mes_atual):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.connect() as conn:
-                query = text("SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 FROM metas_mensais WHERE mes = :mes")
-                result = conn.execute(query, {"mes": mes_atual}).fetchone()
-                if result:
-                    return {"mes": mes_atual, "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]), "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])}
-        except: pass
-    return {"mes": mes_atual, "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0, "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0}
-
-def salvar_metas_neon(m):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                query = text("""
-                    INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
-                    VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
-                    ON CONFLICT (mes) DO UPDATE SET pos_geral = EXCLUDED.pos_geral, pos_fl2 = EXCLUDED.pos_fl2, pos_fl6 = EXCLUDED.pos_fl6, fat_geral = EXCLUDED.fat_geral, fat_fl2 = EXCLUDED.fat_fl2, fat_fl6 = EXCLUDED.fat_fl6;
-                """)
-                conn.execute(query, m)
-        except: pass
-
-# Certifique-se de que sua função de carregamento da nuvem está definida aqui antes de ser chamada:
-def carregar_dados_nuvem(data):
-    # Insira aqui o código que baixa os dados do Google Drive e retorna o dicionário {"df": df, "cadastro": cadastro}
-    pass
-
-
-# ==========================================
-# 2. BLOCO DE EXECUÇÃO PRINCIPAL (DEPOIS)
-# ==========================================
-
-data_atual_sistema = pd.Timestamp.now().normalize()
-data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
-mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
-
-dados_carregados = carregar_dados_nuvem(date.today())
-df_total = dados_carregados["df"]
-dict_cadastro = dados_carregados["cadastro"]
-
-if 'Ano_Mes' in df_total.columns:
-    df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
-else:
-    df_mes_atual = df_total.copy()
-
 
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
@@ -228,31 +108,6 @@ def carregar_dados_nuvem(data_atual):
         return {"df": unificado, "cadastro": cadastro_clientes}
     return {"df": pd.DataFrame(), "cadastro": {}}
 
-def carregar_metas_neon(mes_atual):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.connect() as conn:
-                query = text("SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 FROM metas_mensais WHERE mes = :mes")
-                result = conn.execute(query, {"mes": mes_atual}).fetchone()
-                if result:
-                    return {"mes": mes_atual, "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]), "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])}
-        except: pass
-    return {"mes": mes_atual, "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0, "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0}
-
-def salvar_metas_neon(m):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                query = text("""
-                    INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
-                    VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
-                    ON CONFLICT (mes) DO UPDATE SET pos_geral = EXCLUDED.pos_geral, pos_fl2 = EXCLUDED.pos_fl2, pos_fl6 = EXCLUDED.pos_fl6, fat_geral = EXCLUDED.fat_geral, fat_fl2 = EXCLUDED.fat_fl2, fat_fl6 = EXCLUDED.fat_fl6;
-                """)
-                conn.execute(query, m)
-        except: pass
-
 # --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ARQUITETURA INTELIGENTE) ---
 def obter_conexao_neon():
     try:
@@ -269,19 +124,15 @@ def criar_tabelas_neon():
     if engine:
         try:
             with engine.begin() as conn:
-                # Opcional: DROP TABLE se precisar resetar a estrutura antiga vazia
-                # conn.execute(text("DROP TABLE IF EXISTS produtos_segmentos;"))
-                
-                # Tabela de IA - Produtos para Segmentos com codigo_produto como chave primária
+                conn.execute(text("DROP TABLE IF EXISTS segmentos_regras;"))
+                # Tabela de IA - Produtos para Segmentos
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
-                        codigo_produto TEXT PRIMARY KEY, 
-                        produto VARCHAR(255),
+                        produto VARCHAR(255) PRIMARY KEY,
                         segmentos TEXT
                     );
                 """))
-                
-                # NOVA TABELA: Cardápios dos Clientes
+                # NOVA TABELA: Cardápios dos Clientes (Econômica: 1 linha por cliente guardando um Array)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS cardapios_clientes (
                         cliente VARCHAR(255) PRIMARY KEY,
@@ -297,11 +148,9 @@ def carregar_produtos_segmentos():
     if engine:
         try:
             with engine.connect() as conn:
-                # Agora buscamos o codigo_produto para cruzar na memória
-                res = conn.execute(text("SELECT codigo_produto, segmentos FROM produtos_segmentos;")).fetchall()
+                res = conn.execute(text("SELECT produto, segmentos FROM produtos_segmentos;")).fetchall()
                 for row in res:
-                    if row[0]: # Se o código existir
-                        mapa[str(row[0])] = json.loads(row[1])
+                    mapa[row[0]] = json.loads(row[1])
         except: pass
     return mapa
 
@@ -331,53 +180,101 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
 
 def classificar_novos_produtos_ia(df):
     if df.empty: return
+    todos_produtos = df['Produto'].unique()
+    produtos_sem_segmento = [p for p in todos_produtos if p not in dict_produtos_segmentos]
+    if not produtos_sem_segmento: return
     
-    # Certifique-se de que o DataFrame possui as colunas 'Código' e 'Produto'
-    # Se o nome da coluna de código no seu DF for diferente (ex: 'Cod_Produto'), ajuste aqui:
-    col_codigo = 'Código' if 'Código' in df.columns else 'codigo' # Ajuste conforme seu df
-    
-    # Cria um dicionário temporário de código -> nome do produto para facilitar
-    if col_codigo in df.columns:
-        df_produtos = df[[col_codigo, 'Produto']].drop_duplicates()
-        todos_codigos = df_produtos[col_codigo].astype(str).unique()
-        
-        # Filtra os códigos que ainda não estão salvos na memória/neon
-        codigos_sem_segmento = [c for c in todos_codigos if c not in dict_produtos_segmentos]
-        if not codigos_sem_segmento: return
-        
-        df_filtrado = df[df[col_codigo].astype(str).isin(codigos_sem_segmento)]
-        top_novos = df_filtrado.groupby(['Produto', col_codigo])['Faturamento Brut'].sum().nlargest(5).reset_index()
-        
-        if not top_novos.empty:
-            produtos_para_ia = top_novos['Produto'].tolist()
-            prompt = f"""Analise estes produtos de food service. 
-            Retorne APENAS um objeto JSON válido. As chaves devem ser o nome exato do produto fornecido. 
-            Os valores devem ser uma lista de strings com 2 a 4 tipos de estabelecimentos comerciais (segmentos) que compram isso. 
-            Exemplo: "Hamburgueria", "Sushi", "Padaria", "Restaurante", "Pizzaria".
-            Produtos: {json.dumps(produtos_para_ia)}"""
-            try:
-                resp = modelo_ia.generate_content(prompt)
-                match = re.search(r'\{.*\}', resp.text, re.DOTALL)
-                if match:
-                    dados_json = json.loads(match.group(0))
-                    engine = obter_conexao_neon()
-                    if engine:
-                        with engine.begin() as conn:
-                            for prod, segs in dados_json.items():
-                                # Acha o código correspondente a este produto no dataframe
-                                match_row = df_produtos[df_produtos['Produto'] == prod]
-                                if not match_row.empty:
-                                    cod_prod = str(match_row[col_codigo].values[0])
-                                    
-                                    conn.execute(text("""
-                                        INSERT INTO produtos_segmentos (codigo_produto, produto, segmentos) 
-                                        VALUES (:c, :p, :s)
-                                        ON CONFLICT (codigo_produto) DO UPDATE SET produto = EXCLUDED.produto, segmentos = EXCLUDED.segmentos;
-                                    """), {"c": cod_prod, "p": prod, "s": json.dumps(segs)})
-                                    
-                                    dict_produtos_segmentos[cod_prod] = segs
-            except Exception: pass
+    top_novos = df[df['Produto'].isin(produtos_sem_segmento)].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+    if top_novos:
+        prompt = f"""Analise estes produtos de food service. 
+        Retorne APENAS um objeto JSON válido. As chaves devem ser o nome exato do produto fornecido. 
+        Os valores devem ser uma lista de strings com 2 a 4 tipos de estabelecimentos comerciais (segmentos) que compram isso. 
+        Exemplo: "Hamburgueria", "Sushi", "Padaria", "Restaurante", "Pizzaria".
+        Produtos: {json.dumps(top_novos)}"""
+        try:
+            resp = modelo_ia.generate_content(prompt)
+            match = re.search(r'\{.*\}', resp.text, re.DOTALL)
+            if match:
+                dados_json = json.loads(match.group(0))
+                engine = obter_conexao_neon()
+                if engine:
+                    with engine.begin() as conn:
+                        for prod, segs in dados_json.items():
+                            conn.execute(text("""
+                                INSERT INTO produtos_segmentos (produto, segmentos) VALUES (:p, :s)
+                                ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos;
+                            """), {"p": prod, "s": json.dumps(segs)})
+                            dict_produtos_segmentos[prod] = segs
+        except Exception: pass
 
+with st.spinner("Sincronizando base de dados e IA..."):
+    dados_carregados = carregar_dados_nuvem(date.today())
+    df_total = dados_carregados["df"]
+    dict_cadastro = dados_carregados["cadastro"]
+    
+    criar_tabelas_neon()
+    dict_produtos_segmentos = carregar_produtos_segmentos()
+    dict_cardapios_neon = carregar_cardapios_neon()
+    
+    # Injetar os cardápios do Neon na memória principal para o restante do código usar
+    for cli_neon, prods_neon in dict_cardapios_neon.items():
+        if cli_neon in dict_cadastro:
+            dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
+        else:
+            dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
+            
+    classificar_novos_produtos_ia(df_total)
+
+if df_total.empty:
+    st.warning("Base de dados vazia.")
+    st.stop()
+
+mes_atual_referencia = date.today().strftime('%Y-%m') 
+df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
+
+# Configuração de tela
+st.set_page_config(page_title="Delly's Inteligência", layout="centered")
+st.markdown("""
+    <style>
+    html, body, [class*="css"], p, span { font-size: 16px !important; }
+    h3 { font-size: 20px !important; font-weight: bold !important; }
+    h4 { font-size: 18px !important; }
+    div.stButton > button {
+        width: 100% !important; height: 52px !important; font-size: 16px !important;
+        font-weight: bold !important; margin-bottom: 10px !important; border-radius: 8px !important;
+    }
+    code { font-size: 14px !important; white-space: pre-wrap !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+data_atual_sistema = pd.Timestamp.now().normalize()
+data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
+mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
+
+def carregar_metas_neon(mes_atual):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                query = text("SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 FROM metas_mensais WHERE mes = :mes")
+                result = conn.execute(query, {"mes": mes_atual}).fetchone()
+                if result:
+                    return {"mes": mes_atual, "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]), "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])}
+        except: pass
+    return {"mes": mes_atual, "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0, "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0}
+
+def salvar_metas_neon(m):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                query = text("""
+                    INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
+                    VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
+                    ON CONFLICT (mes) DO UPDATE SET pos_geral = EXCLUDED.pos_geral, pos_fl2 = EXCLUDED.pos_fl2, pos_fl6 = EXCLUDED.pos_fl6, fat_geral = EXCLUDED.fat_geral, fat_fl2 = EXCLUDED.fat_fl2, fat_fl6 = EXCLUDED.fat_fl6;
+                """)
+                conn.execute(query, m)
+        except: pass
 
 # --- 📁 PERSISTÊNCIA LOCAL ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
