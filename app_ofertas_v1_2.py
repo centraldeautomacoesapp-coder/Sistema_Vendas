@@ -32,6 +32,15 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
+# --- CONFIGURAÇÃO DA API DO GEMINI ---
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    try:
+        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
+    except:
+        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-pro')
+except Exception as e:
+    st.error("Erro ao configurar a API. Verifique se a GEMINI_API_KEY está nos Secrets do Streamlit.")
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=86400) 
@@ -40,9 +49,7 @@ def carregar_dados_nuvem(data_atual):
     pasta_destino = os.path.join(diretorio_atual, "planilhas_drive")
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     try:
-        # Link 1: Pasta original (Histórico/Vendas)
         gdown.download_folder("https://drive.google.com/drive/folders/1RCm3WLoTLECkwJxoD2csu5QfYXbQd8cF", output=pasta_destino, quiet=True)
-        # Link 2: Nova pasta (Cadastro de Clientes e Municípios)
         gdown.download_folder("https://drive.google.com/drive/folders/1f_miT6ZGR6cxUeD2IlZ4BduIivzUVEdu", output=pasta_destino, quiet=True)
     except: pass
     
@@ -101,10 +108,122 @@ def carregar_dados_nuvem(data_atual):
         return {"df": unificado, "cadastro": cadastro_clientes}
     return {"df": pd.DataFrame(), "cadastro": {}}
 
-with st.spinner("Sincronizando base de dados..."):
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ARQUITETURA INTELIGENTE) ---
+def obter_conexao_neon():
+    try:
+        url = st.secrets["connections"]["neon_db"]["url"]
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return create_engine(url)
+    except Exception as e:
+        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
+        return None
+
+def criar_tabelas_neon():
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS segmentos_regras;"))
+                # Tabela de IA - Produtos para Segmentos
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS produtos_segmentos (
+                        produto VARCHAR(255) PRIMARY KEY,
+                        segmentos TEXT
+                    );
+                """))
+                # NOVA TABELA: Cardápios dos Clientes (Econômica: 1 linha por cliente guardando um Array)
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS cardapios_clientes (
+                        cliente VARCHAR(255) PRIMARY KEY,
+                        fantasia VARCHAR(255),
+                        produtos TEXT
+                    );
+                """))
+        except Exception as e: pass
+
+def carregar_produtos_segmentos():
+    engine = obter_conexao_neon()
+    mapa = {}
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT produto, segmentos FROM produtos_segmentos;")).fetchall()
+                for row in res:
+                    mapa[row[0]] = json.loads(row[1])
+        except: pass
+    return mapa
+
+def carregar_cardapios_neon():
+    engine = obter_conexao_neon()
+    mapa = {}
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT cliente, produtos FROM cardapios_clientes;")).fetchall()
+                for row in res:
+                    mapa[row[0]] = json.loads(row[1])
+        except: pass
+    return mapa
+
+def salvar_cardapio_neon(cliente, produtos, fantasia=""):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
+                    VALUES (:c, :f, :p)
+                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos;
+                """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
+        except: pass
+
+def classificar_novos_produtos_ia(df):
+    if df.empty: return
+    todos_produtos = df['Produto'].unique()
+    produtos_sem_segmento = [p for p in todos_produtos if p not in dict_produtos_segmentos]
+    if not produtos_sem_segmento: return
+    
+    top_novos = df[df['Produto'].isin(produtos_sem_segmento)].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+    if top_novos:
+        prompt = f"""Analise estes produtos de food service. 
+        Retorne APENAS um objeto JSON válido. As chaves devem ser o nome exato do produto fornecido. 
+        Os valores devem ser uma lista de strings com 2 a 4 tipos de estabelecimentos comerciais (segmentos) que compram isso. 
+        Exemplo: "Hamburgueria", "Sushi", "Padaria", "Restaurante", "Pizzaria".
+        Produtos: {json.dumps(top_novos)}"""
+        try:
+            resp = modelo_ia.generate_content(prompt)
+            match = re.search(r'\{.*\}', resp.text, re.DOTALL)
+            if match:
+                dados_json = json.loads(match.group(0))
+                engine = obter_conexao_neon()
+                if engine:
+                    with engine.begin() as conn:
+                        for prod, segs in dados_json.items():
+                            conn.execute(text("""
+                                INSERT INTO produtos_segmentos (produto, segmentos) VALUES (:p, :s)
+                                ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos;
+                            """), {"p": prod, "s": json.dumps(segs)})
+                            dict_produtos_segmentos[prod] = segs
+        except Exception: pass
+
+with st.spinner("Sincronizando base de dados e IA..."):
     dados_carregados = carregar_dados_nuvem(date.today())
     df_total = dados_carregados["df"]
     dict_cadastro = dados_carregados["cadastro"]
+    
+    criar_tabelas_neon()
+    dict_produtos_segmentos = carregar_produtos_segmentos()
+    dict_cardapios_neon = carregar_cardapios_neon()
+    
+    # Injetar os cardápios do Neon na memória principal para o restante do código usar
+    for cli_neon, prods_neon in dict_cardapios_neon.items():
+        if cli_neon in dict_cadastro:
+            dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
+        else:
+            dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
+            
+    classificar_novos_produtos_ia(df_total)
 
 if df_total.empty:
     st.warning("Base de dados vazia.")
@@ -113,20 +232,8 @@ if df_total.empty:
 mes_atual_referencia = date.today().strftime('%Y-%m') 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-
-# --- CONFIGURAÇÃO DA API DO GEMINI ---
-try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    try:
-        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-flash')
-    except:
-        modelo_ia = genai.GenerativeModel(model_name='gemini-1.5-pro')
-except Exception as e:
-    st.error("Erro ao configurar a API. Verifique se a GEMINI_API_KEY está nos Secrets do Streamlit.")
-
 # Configuração de tela
 st.set_page_config(page_title="Delly's Inteligência", layout="centered")
-
 st.markdown("""
     <style>
     html, body, [class*="css"], p, span { font-size: 16px !important; }
@@ -144,143 +251,17 @@ data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
-# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
-def obter_conexao_neon():
-    try:
-        url = st.secrets["connections"]["neon_db"]["url"]
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
-        return create_engine(url)
-    except Exception as e:
-        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
-        return None
-
-def criar_tabela_segmentos_neon():
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS segmentos_regras (
-                        segmento VARCHAR(100) PRIMARY KEY,
-                        itens TEXT
-                    );
-                """))
-        except: pass
-
-criar_tabela_segmentos_neon()
-
-regras_segmento_padrao = {
-    # --- FOODSERVICE & LANCHES ---
-    "acai": ["Açaí", "Granola", "Leite Condensado", "Morango", "Banana", "Leite em pó", "Xarope de Guaraná", "Embalagens Térmicas", "Colheres Descartáveis", "Creme de Avelã", "Paçoca Rolha"],
-    "burguer": ["Preparado Sabor Cheddar", "Catchup/Maionese Sachê", "Bacon Fatiado", "Batata Fininhas", "Hambúrguer", "Pão de Hambúrguer", "Anéis de Cebola", "Empanados", "Embalagem Kraft", "Papel Acoplado"],
-    "hamburguer": ["Preparado Sabor Cheddar", "Catchup/Maionese Sachê", "Bacon Fatiado", "Batata Fininhas", "Hambúrguer", "Pão de Hambúrguer", "Anéis de Cebola", "Empanados", "Embalagem Kraft", "Papel Acoplado"],
-    "lanches": ["Batata 9mm / Surecrisp", "Requeijão Cheddar", "Anéis de Cebola", "Frango Sassami", "Linguiça Toscana", "Pão de Cachorro Quente", "Saches de Molho", "Embalagens Take-away", "Guardanapos"],
-    "pastel": ["Requeijão c/ Amido Bisnaga", "Energéticos Baly", "Catchup", "Óleo de Algodão/Soja", "Massa de Pastel", "Carne Moída", "Molho Cheddar", "Bobina de Papel Toalha", "Aparelho de Fechar Pastel", "Caldo de Cana"],
-    "pastelaria": ["Requeijão c/ Amido Bisnaga", "Energéticos Baly", "Catchup", "Óleo de Algodão/Soja", "Massa de Pastel", "Carne Moída", "Molho Cheddar", "Bobina de Papel Toalha", "Aparelho de Fechar Pastel", "Caldo de Cana"],
-    "food truck": ["Embalagens take-away", "Guardanapos", "Descartáveis", "Molhos em Sachê", "Batata Congelada", "Bacon Fatiado", "Refrigerante Lata", "Água Mineral"],
-
-    # --- RESTAURANTES TÍPICOS ---
-    "japones": ["Alga Nori Gold", "Guioza Bovina/Suína", "Farinha Panko", "Cream Cheese", "Salmão Eviscerado", "Camarão Cinza", "Doce de Goiabada", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Embalagens para Combinados"],
-    "sushi": ["Alga Nori Gold", "Guioza Bovina/Suína", "Farinha Panko", "Cream Cheese", "Salmão Eviscerado", "Camarão Cinza", "Doce de Goiabada", "Shoyu", "Wasabi", "Gengibre", "Arroz Japonês", "Embalagens para Combinados"],
-    "temaki": ["Alga Nori Gold", "Farinha Panko", "Cream Cheese", "Salmão", "Camarão", "Shoyu", "Cebolinha", "Embalagens para Temaki"],
-    "italiano": ["Mandioca Noisette", "Polenta Palito", "Batata Congelada", "Queijo Parmesão", "Macarrão", "Molho de Tomate Tradicional", "Azeite", "Manjericão", "Vinho Tinto", "Farinha de Trigo"],
-    "cantina": ["Mandioca Noisette", "Polenta Palito", "Batata Congelada", "Queijo Parmesão", "Macarrão", "Molho de Tomate", "Azeite", "Manjericão", "Embalagens para Viagem"],
-    "massa": ["Farinha de Trigo Premium", "Ovos", "Molho de Tomate", "Queijo Parmesão", "Manjericão", "Azeite", "Queijo Muçarela"],
-    "mexicano": ["Tortilha", "Guacamole", "Pimenta Jalapeño", "Nachos", "Feijão Mexicano", "Carne Moída", "Queijo Cheddar", "Molho Sour Cream"],
-    "taco": ["Tortilha", "Queijo", "Pimenta", "Carne Moída", "Páprica Doce/Picante", "Guacamole"],
-    "pizza": ["Farinha de Trigo Premium", "Carne Moída", "Presunto Cru/Parma", "Palmito Inteiro", "Molho de Tomate Sachê", "Linguiça Pepperoni", "Alho Descascado", "Muçarela", "Orégano", "Caixas para Pizza"],
-    "pizzaria": ["Farinha de Trigo Premium", "Carne Moída", "Presunto Cru/Parma", "Palmito Inteiro", "Molho de Tomate Sachê", "Linguiça Pepperoni", "Alho Descascado", "Muçarela", "Orégano", "Caixas para Pizza", "Lenha/Carvão Ecológico"],
-    "restaurante": ["Frango Coxa/Sobrecoxa", "Queijo Gouda", "Batata Canoa", "Catchup/Maionese Sachê", "Farinha de Trigo", "Queijo Parmesão", "Arroz", "Feijão", "Óleo", "Tempero", "Marmitex/Descartáveis"],
-    "churrascaria": ["Frango (Coxa/Sobrecoxa)", "Preparado Sabor Muçarela", "Picanha", "Alcatra", "Linguiça Toscana", "Carvão", "Sal Grosso", "Espetos", "Costela", "Fraldinha", "Pão de Alho"],
-    "churrasco": ["Linguiça", "Picanha", "Alcatra", "Carvão", "Sal Grosso", "Pão de Alho", "Faca para Carne", "Tábuas de Corte"],
-    "espetinho": ["Linguiça", "Carne Bovina", "Frango (Meio da Asa/Coxinha)", "Carvão", "Sal Grosso", "Espeto de Bambu", "Mandioca/Macaxeira"],
-
-    # --- COMÉRCIO, BEBIDAS & ENTRETENIMENTO ---
-    "bar": ["Batata Surecrisp/Fininha", "Bacon", "Lagarto Bovino", "Queijo Provolone", "Almôndegas", "Cerveja", "Gelo", "Amendoim", "Porções Congeladas", "Energético"],
-    "pub": ["Batata Surecrisp/Fininha", "Bacon", "Lagarto Bovino", "Queijo Provolone", "Cerveja Artesanal", "Gelo", "Amendoim", "Hambúrguer", "Destilados"],
-    "distribuidora": ["Vodka", "Xaropes (Maçã Verde, Framboesa, etc.)", "Gin", "Água Tônica", "Cerveja", "Refrigerante", "Gelo", "Carvão", "Copos Descartáveis", "Canudos"],
-    "conveniencia": ["Energéticos Baly (Trad/Sabores)", "Sanduíche Hot Pocket", "Cerveja", "Refrigerante", "Salgadinhos", "Gelo", "Carvão", "Isqueiros", "Chocolates"],
-    "buffet": ["Alcatra/Maminha", "Frango", "Mandioca Noisette", "Requeijão Bisnaga", "Extrato de Tomate", "Farinha Panko", "Feijão Preto", "Descartáveis Premium", "Guardanapos", "Bebidas", "Artigos de Festa"],
-
-    # --- PADARIA, DOCERIA E CAFÉ ---
-    "padaria": ["Batata Airfryer", "Refrigerantes Sem Açúcar", "Patês (Frango, Presunto, Fígado)", "Margarina c/ Sal", "Pão Francês", "Leite", "Café", "Farinha", "Frios (Muçarela, Presunto)", "Bobina Plástica"],
-    "panificadora": ["Batata Airfryer", "Refrigerantes", "Patês", "Margarina", "Farinha", "Fermento", "Ovos", "Leite", "Embalagens de Pão", "Frios Fatiados"],
-    "confeitaria": ["Farinha de Trigo", "Açúcar", "Ovos", "Leite Condensado", "Chocolate/Cacau em Pó", "Manteiga/Margarina", "Fermento", "Chantilly", "Formas de Papel"],
-    "doceria": ["Chantilly", "Leite Condensado", "Chocolate em Pó/Barra", "Confeitos", "Formas", "Açúcar", "Embalagens para Presente", "Fitas Decorativas"],
-    "cafeteria": ["Energéticos (Diversos Sabores)", "Óleo Vegetal (Fritura)", "Café em grão", "Leite", "Açúcar", "Adoçante", "Copos descartáveis térmicos", "Xaropes (Baunilha, Caramelo)"],
-    "sorveteria": ["Petit Gateau", "Queijo Muçarela/Presunto (Para crepes)", "Sorvete", "Calda", "Casquinha", "Granulado", "Marshmallow", "Coberturas Diversas", "Copos e Potes Descartáveis"],
-
-    # --- VAREJO E OUTROS ---
-    "mercado": ["Pizza Pronta Congelada", "Batata Congelada", "Margarina c/ Sal", "Carne Moída", "Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Biscoito"],
-    "mercearia": ["Pizza Pronta Congelada", "Batata Congelada", "Margarina c/ Sal", "Carne Moída", "Arroz", "Feijão", "Óleo", "Açúcar", "Café", "Macarrão", "Molho de Tomate"],
-    "açougue": ["Bacon Manta", "Frango (Coxinha/Asa)", "Muçarela", "Moela de Frango", "Queijo Parmesão", "Carnes Variadas", "Bandejas de Isopor", "Papel Filme", "Facas", "Sacos plásticos"],
-    "peixaria": ["Salmão Eviscerado", "Tilápia Filé", "Lula em Anéis", "Camarão Cinza", "Peixe Fresco", "Gelo", "Limão", "Embalagens", "Sacos de Gelo", "Farinha para Empanar"],
-    "produtos naturais": ["Grãos", "Castanhas", "Farinha Integral", "Temperos", "Frutas Secas", "Aveia", "Mel", "Óleo de Coco", "Embalagens Pouch"],
-    "fitness": ["Mix de folhas", "Molhos prontos", "Proteína grelhada", "Embalagens biodegradáveis", "Batata Doce", "Frango Desfiado", "Ovos"],
-    "hotel": ["Massa Lasanha/Pastel", "Presunto e Muçarela", "Frango Filé Peito", "Batata Congelada", "Cream Cheese", "Frutas Vermelhas IQF", "Café", "Açúcar", "Adoçante", "Produtos de Limpeza", "Amenities (Sabonete/Shampoo)"],
-    "pousada": ["Massa Lasanha/Pastel", "Frios (Muçarela/Presunto)", "Frango", "Batata Congelada", "Cream Cheese", "Café", "Leite", "Pão", "Produtos de Limpeza", "Lençóis", "Descartáveis"]
-}
-
-def carregar_regras_segmentos_do_neon():
-    engine = obter_conexao_neon()
-    regras = regras_segmento_padrao.copy()
-    if engine:
-        try:
-            with engine.connect() as conn:
-                res = conn.execute(text("SELECT segmento, itens FROM segmentos_regras;")).fetchall()
-                if res:
-                    for row in res:
-                        seg, itens_str = row[0], row[1]
-                        regras[seg] = json.loads(itens_str)
-                else:
-                    # Se tabela estiver vazia, popula com o padrão inicial
-                    for seg, itens in regras_segmento_padrao.items():
-                        conn.execute(text("INSERT INTO segmentos_regras (segmento, itens) VALUES (:s, :i) ON CONFLICT (segmento) DO NOTHING;"),
-                                     {"s": seg, "i": json.dumps(itens)})
-                    conn.commit()
-        except: pass
-    return regras
-
-regras_segmento = carregar_regras_segmentos_do_neon()
-
-def salvar_novo_item_segmento_neon(segmento, novo_item):
-    if segmento in regras_segmento:
-        if novo_item not in regras_segmento[segmento]:
-            regras_segmento[segmento].append(novo_item)
-            engine = obter_conexao_neon()
-            if engine:
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            INSERT INTO segmentos_regras (segmento, itens) VALUES (:seg, :itens)
-                            ON CONFLICT (segmento) DO UPDATE SET itens = EXCLUDED.itens;
-                        """), {"seg": segmento, "itens": json.dumps(regras_segmento[segmento])})
-                except: pass
-
 def carregar_metas_neon(mes_atual):
     engine = obter_conexao_neon()
     if engine:
         try:
             with engine.connect() as conn:
-                query = text("""
-                    SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 
-                    FROM metas_mensais WHERE mes = :mes
-                """)
+                query = text("SELECT pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6 FROM metas_mensais WHERE mes = :mes")
                 result = conn.execute(query, {"mes": mes_atual}).fetchone()
                 if result:
-                    return {
-                        "mes": mes_atual,
-                        "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]),
-                        "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])
-                    }
-        except:
-            pass
-    return {
-        "mes": mes_atual,
-        "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0,
-        "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0
-    }
+                    return {"mes": mes_atual, "pos_geral": int(result[0]), "pos_fl2": int(result[1]), "pos_fl6": int(result[2]), "fat_geral": float(result[3]), "fat_fl2": float(result[4]), "fat_fl6": float(result[5])}
+        except: pass
+    return {"mes": mes_atual, "pos_geral": 0, "pos_fl2": 0, "pos_fl6": 0, "fat_geral": 0.0, "fat_fl2": 0.0, "fat_fl6": 0.0}
 
 def salvar_metas_neon(m):
     engine = obter_conexao_neon()
@@ -290,17 +271,10 @@ def salvar_metas_neon(m):
                 query = text("""
                     INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
                     VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
-                    ON CONFLICT (mes) DO UPDATE SET
-                        pos_geral = EXCLUDED.pos_geral,
-                        pos_fl2 = EXCLUDED.pos_fl2,
-                        pos_fl6 = EXCLUDED.pos_fl6,
-                        fat_geral = EXCLUDED.fat_geral,
-                        fat_fl2 = EXCLUDED.fat_fl2,
-                        fat_fl6 = EXCLUDED.fat_fl6;
+                    ON CONFLICT (mes) DO UPDATE SET pos_geral = EXCLUDED.pos_geral, pos_fl2 = EXCLUDED.pos_fl2, pos_fl6 = EXCLUDED.pos_fl6, fat_geral = EXCLUDED.fat_geral, fat_fl2 = EXCLUDED.fat_fl2, fat_fl6 = EXCLUDED.fat_fl6;
                 """)
                 conn.execute(query, m)
-        except Exception as e:
-            st.error(f"Erro ao salvar metas no Neon: {e}")
+        except: pass
 
 # --- 📁 PERSISTÊNCIA LOCAL ---
 ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
@@ -308,8 +282,7 @@ ARQUIVO_PROGRESSO = "progresso_diario_dellys.json"
 def carregar_progresso_salvo():
     if os.path.exists(ARQUIVO_PROGRESSO):
         try:
-            with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            with open(ARQUIVO_PROGRESSO, 'r', encoding='utf-8') as f: return json.load(f)
         except: pass
     return {}
 
@@ -328,8 +301,7 @@ def salvar_progresso_atual():
         "metas_config": st.session_state.get('metas_config', {})
     }
     try:
-        with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f:
-            json.dump(dados, f, ensure_ascii=False, indent=4)
+        with open(ARQUIVO_PROGRESSO, 'w', encoding='utf-8') as f: json.dump(dados, f, ensure_ascii=False, indent=4)
     except: pass
 
 progresso_backup = carregar_progresso_salvo()
@@ -337,7 +309,6 @@ ultimo_acesso = progresso_backup.get("data_ultimo_acesso", "")
 mes_ultimo_acesso = ultimo_acesso[:7] if ultimo_acesso else ""
 
 if 'data_ultimo_acesso' not in st.session_state: st.session_state.data_ultimo_acesso = data_hoje_str
-
 if ultimo_acesso == data_hoje_str:
     for key in ['envios_hoje', 'fila_ofertas_dia', 'fila_ofertas_relampago', 'memoria_ofertas_cruas_dia', 'memoria_ofertas_cruas_rel']:
         if key not in st.session_state: st.session_state[key] = progresso_backup.get(key, 0 if key=='envios_hoje' else ([] if 'memoria' in key else None))
@@ -355,37 +326,21 @@ else:
     st.session_state.enviados_supervisor_mes = set()
 
 if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_permanente = set(progresso_backup.get("excluidos_permanente", []))
-
-if 'busca_direta_cliente' not in st.session_state: st.session_state.busca_direta_cliente = ""
+for key in ['busca_direta_cliente', 'texto_supervisor_gerado', 'cliente_ia_atual', 'msg_ia_atual']:
+    if key not in st.session_state: st.session_state[key] = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
 if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
-if 'texto_supervisor_gerado' not in st.session_state: st.session_state.texto_supervisor_gerado = ""
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
-
-if 'cliente_ia_atual' not in st.session_state: st.session_state.cliente_ia_atual = ""
-if 'msg_ia_atual' not in st.session_state: st.session_state.msg_ia_atual = ""
 
 if 'metas_config' not in st.session_state:
     db_metas = carregar_metas_neon(mes_atual_referencia)
-    if db_metas.get("pos_geral", 0) == 0 and db_metas.get("fat_geral", 0.0) == 0.0:
+    if db_metas.get("pos_geral", 0) == 0:
         local_metas = progresso_backup.get("metas_config", {})
-        if local_metas and local_metas.get("mes") == mes_atual_referencia:
-            st.session_state.metas_config = local_metas
-        else:
-            st.session_state.metas_config = db_metas
-    else:
-        st.session_state.metas_config = db_metas
+        st.session_state.metas_config = local_metas if (local_metas and local_metas.get("mes") == mes_atual_referencia) else db_metas
+    else: st.session_state.metas_config = db_metas
 
 if st.session_state.metas_config.get("mes") != mes_atual_referencia:
-    db_metas = carregar_metas_neon(mes_atual_referencia)
-    if db_metas.get("pos_geral", 0) == 0 and db_metas.get("fat_geral", 0.0) == 0.0:
-        local_metas = progresso_backup.get("metas_config", {})
-        if local_metas and local_metas.get("mes") == mes_atual_referencia:
-            st.session_state.metas_config = local_metas
-        else:
-            st.session_state.metas_config = db_metas
-    else:
-        st.session_state.metas_config = db_metas
+    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
     salvar_progresso_atual()
 
 if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
@@ -404,67 +359,23 @@ def adiantar_cliente_fila_callback(id_fila_param):
             st.session_state.cliente_ia_atual = ""
             salvar_progresso_atual()
             st.toast(f"🏢 {cliente_escolhido} foi puxado para a frente!", icon="⚡")
-            
     st.session_state[chave_selectbox] = "-- Digite ou selecione um cliente para adiantar --"
 
 def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
-    # Compatibilidade caso o state antigo ainda seja uma lista
-    if isinstance(ofertas_dict, list):
-        ofertas_hist = ofertas_dict
-        ofertas_seg = []
-    else:
-        ofertas_hist = ofertas_dict.get("historico", [])
-        ofertas_seg = ofertas_dict.get("segmento", [])
+    ofertas_hist = ofertas_dict.get("historico", []) if isinstance(ofertas_dict, dict) else ofertas_dict
+    ofertas_seg = ofertas_dict.get("segmento", []) if isinstance(ofertas_dict, dict) else []
     
     texto_ofertas_hist = "\n".join([f"- {of}" for of in ofertas_hist]) if ofertas_hist else "Nenhum no momento."
     texto_ofertas_seg = "\n".join([f"- {of}" for of in ofertas_seg]) if ofertas_seg else "Nenhum no momento."
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
     
-    prompt = f"""
-    Você é um vendedor(a) experiente, simpático e direto ao ponto da distribuidora de alimentos Delly's.
-    Escreva uma mensagem de WhatsApp persuasiva para o cliente '{nome_cliente}'.
-    
-    O cliente já costuma comprar estes produtos conosco (este é o histórico dele):
-    {texto_historico}
-    
-    Hoje nós temos as seguintes OFERTAS separadas estrategicamente:
-    
-    1. PRODUTOS QUE ELE JÁ COMPRA E ESTÃO EM OFERTA:
-    {texto_ofertas_hist}
-    
-    2. NOVIDADES E OFERTAS INDICADAS PARA O SEGMENTO/CARDÁPIO DELE:
-    {texto_ofertas_seg}
-    
-    REGRAS RÍGIDAS DE FORMATAÇÃO PARA WHATSAPP:
-    1. NÃO deixe o texto amontoado. Você DEVE pular linhas (quebra de linha dupla) entre os parágrafos e as categorias de produtos.
-    2. Use destaques em negrito (exemplo: *Produto e Preço*).
-    3. Se a categoria 1 estiver vazia ("Nenhum..."), não cite nada sobre produtos do histórico dele.
-    4. Se a categoria 2 estiver vazia ("Nenhum..."), não cite nada sobre novidades e ofertas indicadas.
-    5. Seja natural e caloroso. Demonstre que você separou as ofertas a dedo para o negócio dele.
-    6. Use emojis com sabedoria.
-    7. Termine com uma chamada para ação suave perguntando se pode fechar o pedido.
-    8. Aja como se a mensagem já estivesse pronta. Não coloque "Assinado:" ou "[Seu Nome]".
-    """
-    
-    try:
-        response = modelo_ia.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        saudacoes = ["Olá! Tudo bem?", "Buenas! Tudo certo por aí?"]
-        msg = f"{random.choice(saudacoes)}\n\nSeparei umas ofertas exclusivas para você hoje pensando no seu negócio:\n\n"
-        
-        if ofertas_hist:
-            msg += "*🛒 Produtos do seu histórico que entraram em oferta:*\n"
-            for of in ofertas_hist: msg += f"👉 {of}\n"
-            msg += "\n"
-        
-        if ofertas_seg:
-            msg += "*🚀 Oportunidades indicadas para o seu segmento:*\n"
-            for of in ofertas_seg: msg += f"👉 {of}\n"
-            msg += "\n"
-            
-        msg += "Me avisa aqui se posso garantir o seu pedido! 👍"
-        return msg
+    prompt = f"""Você é um vendedor experiente da distribuidora Delly's. Escreva uma mensagem de WhatsApp persuasiva para '{nome_cliente}'.
+    Histórico: {texto_historico}
+    Ofertas do que já compra: {texto_ofertas_hist}
+    Ofertas indicadas p/ segmento: {texto_ofertas_seg}
+    REGRAS: Pule linhas. Use negrito (*). Seja natural. Emojis. Termine chamando pra ação. Sem 'Assinado'."""
+    try: return modelo_ia.generate_content(prompt).text.strip()
+    except: return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
 
 st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", width='stretch')
 
@@ -476,12 +387,9 @@ if st.button("🔄 Sincronizar Sistema"):
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
 
-real_pos_fl2 = df_fl2['Cliente'].nunique()
-real_pos_fl6 = df_fl6['Cliente'].nunique()
+real_pos_fl2, real_pos_fl6 = df_fl2['Cliente'].nunique(), df_fl6['Cliente'].nunique()
 real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.empty or not df_fl6.empty else 0
-
-real_fat_fl2 = df_fl2['Faturamento Brut'].sum()
-real_fat_fl6 = df_fl6['Faturamento Brut'].sum()
+real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
@@ -489,14 +397,12 @@ def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     col1.write(f"**{label}**")
     col2.write(f"Meta: {f'R$ {meta:,.0f}' if eh_faturamento else meta}")
     col3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
-    
     perc = (realizado / meta * 100) if meta > 0 else 0
     cor = "#00875A" if perc >= 100 else "#DE350B"
-    col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.1f}%</div>', unsafe_allow_html=True)
+    col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.0f}%</div>', unsafe_allow_html=True)
 
 st.subheader("📊 Painel de Metas")
-if st.button("✏️ Editar Metas do Mês"):
-    st.session_state.editar_aberto = True
+if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
 
 if st.session_state.get('editar_aberto', False):
     with st.expander("Configurar Metas", expanded=True):
@@ -535,24 +441,17 @@ exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
 st.write("---")
-col1, col2, col3, col4 = st.columns(4)
-
+col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
-    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"):
-        st.session_state.aba_atual = "🟢 Ofertas"
-        st.rerun()
+    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
 with col2:
-    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"):
-        st.session_state.aba_atual = "🚨 Alertas"
-        st.rerun()
+    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
 with col3:
-    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"):
-        st.session_state.aba_atual = "🔍 Consulta"
-        st.rerun()
+    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
 with col4:
-    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"):
-        st.session_state.aba_atual = "💲 Cotação"
-        st.rerun()
+    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): st.session_state.aba_atual = "💲 Cotação"; st.rerun()
+with col5:
+    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): st.session_state.aba_atual = "🍔 Cardápios"; st.rerun()
 
 st.write("---")
 
@@ -560,7 +459,6 @@ st.write("---")
 def analisar_carteira_clientes(df, df_mes, data_hoje):
     mapa = {}
     ultimas_compras = df.groupby('Cliente')['Data_Datetime'].max().to_dict()
-    
     for cli in df['Cliente'].unique():
         if pd.isna(cli) or str(cli).lower() == 'nan' or not str(cli).strip(): continue
         tags = []
@@ -613,13 +511,11 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         if st.button("🚀 Processar Linhas", key=f"btn_proc_{id_fila}"):
             if txt_novas.strip():
                 st.session_state[id_excluidos].clear()
-                
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
-                
                 nova_fila = {}
                 clientes_com_compra_mes_atual = df_mes_atual['Cliente'].unique()
                 
@@ -635,18 +531,17 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     for c in combs_hist: interessados_hist.update(prod_to_clientes[c])
                     
                     interessados_seg = set()
+                    segs_oferta = []
+                    for prod_db, segs in dict_produtos_segmentos.items():
+                        if all(c in limpar_texto(prod_db) for c in chaves): segs_oferta.extend(segs)
+                    segs_oferta_limpos = [limpar_texto(s) for s in set(segs_oferta)]
+
                     for cli_cad, info_cad in dict_cadastro.items():
                         fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
                         nome_cli_limpo = limpar_texto(cli_cad)
                         
-                        for chave_seg, itens_seg in regras_segmento.items():
-                            if chave_seg in fantasia_texto or chave_seg in nome_cli_limpo:
-                                for item_seg in itens_seg:
-                                    item_seg_limpo = limpar_texto(item_seg)
-                                    if all(c in item_seg_limpo for c in chaves) or any(c in item_seg_limpo for c in chaves):
-                                        interessados_seg.add(cli_cad)
-                                        salvar_novo_item_segmento_neon(chave_seg, item_seg)
-                                        break
+                        if any(s in nome_cli_limpo or s in fantasia_texto for s in segs_oferta_limpos if len(s)>2):
+                            interessados_seg.add(cli_cad)
                                         
                         cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
                         if cardapio_texto and all(c in cardapio_texto for c in chaves):
@@ -659,7 +554,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                             else: continue
                                 
                         if cli in st.session_state[id_excluidos]: continue
-                        
                         if cli not in nova_fila: nova_fila[cli] = {"historico": [], "segmento": []}
                         
                         if cli in interessados_hist:
@@ -669,7 +563,7 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada! As ofertas foram devidamente separadas entre Histórico e Segmento de cada cliente!")
+                st.success("Fila vinculada! Ofertas separadas (Histórico / Segmento)!")
                 st.rerun()
 
     st.write("---")
@@ -696,7 +590,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             )
                 
             st.write("---")
-            
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
@@ -711,7 +604,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             if st.session_state.cliente_ia_atual != cliente_atual:
                 st.session_state.cliente_ia_atual = cliente_atual
                 historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
-                
                 with st.spinner("🧠 Gemini analisando cruzamentos e organizando formatação para WhatsApp..."):
                     st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
             
@@ -722,7 +614,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 if st.button("✅ Enviado", type="primary", key=f"env_{str(cliente_atual)[:5]}"):
                     st.session_state.envios_hoje += 1
                     st.session_state[id_excluidos].add(cliente_atual)
-                    
                     del st.session_state[id_fila][cliente_atual]
                     st.session_state.cliente_ia_atual = "" 
                     salvar_progresso_atual()
@@ -834,10 +725,11 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     
                     nome_limpo_cli = limpar_texto(c_nome)
                     sugestoes_seg = []
-                    for chave, itens_sugeridos in regras_segmento.items():
-                        if chave in nome_limpo_cli: sugestoes_seg.extend(itens_sugeridos)
+                    for prod_db, segs in dict_produtos_segmentos.items():
+                        if any(limpar_texto(s) in nome_limpo_cli for s in segs if len(s)>2):
+                            sugestoes_seg.append(prod_db)
                     
-                    if congest := list(set(sugestoes_seg)):
+                    if congest := list(set(sugestoes_seg))[:4]:
                         novo_texto_acumulado += "   💡 Oportunidades de Venda Cruzada:\n"
                         for sug in congest: novo_texto_acumulado += f"     ▪️ {sug}\n"
                     novo_texto_acumulado += "\n"
@@ -876,60 +768,115 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 df_cli = df_total[df_total['Cliente'] == c_sel]
                 st.write("**Mix de Itens Históricos:**")
                 rank_p = df_cli.groupby('Produto')['Faturamento Brut'].sum().nlargest(10).reset_index()
-                for i, r in rank_p.iterrows():
-                    st.markdown(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
                 
+                for i, r in rank_p.iterrows():
+                    st.markdown(f"<p style='font-size: 13px; margin-bottom: 2px;'>• {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})</p>", unsafe_allow_html=True)
+                
+                st.write("---")
+                st.write("📉 **Produtos Abandonados (Parou de comprar):**")
+                
+                max_dates = df_cli.groupby('Produto')['Data_Datetime'].max()
+                abandonados = max_dates[max_dates.apply(lambda x: (data_atual_sistema - x).days > 30)].index.tolist()
+                df_ab = df_cli[df_cli['Produto'].isin(abandonados)].groupby('Produto').agg(
+                    Fat=('Faturamento Brut', 'sum'), Ult_Compra=('Data_Datetime', 'max')
+                ).sort_values('Fat', ascending=False)
+                
+                ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
+                html_ab = ""
+                texto_abandonados_p_ia = ""
+                
+                for prod, row in df_ab.head(8).iterrows():
+                    dias = (data_atual_sistema - row['Ult_Compra']).days
+                    is_oferta = False
+                    for of in ofertas_memoria:
+                        if all(c in limpar_texto(of) for c in extrair_palavras_produto(prod)[:2]):
+                            is_oferta = True
+                            break
+                    
+                    tag_oferta = " <span style='background-color:#DE350B; color:white; padding:2px 4px; border-radius:3px; font-size:10px; font-weight:bold;'>🚨 NA OFERTA!</span>" if is_oferta else ""
+                    html_ab += f"<p style='font-size: 13px; margin-bottom: 3px;'>• {prod} <i>(⏳ {dias} dias)</i>{tag_oferta}</p>"
+                    texto_abandonados_p_ia += f"- {prod} ({dias} dias sem comprar) {'[ESTÁ NA OFERTA]' if is_oferta else ''}\n"
+                
+                if html_ab:
+                    st.markdown(html_ab, unsafe_allow_html=True)
+                    texto_js_abandonados = json.dumps("Produtos Abandonados pelo Cliente:\n" + texto_abandonados_p_ia)
+                    components.html(f"""
+                        <button id="copyBtnAb" style="width: 100%; max-width: 200px; background-color: #42526E; color: white; border: none; padding: 8px; border-radius: 4px; font-weight: bold; font-size: 13px; cursor: pointer; margin-top: 5px;">📋 Copiar Abandonados</button>
+                        <script>
+                        document.getElementById('copyBtnAb').addEventListener('click', function() {{
+                            navigator.clipboard.writeText({texto_js_abandonados});
+                            this.innerText = '✅ Copiado!';
+                            setTimeout(() => {{ this.innerText = '📋 Copiar Abandonados'; }}, 2000);
+                        }});
+                        </script>
+                    """, height=50)
+                else:
+                    st.markdown("<p style='font-size: 13px;'>Nenhum abandono acima de 30 dias detectado.</p>", unsafe_allow_html=True)
+
                 st.write("---")
                 st.markdown("### 💡 Venda Cruzada Inteligente (Oferta + Histórico + Cardápio)")
                 
-                sugestoes_segmento = []
-                nome_limpo_cli = limpar_texto(c_sel)
                 info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
+                nome_limpo_cli = limpar_texto(c_sel)
                 fantasia_limpa = limpar_texto(info_c_extra["fantasia"])
                 
-                for chave, itens_sugeridos in regras_segmento.items():
-                    if chave in nome_limpo_cli or chave in fantasia_limpa:
-                        sugestoes_segmento.extend(itens_sugeridos)
-                
-                if info_c_extra["cardapio"]:
-                    itens_do_cardapio_bruto = [i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()]
-                    sugestoes_segmento.extend(itens_do_cardapio_bruto)
-                
+                segmentos_do_cliente = set()
+                for prod, segs in dict_produtos_segmentos.items():
+                    for s in segs:
+                        s_limpo = limpar_texto(s)
+                        if len(s_limpo) > 2 and (s_limpo in nome_limpo_cli or s_limpo in fantasia_limpa):
+                            segmentos_do_cliente.add(s)
+                            
                 produtos_ja_comprados = set(df_cli['Produto'].unique())
-                produto_campeao = rank_p.iloc[0]['Produto'] if not rank_p.empty else None
-                sugestoes_similaridade = []
-                
-                if produto_campeao:
-                    compradores_mesmo_item = df_total[(df_total['Produto'] == produto_campeao) & (df_total['Cliente'] != c_sel)]['Cliente'].unique()
-                    if len(compradores_mesmo_item) > 0:
-                        df_parecidos = df_total[(df_total['Cliente'].isin(compradores_mesmo_item)) & (~df_total['Produto'].isin(produtos_ja_comprados))]
-                        if not df_parecidos.empty:
-                            sugestoes_similaridade = df_parecidos.groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
-                
-                todas_sugestoes_brutas = list(set(sugestoes_segmento + sugestoes_similaridade))
-                ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
-                
-                lista_venda_final = []
-                for item in todas_sugestoes_brutas:
-                    item_limpo = limpar_texto(item)
-                    achou_oferta = False
-                    for of_linha in ofertas_memoria:
-                        if all(p in limpar_texto(of_linha) for p in extrair_palavras_produto(item)):
-                            lista_venda_final.append(f"▪️ {of_linha} (Oferta do Dia)")
-                            achou_oferta = True
-                            break
-                    if not achou_oferta and item not in produtos_ja_comprados:
-                        lista_venda_final.append(f"▪️ {item}")
+                sugestoes_segmento = []
+                for prod, segs in dict_produtos_segmentos.items():
+                    if any(s in segmentos_do_cliente for s in segs) and prod not in produtos_ja_comprados:
+                        sugestoes_segmento.append(prod)
                         
-                if not lista_venda_final and ofertas_memoria:
-                    for of_linha in ofertas_memoria[:4]:
-                        lista_venda_final.append(f"▪️ {of_linha} (Oferta do Dia)")
+                if info_c_extra["cardapio"]:
+                    sugestoes_segmento.extend([i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()])
                 
-                msg_cross = f"Separei essas sugestões ideais para complementar seu pedido hoje:\n\n"
-                for item_final in lista_venda_final:
-                    msg_cross += f"{item_final}\n"
+                chave_sessao_msg = f'msg_cruzada_{c_sel}'
                 
-                st.text_area("Mensagem Enxuta para Whatsapp:", value=msg_cross, height=180)
+                if st.button("🧠 Gerar Abordagem de Vendas via IA", type="primary"):
+                    prompt_cruzada = f"""
+                    Atue como um excelente vendedor B2B da distribuidora Delly's. Crie uma mensagem curta de WhatsApp para o cliente '{c_sel}'.
+                    
+                    Use ESTES DADOS para construir a mensagem:
+                    1. Produtos que ele parou de comprar (Abandonados): 
+                    {texto_abandonados_p_ia if texto_abandonados_p_ia else "Nenhum no momento."}
+                    2. Sugestões inovadoras para o segmento dele ({', '.join(segmentos_do_cliente)}):
+                    {', '.join(sugestoes_segmento[:5])}
+                    3. Principais Ofertas de hoje:
+                    {', '.join(ofertas_memoria[:6]) if ofertas_memoria else "Nenhuma no momento"}
+                    
+                    REGRAS PARA A MENSAGEM:
+                    - MUITO IMPORTANTE: Se houver algum 'Produto Abandonado' que 'ESTÁ NA OFERTA', você DEVE enfatizar isso dizendo que o preço do que ele costumava comprar baixou.
+                    - Faça links inteligentes ("Vi que você tem Pizzaria, sugiro o produto X...").
+                    - Formato exclusivo para WhatsApp: Pule linhas (duplas) entre os assuntos, use Emojis e *negrito* nos nomes dos produtos.
+                    - NÃO INVENTE PREÇOS, deixe apenas os produtos.
+                    - Mensagem direta e vendedora.
+                    """
+                    with st.spinner("Conectando ao Gemini..."):
+                        try:
+                            st.session_state[chave_sessao_msg] = modelo_ia.generate_content(prompt_cruzada).text
+                        except:
+                            st.error("Erro ao gerar com IA. Tente novamente.")
+                
+                if chave_sessao_msg in st.session_state and st.session_state[chave_sessao_msg]:
+                    st.text_area("Mensagem Formatada:", value=st.session_state[chave_sessao_msg], height=220)
+                    texto_js_cruzada = json.dumps(st.session_state[chave_sessao_msg])
+                    components.html(f"""
+                        <button id="copyBtnCrz" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 15px; cursor: pointer;">📋 Copiar Mensagem para WhatsApp</button>
+                        <script>
+                        document.getElementById('copyBtnCrz').addEventListener('click', function() {{
+                            navigator.clipboard.writeText({texto_js_cruzada});
+                            this.innerText = '✅ Copiado com sucesso!';
+                            setTimeout(() => {{ this.innerText = '📋 Copiar Mensagem para WhatsApp'; }}, 2000);
+                        }});
+                        </script>
+                    """, height=55)
+
             else:
                 st.warning("Cliente não encontrado.")
                 
@@ -948,7 +895,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 st.warning("Nenhum produto encontrado com este nome.")
 
     elif st.session_state.sub_aba_consulta == "🏢 Exclusivos Filial 6":
-        st.subheader("🎯 Clientes Exclusivos da Filial 6 (Oportunidades Filial 2)")
+        st.subheader("🎯 Clientes Exclusivos da Filial 6")
         st.write("Estes clientes compraram somente na Filial 6 este mês. Excelente gancho para oferecer o mix da Filial 2!")
         
         clientes_fl6_mes = df_fl6['Cliente'].unique() if not df_fl6.empty else []
@@ -970,28 +917,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     top_compras_excl = df_c_excl.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
                     for _, r in top_compras_excl.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
-                    
-                    st.markdown("**💡 Sugestões personalizadas:**")
-                    sug_excl = []
-                    nome_l_excl = limpar_texto(c_excl)
-                    fan_l_excl = limpar_texto(info_ex['fantasia'])
-                    
-                    for chave, itens_sug in regras_segmento.items():
-                        if chave in nome_l_excl or chave in fan_l_excl:
-                            sug_excl.extend(itens_sug)
-                    if info_ex["cardapio"]:
-                        sug_excl.extend([i.strip() for i in info_ex["cardapio"].split(",") if i.strip()])
-                        
-                    sug_excl = list(set(sug_excl))[:5]
-                    if sug_excl:
-                        for s in sug_excl: st.markdown(f"▪️ Ofertar: **{s}**")
-                    else:
-                        st.markdown("▪️ Oferecer os campeões gerais de venda da Filial 2.")
 
     elif st.session_state.sub_aba_consulta == "🏆 Parceiros Estratégicos":
         st.subheader("🎯 Oportunidades: Marcas Estratégicas")
-        st.write("Filtre clientes que **já compraram no mês**, mas que **não compraram** determinada marca ou produto.")
-        
         marcas_parceiras = {
             "Marca 1: Lebon, Doriana, Seara, Frangosul": ["lebon", "doriana", "seara", "frangosul"],
             "Marca 2: Frivatti": ["frivatti"],
@@ -1002,12 +930,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         }
         
         col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
-        with col_m1:
-            marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
-        with col_m2:
-            produto_filtro = st.text_input("Filtro Adicional (Cód. ou Produto):", placeholder="Ex: Batata Mccain 9mm...")
-        with col_m3:
-            busca_cliente_op = st.text_input("Localizar Cliente:", placeholder="Código ou Nome...")
+        with col_m1: marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
+        with col_m2: produto_filtro = st.text_input("Filtro Adicional (Cód. ou Produto):", placeholder="Ex: Batata Mccain...")
+        with col_m3: busca_cliente_op = st.text_input("Localizar Cliente:", placeholder="Nome...")
             
         palavras_da_marca = marcas_parceiras[marca_selecionada]
         nome_amigavel_marca = marca_selecionada.split(':')[0]
@@ -1031,108 +956,29 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         with col_btn:
             if not compradores_alvo_df.empty:
                 compradores_alvo_df['Data_Formatada'] = pd.to_datetime(compradores_alvo_df['Dt. Delivery']).dt.strftime('%d/%m/%Y')
-                
                 df_export = compradores_alvo_df[['Data_Formatada', 'Cliente', 'Produto']].copy()
                 df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
-                
                 import io
                 buffer = io.BytesIO()
-                
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_export.to_excel(writer, index=False, sheet_name='Positivados', startrow=3)
-                    worksheet = writer.sheets['Positivados']
-                    worksheet['A1'] = f"Marca Parceira: {nome_amigavel_marca}"
-                    worksheet['A2'] = f"Quantidade de Clientes Positivados: {len(compradores_alvo_df['Cliente'].unique())}"
-                
-                st.download_button(
-                    label="📥 Baixar Excel (Relatório)",
-                    data=buffer.getvalue(),
-                    file_name=f"positivados_{nome_amigavel_marca}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    df_export.to_excel(writer, index=False, sheet_name='Positivados')
+                st.download_button(label="📥 Baixar Excel", data=buffer.getvalue(), file_name=f"positivados.xlsx")
         
         clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
-        
-        clientes_oportunidade = []
-        for c in clientes_oportunidade_brutos:
-            if busca_cliente_op.strip().upper() in c.upper():
-                clientes_oportunidade.append(c)
+        clientes_oportunidade = [c for c in clientes_oportunidade_brutos if busca_cliente_op.strip().upper() in c.upper()]
         
         st.write("---")
         if not clientes_oportunidade:
             st.success(f"Excelente! Todos os clientes positivados este mês já compraram {texto_aviso}.")
         else:
             st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
-            
-            ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
-            
             for c_op in clientes_oportunidade:
-                info_ex = dict_cadastro.get(c_op, {"fantasia": "", "municipio": "", "cardapio": ""})
-                f_txt = f" ({info_ex['fantasia']})" if info_ex['fantasia'] else ""
-                m_txt = f" - 📍 {info_ex['municipio']}" if info_ex['municipio'] else ""
-                
-                with st.expander(f"📍 {c_op}{f_txt}{m_txt}"):
+                with st.expander(f"📍 {c_op}"):
                     df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
                     st.markdown("**O que ele comprou neste mês (Outras Marcas):**")
                     top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
                     for _, r in top_compras_op.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
-                    
-                    df_cli_total = df_total[df_total['Cliente'] == c_op]
-                    mask_cli_marca = df_cli_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
-                    historico_marca_cli = df_cli_total[mask_cli_marca]['Produto'].unique().tolist()
-                    
-                    sugestoes_base = []
-                    
-                    if historico_marca_cli:
-                        sugestoes_base = historico_marca_cli[:3]
-                    else:
-                        sugestoes_segmento = []
-                        nome_limpo_cli = limpar_texto(c_op)
-                        fan_l_excl = limpar_texto(info_ex['fantasia'])
-                        
-                        palavras_segmento_cli = []
-                        for chave, itens_sug in regras_segmento.items():
-                            if chave in nome_limpo_cli or chave in fan_l_excl:
-                                palavras_segmento_cli.extend([limpar_texto(i) for i in itens_sug])
-                        if info_ex["cardapio"]:
-                            palavras_segmento_cli.extend([limpar_texto(i.strip()) for i in info_ex["cardapio"].split(",")])
-                            
-                        if palavras_segmento_cli:
-                            mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
-                            todos_produtos_marca = df_total[mask_total_marca]['Produto'].unique()
-                            
-                            for prod in todos_produtos_marca:
-                                prod_limpo = limpar_texto(prod)
-                                if any(p_seg in prod_limpo for p_seg in palavras_segmento_cli if len(p_seg)>2):
-                                    sugestoes_segmento.append(prod)
-                                    
-                        if sugestoes_segmento:
-                            sugestoes_base = list(set(sugestoes_segmento))[:3]
-                        else:
-                            mask_total_marca = df_total['Produto_Busca'].apply(lambda x: any(p in str(x) for p in palavras_da_marca))
-                            sugestoes_base = df_total[mask_total_marca].groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
-                    
-                    sugestoes_finais = []
-                    for item in sugestoes_base:
-                        achou_oferta = False
-                        chaves_item = extrair_palavras_produto(item)
-                        for of_linha in ofertas_memoria:
-                            if chaves_item and all(c in limpar_texto(of_linha) for c in chaves_item[:2]): 
-                                if any(p in limpar_texto(of_linha) for p in palavras_da_marca):
-                                    sugestoes_finais.append(f"🔥 {of_linha} (EM OFERTA HOJE!)")
-                                    achou_oferta = True
-                                    break
-                                    
-                        if not achou_oferta:
-                            if any(p in limpar_texto(item) for p in palavras_da_marca):
-                                    sugestoes_finais.append(f"▪️ {item}")
-                            
-                    sugestoes_finais = list(dict.fromkeys(sugestoes_finais))
-                    texto_sugestoes = "\n".join(sugestoes_finais) if sugestoes_finais else f"▪️ Linha completa de produtos {nome_amigavel_marca}."
-                    
-                    msg_abordagem = f"Olá! Vi que já fizemos negócio este mês.\n\nNotei que essas opções da {nome_amigavel_marca} costumam sair muito bem para o seu perfil e decidi te avisar:\n{texto_sugestoes}\n\nPodemos incluir no seu próximo pedido?"
-                    st.text_area("Sugestão de Script Personalizada:", value=msg_abordagem, height=180, key=f"txt_op_{c_op}_{nome_amigavel_marca}")
 
 # ==============================================================================
 # --- ABA 4: COTAÇÃO ---
@@ -1141,49 +987,38 @@ elif st.session_state.aba_atual == "💲 Cotação":
     st.subheader("💲 Sistema Ágil de Cotação")
     st.markdown("Cole sua lista de produtos solicitados pelo cliente. O sistema vai cruzar com as ofertas ativas hoje.")
     
-    texto_cotacao = st.text_area("📋 Cole a lista de produtos (um por linha):", height=200, placeholder="Ex:\nArroz\nFeijão\nÓleo...")
+    texto_cotacao = st.text_area("📋 Cole a lista de produtos (um por linha):", height=200)
     
     if st.button("🔍 Cruzar com Ofertas da Memória", type="primary"):
         if texto_cotacao.strip():
             ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
-            
             if not ofertas_memoria:
-                st.warning("⚠️ Você precisa colar as ofertas do dia na aba 'Ofertas' antes de realizar cotações cruzadas.")
+                st.warning("⚠️ Cole as ofertas do dia na aba 'Ofertas' antes de realizar cotações cruzadas.")
             else:
                 linhas_cot = [l.strip() for l in texto_cotacao.split('\n') if l.strip()]
                 resultado_final = []
-                
                 for linha_cot in linhas_cot:
                     chaves_cot = extrair_palavras_produto(linha_cot)
                     match_encontrado = False
-                    
                     if chaves_cot:
                         for of in ofertas_memoria:
-                            if len(chaves_cot) >= 2:
-                                if all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
-                                    resultado_final.append(of)
-                                    match_encontrado = True
-                                    break
-                            else:
-                                if limpar_texto(chaves_cot[0]) in limpar_texto(of):
-                                    resultado_final.append(of)
-                                    match_encontrado = True
-                                    break
-                                
-                    if not match_encontrado:
-                        resultado_final.append(linha_cot) 
-                        
-                texto_resultado = "\n".join(resultado_final)
-                st.session_state.resultado_cotacao = texto_resultado
+                            if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
+                                resultado_final.append(of)
+                                match_encontrado = True; break
+                            elif len(chaves_cot) < 2 and limpar_texto(chaves_cot[0]) in limpar_texto(of):
+                                resultado_final.append(of)
+                                match_encontrado = True; break
+                    if not match_encontrado: resultado_final.append(linha_cot) 
+                st.session_state.resultado_cotacao = "\n".join(resultado_final)
                 st.success("✅ Cotação cruzada com sucesso!")
         else:
-            st.warning("Cole alguma lista de produtos para cruzar.")
+            st.warning("Cole alguma lista.")
             
     if "resultado_cotacao" in st.session_state and st.session_state.resultado_cotacao:
-        st.text_area("🎯 Lista Pronta para Retorno:", value=st.session_state.resultado_cotacao, height=300, key="txt_cotacao_final")
+        st.text_area("🎯 Lista Pronta para Retorno:", value=st.session_state.resultado_cotacao, height=300)
         
         texto_js_safe_cot = json.dumps(st.session_state.resultado_cotacao)
-        html_btn_cot = f"""
+        components.html(f"""
         <button id="copyBtnCot" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar para WhatsApp</button>
         <script>
         document.getElementById('copyBtnCot').addEventListener('click', function() {{
@@ -1192,5 +1027,64 @@ elif st.session_state.aba_atual == "💲 Cotação":
             setTimeout(() => {{ this.innerText = '📋 Copiar para WhatsApp'; }}, 2000);
         }});
         </script>
-        """
-        components.html(html_btn_cot, height=55)
+        """, height=55)
+
+# ==============================================================================
+# --- ABA 5: CARDÁPIOS (NOVO RECURSO) ---
+# ==============================================================================
+elif st.session_state.aba_atual == "🍔 Cardápios":
+    st.subheader("📝 Cadastro Inteligente de Cardápios")
+    st.write("Insira os produtos do cardápio do cliente. O sistema salvará no Neon e cruzará com todas as recomendações da sua carteira.")
+
+    # Selectbox já permite digitar o nome para filtrar nativamente no Streamlit
+    clientes_lista = sorted([c for c in df_total['Cliente'].dropna().unique() if str(c).strip()])
+    cliente_selecionado = st.selectbox("🔍 Selecione o Cliente (digite para buscar):", ["-- Selecione --"] + clientes_lista)
+
+    if cliente_selecionado != "-- Selecione --":
+        texto_cardapio = st.text_area("📋 Cole os produtos do cardápio (um por linha):", height=150)
+        
+        if 'alerta_cardapio' not in st.session_state:
+            st.session_state.alerta_cardapio = False
+        
+        if st.button("💾 Analisar e Salvar", type="primary"):
+            if texto_cardapio.strip():
+                linhas = [l.strip() for l in texto_cardapio.split('\n') if l.strip()]
+                novos_produtos = []
+                for linha in linhas:
+                    limpo = limpar_texto(linha)
+                    if limpo and limpo not in novos_produtos:
+                        novos_produtos.append(limpo)
+                
+                st.session_state.temp_novos_produtos = novos_produtos
+                
+                if cliente_selecionado in dict_cardapios_neon:
+                    st.session_state.alerta_cardapio = True
+                    st.rerun()
+                else:
+                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    salvar_cardapio_neon(cliente_selecionado, novos_produtos, info_cli.get("fantasia", ""))
+                    st.success("✅ Cardápio salvo com sucesso!")
+                    st.session_state.alerta_cardapio = False
+                    st.rerun()
+            else:
+                st.warning("⚠️ O campo de produtos está vazio.")
+                    
+        if st.session_state.get('alerta_cardapio', False):
+            st.warning(f"⚠️ O cliente **{cliente_selecionado}** já possui um cardápio cadastrado!")
+            st.write("**Produtos já existentes:**", ", ".join(dict_cardapios_neon[cliente_selecionado]))
+            
+            col_up, col_ig = st.columns(2)
+            with col_up:
+                if st.button("🔄 Atualizar Cardápio (Adicionar Novos)"):
+                    produtos_antigos = dict_cardapios_neon[cliente_selecionado]
+                    produtos_combinados = list(set(produtos_antigos + st.session_state.temp_novos_produtos))
+                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    salvar_cardapio_neon(cliente_selecionado, produtos_combinados, info_cli.get("fantasia", ""))
+                    st.success("✅ Cardápio atualizado com novos itens!")
+                    st.session_state.alerta_cardapio = False
+                    st.rerun()
+            with col_ig:
+                if st.button("❌ Ignorar (Cancelar)"):
+                    st.session_state.alerta_cardapio = False
+                    st.info("Ação cancelada.")
+                    st.rerun()
