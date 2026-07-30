@@ -128,7 +128,7 @@ def criar_tabelas_neon():
                 # Tabela de IA - Produtos para Segmentos
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
-                        produto VARCHAR(255) PRIMARY KEY,
+                        codigo_produto TEXT, produto VARCHAR(255) PRIMARY KEY,
                         segmentos TEXT
                     );
                 """))
