@@ -8,6 +8,7 @@ import re
 import random
 import json
 import datetime
+import collections
 import streamlit.components.v1 as components
 import google.generativeai as genai
 from sqlalchemy import create_engine, text
@@ -26,9 +27,17 @@ def filtrar_por_palavras(df, coluna_busca, termo_usuario):
     if not palavras: return df
     return df[df[coluna_busca].apply(lambda x: all(p in str(x) for p in palavras))]
 
+def extrair_codigo_nome(linha):
+    """Extrai código numérico inicial e o nome do produto da linha colada."""
+    match = re.match(r'^(\d+)\s*[-|–]?\s*(.*)', str(linha).strip())
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return "", str(linha).strip()
+
 def extrair_palavras_produto(linha):
-    linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(linha))
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pç', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
+    _, nome_produto = extrair_codigo_nome(linha)
+    linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(nome_produto))
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pc', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
@@ -108,7 +117,7 @@ def carregar_dados_nuvem(data_atual):
         return {"df": unificado, "cadastro": cadastro_clientes}
     return {"df": pd.DataFrame(), "cadastro": {}}
 
-# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (ARQUITETURA INTELIGENTE) ---
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
     try:
         url = st.secrets["connections"]["neon_db"]["url"]
@@ -116,7 +125,7 @@ def obter_conexao_neon():
             url = url.replace("postgres://", "postgresql://", 1)
         return create_engine(url)
     except Exception as e:
-        st.error(f"⚠️ Erro ao tentar ler a chave do banco de dados nos Secrets: {e}")
+        st.error(f"⚠️ Erro ao conectar ao Neon DB. Verifique os Secrets.")
         return None
 
 def criar_tabelas_neon():
@@ -124,20 +133,26 @@ def criar_tabelas_neon():
     if engine:
         try:
             with engine.begin() as conn:
-                conn.execute(text("DROP TABLE IF EXISTS segmentos_regras;"))
-                # Tabela de IA - Produtos para Segmentos
+                # Modificado para incluir o cod_produto na frente
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
+                        cod_produto VARCHAR(50),
                         produto VARCHAR(255) PRIMARY KEY,
                         segmentos TEXT
                     );
                 """))
-                # NOVA TABELA: Cardápios dos Clientes (Econômica: 1 linha por cliente guardando um Array)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS cardapios_clientes (
                         cliente VARCHAR(255) PRIMARY KEY,
                         fantasia VARCHAR(255),
                         produtos TEXT
+                    );
+                """))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS metas_mensais (
+                        mes VARCHAR(10) PRIMARY KEY,
+                        pos_geral INT, pos_fl2 INT, pos_fl6 INT,
+                        fat_geral NUMERIC, fat_fl2 NUMERIC, fat_fl6 NUMERIC
                     );
                 """))
         except Exception as e: pass
@@ -171,41 +186,61 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
     if engine:
         try:
             with engine.begin() as conn:
+                # Adicionado fantasia no EXCLUDED para garantir a atualização
                 conn.execute(text("""
                     INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
                     VALUES (:c, :f, :p)
-                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos;
+                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos, fantasia = EXCLUDED.fantasia;
                 """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
         except: pass
 
-def classificar_novos_produtos_ia(df):
-    if df.empty: return
-    todos_produtos = df['Produto'].unique()
-    produtos_sem_segmento = [p for p in todos_produtos if p not in dict_produtos_segmentos]
-    if not produtos_sem_segmento: return
+def extrair_segmentos_reais_base(dict_cad):
+    """Extrai palavras-chave dos nomes fantasia para orientar a IA."""
+    palavras = []
+    ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado']
+    for info in dict_cad.values():
+        fantasia = limpar_texto(info.get('fantasia', ''))
+        for p in fantasia.split():
+            if len(p) > 3 and p not in ignorar: palavras.append(p)
+    contagem = collections.Counter(palavras)
+    # Retorna os 30 termos mais comuns + termos fixos garantidos
+    top_termos = [p[0].capitalize() for p in contagem.most_common(30)]
+    return list(set(top_termos + ["Pizzaria", "Hamburgueria", "Sushi", "Padaria", "Pub", "Churrascaria", "Cafeteria"]))
+
+def classificar_produtos_lote_ia(lista_produtos, dict_cad):
+    """Classifica produtos em lote baseando-se nos nomes fantasia reais da base."""
+    if not lista_produtos: return
     
-    top_novos = df[df['Produto'].isin(produtos_sem_segmento)].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
-    if top_novos:
-        prompt = f"""Analise estes produtos de food service. 
-        Retorne APENAS um objeto JSON válido. As chaves devem ser o nome exato do produto fornecido. 
-        Os valores devem ser uma lista de strings com 2 a 4 tipos de estabelecimentos comerciais (segmentos) que compram isso. 
-        Exemplo: "Hamburgueria", "Sushi", "Padaria", "Restaurante", "Pizzaria".
-        Produtos: {json.dumps(top_novos)}"""
-        try:
-            resp = modelo_ia.generate_content(prompt)
-            match = re.search(r'\{.*\}', resp.text, re.DOTALL)
-            if match:
-                dados_json = json.loads(match.group(0))
-                engine = obter_conexao_neon()
-                if engine:
-                    with engine.begin() as conn:
-                        for prod, segs in dados_json.items():
-                            conn.execute(text("""
-                                INSERT INTO produtos_segmentos (produto, segmentos) VALUES (:p, :s)
-                                ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos;
-                            """), {"p": prod, "s": json.dumps(segs)})
-                            dict_produtos_segmentos[prod] = segs
-        except Exception: pass
+    segmentos_reais = extrair_segmentos_reais_base(dict_cad)
+    
+    prompt = f"""Atue como um analista de Food Service.
+    Vou te passar uma lista de produtos. Você deve me retornar APENAS um objeto JSON válido.
+    As chaves devem ser o nome exato do produto fornecido.
+    Os valores devem ser uma lista com 2 a 4 tipos de estabelecimentos (segmentos) que compram isso.
+    
+    IMPORTANTE: Tente priorizar e usar segmentos que existam nesta lista extraída da nossa base de clientes:
+    {', '.join(segmentos_reais)}
+    
+    Produtos para classificar: {json.dumps(lista_produtos)}"""
+    
+    try:
+        resp = modelo_ia.generate_content(prompt)
+        match = re.search(r'\{.*\}', resp.text, re.DOTALL)
+        if match:
+            dados_json = json.loads(match.group(0))
+            engine = obter_conexao_neon()
+            if engine:
+                with engine.begin() as conn:
+                    for linha_original, segs in dados_json.items():
+                        cod, nome = extrair_codigo_nome(linha_original)
+                        conn.execute(text("""
+                            INSERT INTO produtos_segmentos (cod_produto, produto, segmentos) VALUES (:c, :p, :s)
+                            ON CONFLICT (produto) DO UPDATE SET segmentos = EXCLUDED.segmentos, cod_produto = EXCLUDED.cod_produto;
+                        """), {"c": cod, "p": nome if nome else linha_original, "s": json.dumps(segs)})
+                        # Atualiza a memória local para usar imediatamente
+                        dict_produtos_segmentos[nome if nome else linha_original] = segs
+    except Exception as e:
+        pass
 
 with st.spinner("Sincronizando base de dados e IA..."):
     dados_carregados = carregar_dados_nuvem(date.today())
@@ -216,14 +251,12 @@ with st.spinner("Sincronizando base de dados e IA..."):
     dict_produtos_segmentos = carregar_produtos_segmentos()
     dict_cardapios_neon = carregar_cardapios_neon()
     
-    # Injetar os cardápios do Neon na memória principal para o restante do código usar
+    # Injetar os cardápios do Neon na memória principal
     for cli_neon, prods_neon in dict_cardapios_neon.items():
         if cli_neon in dict_cadastro:
             dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
         else:
             dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
-            
-    classificar_novos_produtos_ia(df_total)
 
 if df_total.empty:
     st.warning("Base de dados vazia.")
@@ -249,7 +282,6 @@ st.markdown("""
 
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
-mes_atual_referencia = data_atual_sistema.strftime('%Y-%m-%d')[:7]
 
 def carregar_metas_neon(mes_atual):
     engine = obter_conexao_neon()
@@ -320,7 +352,7 @@ else:
     st.session_state.memoria_ofertas_cruas_dia, st.session_state.memoria_ofertas_cruas_rel = [], []
     st.session_state.excluidos_ofertas_dia, st.session_state.excluidos_ofertas_relampago = set(), set()
 
-if mes_ultimo_acesso == mes_atual_referencia:
+if mes_ultimo_acesso == mes_atual_referencia[:7]:
     if 'enviados_supervisor_mes' not in st.session_state: st.session_state.enviados_supervisor_mes = set(progresso_backup.get("enviados_supervisor_mes", []))
 else:
     st.session_state.enviados_supervisor_mes = set()
@@ -333,14 +365,14 @@ if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofert
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
 
 if 'metas_config' not in st.session_state:
-    db_metas = carregar_metas_neon(mes_atual_referencia)
+    db_metas = carregar_metas_neon(mes_atual_referencia[:7])
     if db_metas.get("pos_geral", 0) == 0:
         local_metas = progresso_backup.get("metas_config", {})
-        st.session_state.metas_config = local_metas if (local_metas and local_metas.get("mes") == mes_atual_referencia) else db_metas
+        st.session_state.metas_config = local_metas if (local_metas and local_metas.get("mes") == mes_atual_referencia[:7]) else db_metas
     else: st.session_state.metas_config = db_metas
 
-if st.session_state.metas_config.get("mes") != mes_atual_referencia:
-    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia)
+if st.session_state.metas_config.get("mes") != mes_atual_referencia[:7]:
+    st.session_state.metas_config = carregar_metas_neon(mes_atual_referencia[:7])
     salvar_progresso_atual()
 
 if not progresso_backup or ultimo_acesso != data_hoje_str: salvar_progresso_atual()
@@ -514,6 +546,19 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                 linhas = [l.strip() for l in txt_novas.split('\n') if l.strip()]
                 st.session_state[id_memoria] = linhas
                 
+                # --- NOVA LÓGICA DE CLASSIFICAÇÃO EM LOTE ---
+                produtos_desconhecidos = []
+                for linha in linhas:
+                    cod, nome = extrair_codigo_nome(linha)
+                    chave_busca = nome if nome else linha
+                    if chave_busca not in dict_produtos_segmentos:
+                        produtos_desconhecidos.append(linha)
+                
+                if produtos_desconhecidos:
+                    with st.spinner(f"🧠 IA aprendendo e classificando {len(produtos_desconhecidos)} novos produtos..."):
+                        classificar_produtos_lote_ia(produtos_desconhecidos, dict_cadastro)
+                # ---------------------------------------------
+                
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
                 prod_busca = {p: limpar_texto(p) for p in prod_to_clientes.keys()}
                 nova_fila = {}
@@ -532,8 +577,12 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     
                     interessados_seg = set()
                     segs_oferta = []
-                    for prod_db, segs in dict_produtos_segmentos.items():
-                        if all(c in limpar_texto(prod_db) for c in chaves): segs_oferta.extend(segs)
+                    
+                    _, nome_prod_linha = extrair_codigo_nome(linha)
+                    chave_dic = nome_prod_linha if nome_prod_linha else linha
+                    if chave_dic in dict_produtos_segmentos:
+                        segs_oferta.extend(dict_produtos_segmentos[chave_dic])
+                        
                     segs_oferta_limpos = [limpar_texto(s) for s in set(segs_oferta)]
 
                     for cli_cad, info_cad in dict_cadastro.items():
@@ -1030,13 +1079,12 @@ elif st.session_state.aba_atual == "💲 Cotação":
         """, height=55)
 
 # ==============================================================================
-# --- ABA 5: CARDÁPIOS (NOVO RECURSO) ---
+# --- ABA 5: CARDÁPIOS ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🍔 Cardápios":
     st.subheader("📝 Cadastro Inteligente de Cardápios")
     st.write("Insira os produtos do cardápio do cliente. O sistema salvará no Neon e cruzará com todas as recomendações da sua carteira.")
 
-    # Selectbox já permite digitar o nome para filtrar nativamente no Streamlit
     clientes_lista = sorted([c for c in df_total['Cliente'].dropna().unique() if str(c).strip()])
     cliente_selecionado = st.selectbox("🔍 Selecione o Cliente (digite para buscar):", ["-- Selecione --"] + clientes_lista)
 
@@ -1063,7 +1111,7 @@ elif st.session_state.aba_atual == "🍔 Cardápios":
                 else:
                     info_cli = dict_cadastro.get(cliente_selecionado, {})
                     salvar_cardapio_neon(cliente_selecionado, novos_produtos, info_cli.get("fantasia", ""))
-                    st.success("✅ Cardápio salvo com sucesso!")
+                    st.success("✅ Cardápio salvo com sucesso no banco de dados!")
                     st.session_state.alerta_cardapio = False
                     st.rerun()
             else:
@@ -1080,7 +1128,7 @@ elif st.session_state.aba_atual == "🍔 Cardápios":
                     produtos_combinados = list(set(produtos_antigos + st.session_state.temp_novos_produtos))
                     info_cli = dict_cadastro.get(cliente_selecionado, {})
                     salvar_cardapio_neon(cliente_selecionado, produtos_combinados, info_cli.get("fantasia", ""))
-                    st.success("✅ Cardápio atualizado com novos itens!")
+                    st.success("✅ Cardápio atualizado com novos itens e Fantasia sincronizada!")
                     st.session_state.alerta_cardapio = False
                     st.rerun()
             with col_ig:
