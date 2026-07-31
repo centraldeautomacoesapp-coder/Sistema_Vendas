@@ -15,14 +15,15 @@ from sqlalchemy import create_engine, text
 from datetime import date
 
 # ==========================================
+# 0. CONFIGURAÇÃO DA PÁGINA (Deve ser o 1º comando)
+# ==========================================
+st.set_page_config(page_title="Delly's Inteligência", layout="centered")
+
+# ==========================================
 # 1. CONFIGURAÇÕES E CHAVES FIXAS
 # ==========================================
-
-# Correção: Puxe os valores corretamente do st.secrets
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 NEON_DB_URL = st.secrets["NEON_DB_URL"]
-
-# Se estiver usando os links do Drive também:
 DRIVE_VENDAS = st.secrets["DRIVE_VENDAS"]
 DRIVE_CADASTRO = st.secrets["DRIVE_CADASTRO"]
 
@@ -55,7 +56,6 @@ def extrair_palavras_produto(linha):
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=GEMINI_API_KEY)
-    # Força a IA a retornar SEMPRE um JSON válido, evitando erros nas telas
     modelo_ia = genai.GenerativeModel(
         model_name='gemini-1.5-flash',
         generation_config={"response_mime_type": "application/json"}
@@ -76,49 +76,70 @@ def carregar_dados_nuvem(data_atual):
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
-    lista_dfs = []
+    
+    cod_to_full = {}
     cadastro_clientes = {}
     
+    # PASSO 1: Identificar a planilha que possui a coluna unificada (Cód - Nome (Fantasia) [Cidade])
+    for arquivo in arquivos_excel:
+        try:
+            df = pd.read_excel(arquivo)
+            for col in df.columns:
+                s_col = df[col].astype(str)
+                # Verifica se existem valores compatíveis com o novo padrão unificado
+                mask = s_col.str.contains(r'^\d+\s*[-|–]?\s*.*\s*\[.*\]', regex=True, na=False)
+                if mask.any():
+                    for val in s_col[mask]:
+                        val_str = str(val).strip().upper()
+                        m_cod = re.match(r'^(\d+)', val_str)
+                        if m_cod:
+                            cod = m_cod.group(1)
+                            cod_to_full[cod] = val_str # Mapeia Cód -> String Completa
+                            
+                            m_fan = re.search(r'\((.*?)\)', val_str)
+                            m_mun = re.search(r'\[(.*?)\]', val_str)
+                            if val_str not in cadastro_clientes:
+                                cadastro_clientes[val_str] = {
+                                    "fantasia": m_fan.group(1).strip() if m_fan else "",
+                                    "municipio": m_mun.group(1).strip() if m_mun else "",
+                                    "cardapio": ""
+                                }
+        except: pass
+        
+    # PASSO 2: Carregar faturamento e cruzar Cód para unificar o nome em todas as telas
+    lista_dfs = []
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
             df.columns = df.columns.str.strip().str.lower()
             
-            # Mapeamento estrito para as planilhas de cadastro (Fantasia e Município)
-            c_cli_cad = next((c for c in df.columns if "nome cliente" in c or "cliente" in c), None)
-            c_fan = next((c for c in df.columns if "fantasia" in c), None)
-            c_mun = next((c for c in df.columns if "município" in c or "municipio" in c or "cidade" in c), None)
-            
-            if c_cli_cad and (c_fan or c_mun):
-                for _, row in df.iterrows():
-                    cli_nome = str(row[c_cli_cad]).strip().upper() # Padronizado em Maiúsculo
-                    if pd.isna(row[c_cli_cad]) or cli_nome == 'NAN' or not cli_nome: continue
-                    
-                    if cli_nome not in cadastro_clientes:
-                        cadastro_clientes[cli_nome] = {"fantasia": "", "municipio": "", "cardapio": ""}
-                    
-                    if c_fan and pd.notna(row[c_fan]): 
-                        cadastro_clientes[cli_nome]["fantasia"] = str(row[c_fan]).strip().upper()
-                    if c_mun and pd.notna(row[c_mun]): 
-                        cadastro_clientes[cli_nome]["municipio"] = str(row[c_mun]).strip().upper()
-
-            # Mapeamento para faturamento / histórico de vendas
             c_dt = next((c for c in df.columns if "dt" in c and "entrega" in c), None)
+            c_cli_cad = next((c for c in df.columns if "cliente" in c or "nome" in c), None)
             c_prod = next((c for c in df.columns if "produto" in c), None)
             c_fat = next((c for c in df.columns if "faturamento" in c and "brut" in c), None)
             c_fil = next((c for c in df.columns if "filial" in c or "empresa" in c), None)
             
             if c_dt and c_cli_cad and c_prod and c_fat:
                 sel = [c_dt, c_cli_cad, c_prod, c_fat]
-                heads = ['Dt. Delivery', 'Cliente', 'Produto', 'Faturamento Brut']
+                heads = ['Dt. Delivery', 'Cliente_Orig', 'Produto', 'Faturamento Brut']
                 if c_fil:
                     sel.append(c_fil)
                     heads.append('Filial')
                 sub = df[sel].copy()
                 sub.columns = heads
                 
-                # Garante que o Cliente de Vendas seja Maiúsculo para cruzar com o Cadastro
-                sub['Cliente'] = sub['Cliente'].astype(str).str.strip().str.upper()
+                # Substituição inteligente: Lê o cód da venda e injeta o texto completo unificado
+                def resolve_client(orig):
+                    orig_str = str(orig).strip().upper()
+                    m_cod = re.match(r'^(\d+)', orig_str)
+                    if m_cod:
+                        cod = m_cod.group(1)
+                        if cod in cod_to_full:
+                            return cod_to_full[cod]
+                    return orig_str
+
+                sub['Cliente'] = sub['Cliente_Orig'].apply(resolve_client)
+                sub.drop(columns=['Cliente_Orig'], inplace=True)
                 
                 if sub['Faturamento Brut'].dtype == 'object':
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
@@ -130,6 +151,18 @@ def carregar_dados_nuvem(data_atual):
     if lista_dfs:
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'] != 'NAN']
+        
+        # Garante que todo cliente nas vendas tenha registro na memória
+        for cli in unificado['Cliente'].unique():
+            if cli not in cadastro_clientes:
+                m_fan = re.search(r'\((.*?)\)', str(cli))
+                m_mun = re.search(r'\[(.*?)\]', str(cli))
+                cadastro_clientes[cli] = {
+                    "fantasia": m_fan.group(1).strip() if m_fan else "",
+                    "municipio": m_mun.group(1).strip() if m_mun else "",
+                    "cardapio": ""
+                }
+
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
         unificado['Produto_Busca'] = unificado['Produto'].apply(limpar_texto)
@@ -140,10 +173,8 @@ def carregar_dados_nuvem(data_atual):
 
 # --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
-    """Conexão otimizada com AUTOCOMMIT para evitar travamentos nos INSERTS."""
     try:
         url = NEON_DB_URL.replace("postgres://", "postgresql://", 1)
-        # pool_pre_ping e autocommit são a melhor ideia para o Streamlit + Neon
         return create_engine(url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
     except Exception as e:
         st.error(f"⚠️ Erro ao conectar ao Neon DB: {e}")
@@ -206,7 +237,6 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
     if engine:
         try:
             with engine.connect() as conn:
-                # O Upsert agora funcionará perfeitamente e salvará a Fantasia
                 conn.execute(text("""
                     INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
                     VALUES (:c, :f, :p)
@@ -227,9 +257,7 @@ def extrair_segmentos_reais_base(dict_cad):
 
 def classificar_produtos_lote_ia(lista_produtos, dict_cad):
     if not lista_produtos: return
-    
     segmentos_reais = extrair_segmentos_reais_base(dict_cad)
-    
     prompt = f"""Atue como um analista de Food Service.
     Vou te passar uma lista de produtos. Retorne um JSON válido.
     As chaves devem ser o nome exato do produto fornecido.
@@ -241,7 +269,6 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
     Produtos para classificar: {json.dumps(lista_produtos)}"""
     
     try:
-        # A API já está configurada para retornar apenas JSON, então não precisamos limpar Markdown
         resp = modelo_ia.generate_content(prompt)
         dados_json = json.loads(resp.text)
         
@@ -259,6 +286,7 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
     except Exception as e:
         st.error(f"⚠️ Erro de comunicação com o banco Neon ou com a IA: {e}")
 
+# --- SINCRONIZAÇÃO INICIAL ---
 with st.spinner("Sincronizando base de dados e IA..."):
     dados_carregados = carregar_dados_nuvem(date.today())
     df_total = dados_carregados["df"]
@@ -281,7 +309,7 @@ if df_total.empty:
 mes_atual_referencia = date.today().strftime('%Y-%m') 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
-st.set_page_config(page_title="Delly's Inteligência", layout="centered")
+# --- ESTILIZAÇÃO E MENU LATERAL ---
 st.markdown("""
     <style>
     html, body, [class*="css"], p, span { font-size: 16px !important; }
@@ -295,8 +323,30 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# INICIALIZAÇÕES DE ESTADO
+if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
+if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
+
+# ==============================================================================
+# BARRAL LATERAL (SIDEBAR) - NAVEGAÇÃO
+# ==============================================================================
 with st.sidebar:
+    st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+    st.markdown("### 🧭 Menu de Navegação")
+    
+    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
+    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): st.session_state.aba_atual = "💲 Cotação"; st.rerun()
+    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): st.session_state.aba_atual = "🍔 Cardápios"; st.rerun()
+
     st.write("---")
+    
+    if st.button("🔄 Sincronizar / Zerar IA"):
+        st.cache_data.clear()
+        st.toast("Sincronizando...", icon="🔄")
+        st.rerun() 
+        
     with st.expander("⚙️ Manutenção do Sistema (Neon)"):
         st.write("Se os segmentos estiverem estáticos ou errados, limpe a memória.")
         if st.button("🧹 Limpar Banco de Segmentos"):
@@ -309,6 +359,9 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Erro ao limpar: {e}")
 
+# ==============================================================================
+# CARREGAMENTO DE METAS E PROGRESSO
+# ==============================================================================
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 
@@ -389,7 +442,6 @@ if 'excluidos_permanente' not in st.session_state: st.session_state.excluidos_pe
 for key in ['busca_direta_cliente', 'texto_supervisor_gerado', 'cliente_ia_atual', 'msg_ia_atual']:
     if key not in st.session_state: st.session_state[key] = ""
 if 'sub_aba_consulta' not in st.session_state: st.session_state.sub_aba_consulta = "👤 Por Cliente"
-if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 if 'clientes_processados_aguardando' not in st.session_state: st.session_state.clientes_processados_aguardando = []
 
 if 'metas_config' not in st.session_state:
@@ -436,19 +488,14 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
     REGRAS: Retorne a mensagem em texto puro formatado para WhatsApp (com pular linhas e emojis). NÃO retorne em formato JSON para esta tarefa. Termine chamando pra ação. Sem 'Assinado'."""
     
     try: 
-        # Aqui usamos o config padrao para retornar texto puro no WhatsApp
         modelo_txt = genai.GenerativeModel('gemini-1.5-flash')
         return modelo_txt.generate_content(prompt).text.strip()
     except: 
         return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
 
-st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", width='stretch')
-
-if st.button("🔄 Sincronizar Sistema"):
-    st.cache_data.clear()
-    st.toast("Sincronizando...", icon="🔄")
-    st.rerun() 
-
+# ==============================================================================
+# PAINEL DE METAS
+# ==============================================================================
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
 
@@ -506,19 +553,6 @@ exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
 
 st.write("---")
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
-with col2:
-    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-with col3:
-    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-with col4:
-    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): st.session_state.aba_atual = "💲 Cotação"; st.rerun()
-with col5:
-    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): st.session_state.aba_atual = "🍔 Cardápios"; st.rerun()
-
-st.write("---")
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
@@ -568,8 +602,14 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    cidades_disponiveis = sorted([m for m in {info.get("municipio") for info in dict_cadastro.values()} if m and str(m).strip() != 'nan'])
-    cidades_selecionadas = st.multiselect("📍 Filtrar clientes por Município(s) de entrega hoje:", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
+    # Prepara filtro de cidades - Busca apenas dentro dos colchetes unificados []
+    cidades_disponiveis = set()
+    for cli in dict_cadastro.keys():
+        m = re.search(r'\[(.*?)\]', str(cli))
+        if m: cidades_disponiveis.add(m.group(1).strip().upper())
+    cidades_disponiveis = sorted(list(cidades_disponiveis))
+
+    cidades_selecionadas = st.multiselect("📍 Filtrar lista de disparo por Município(s):", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
 
     with st.expander("📝 Inserir Bloco de Ofertas"):
         txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
@@ -617,10 +657,9 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     segs_oferta_limpos = [limpar_texto(s) for s in set(segs_oferta)]
 
                     for cli_cad, info_cad in dict_cadastro.items():
-                        fantasia_texto = limpar_texto(info_cad.get("fantasia", ""))
-                        nome_cli_limpo = limpar_texto(cli_cad)
-                        
-                        if any(s in nome_cli_limpo or s in fantasia_texto for s in segs_oferta_limpos if len(s)>2):
+                        # O nome do cliente já engloba fantasia e municipio!
+                        nome_cli_limpo = limpar_texto(cli_cad) 
+                        if any(s in nome_cli_limpo for s in segs_oferta_limpos if len(s)>2):
                             interessados_seg.add(cli_cad)
                                         
                         cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
@@ -653,8 +692,18 @@ if st.session_state.aba_atual == "🟢 Ofertas":
         st.info("Nenhum cliente na fila de transmissão pendente.")
     else:
         clientes_restantes = list(fila_ativa.keys())
+        
+        # Filtro de Município após gerar a lista:
         if cidades_selecionadas:
-            clientes_restantes = [c for c in clientes_restantes if dict_cadastro.get(c, {}).get("municipio") in cidades_selecionadas]
+            cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas]
+            filtrados = []
+            for c in clientes_restantes:
+                m_mun = re.search(r'\[(.*?)\]', str(c))
+                if m_mun:
+                    cidade_cli_limpa = limpar_texto(m_mun.group(1))
+                    if any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas):
+                        filtrados.append(c)
+            clientes_restantes = filtrados
         
         if not clientes_restantes:
             st.info("Nenhum cliente pendente na fila para os municípios selecionados.")
@@ -673,11 +722,8 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
-            info_cad_atual = dict_cadastro.get(cliente_atual, {"fantasia": "", "municipio": ""})
-            fantasia_str = f" ({info_cad_atual['fantasia']})" if info_cad_atual['fantasia'] else ""
-            municipio_str = f" - 📍 {info_cad_atual['municipio']}" if info_cad_atual['municipio'] else ""
-            
-            st.markdown(f"**🏢 {cliente_atual}{fantasia_str}{municipio_str}**")
+            # Cliente já está com string unificada: Cód - Nome (Fantasia) [Cidade]
+            st.markdown(f"**🏢 {cliente_atual}**")
             st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
             st.write("")
             
@@ -779,7 +825,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 st.markdown(html_badges, unsafe_allow_html=True)
                 
-                if st.button(f"🔍 Histórico de {c_nome[:12]}...", key=f"btn_h_{idx}"):
+                if st.button(f"🔍 Histórico...", key=f"btn_h_{idx}"):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
                     st.session_state.aba_atual = "🔍 Consulta"  
@@ -898,13 +944,12 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
                 nome_limpo_cli = limpar_texto(c_sel)
-                fantasia_limpa = limpar_texto(info_c_extra["fantasia"])
                 
                 segmentos_do_cliente = set()
                 for prod, segs in dict_produtos_segmentos.items():
                     for s in segs:
                         s_limpo = limpar_texto(s)
-                        if len(s_limpo) > 2 and (s_limpo in nome_limpo_cli or s_limpo in fantasia_limpa):
+                        if len(s_limpo) > 2 and s_limpo in nome_limpo_cli:
                             segmentos_do_cliente.add(s)
                             
                 produtos_ja_comprados = set(df_cli['Produto'].unique())
@@ -939,7 +984,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     """
                     with st.spinner("Conectando ao Gemini..."):
                         try:
-                            # Usa um modelo de texto livre para WhatsApp, sem obrigação de JSON
                             modelo_msg = genai.GenerativeModel('gemini-1.5-flash')
                             st.session_state[chave_sessao_msg] = modelo_msg.generate_content(prompt_cruzada).text
                         except Exception as e:
@@ -989,11 +1033,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         else:
             st.write(f"Identificados **{len(exclusivos_fl6)}** clientes nesta condição:")
             for c_excl in exclusivos_fl6:
-                info_ex = dict_cadastro.get(c_excl, {"fantasia": "", "municipio": "", "cardapio": ""})
-                f_txt = f" ({info_ex['fantasia']})" if info_ex['fantasia'] else ""
-                m_txt = f" - 📍 {info_ex['municipio']}" if info_ex['municipio'] else ""
-                
-                with st.expander(f"🏢 {c_excl}{f_txt}{m_txt}"):
+                with st.expander(f"🏢 {c_excl}"):
                     df_c_excl = df_total[df_total['Cliente'] == c_excl]
                     st.markdown("**Top itens comprados na FL6:**")
                     top_compras_excl = df_c_excl.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
