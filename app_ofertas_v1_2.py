@@ -503,13 +503,11 @@ real_fat_geral = real_fat_fl2 + real_fat_fl6
 
 # --- FUNÇÃO ATUALIZADA CONFORME DESENHO DO CABEÇALHO ---
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
-    # Colunas lado a lado
     col1, col2, col3 = st.columns([1, 1, 1])
     col1.write(f"**{label}**")
     col2.write(f"Meta: {f'R$ {meta:,.0f}' if eh_faturamento else meta}")
     col3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
     
-    # Barra logo abaixo
     perc = (realizado / meta * 100) if meta > 0 else 0
     cor = "#00875A" if perc >= 100 else "#DE350B"
     st.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold; margin-bottom: 20px; padding: 4px;">{perc:.0f}%</div>', unsafe_allow_html=True)
@@ -1024,12 +1022,38 @@ elif st.session_state.aba_atual == "🔍 Consulta":
     # --- TELA NOVA: RECUPERAÇÃO DE VENDAS PERDIDAS ---
     elif st.session_state.sub_aba_consulta == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
-        st.write("Identifique clientes que compravam muito um determinado item e pararam. A lista atualizará automaticamente quando eles voltarem a comprar.")
+        st.write("Identifique clientes que compravam muito determinados itens e pararam. A lista agrupa todos os itens perdidos por cliente.")
         
+        # Filtro de Cidades
+        cidades_disponiveis_rec = set()
+        for cli in dict_cadastro.keys():
+            m = re.search(r'\[(.*?)\]', str(cli))
+            if m: cidades_disponiveis_rec.add(m.group(1).strip().upper())
+        cidades_disponiveis_rec = sorted(list(cidades_disponiveis_rec))
+        
+        cidades_selecionadas_rec = st.multiselect(
+            "📍 Filtrar Ranking por Município(s):", 
+            options=cidades_disponiveis_rec, 
+            placeholder="Selecione as cidades (deixe vazio para o ranking geral)"
+        )
+
         dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, step=5)
         
         with st.spinner("Calculando ranking de perdas no banco de dados..."):
             df_calc = df_total.dropna(subset=['Data_Datetime', 'Faturamento Brut', 'Cliente', 'Produto'])
+            
+            # Aplica o filtro de cidade, se houver
+            if cidades_selecionadas_rec:
+                cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
+                def check_city(cli):
+                    m_mun = re.search(r'\[(.*?)\]', str(cli))
+                    if m_mun:
+                        cidade_cli = limpar_texto(m_mun.group(1))
+                        return any(cs in cidade_cli or cidade_cli in cs for cs in cidades_sel_limpas)
+                    return False
+                df_calc = df_calc[df_calc['Cliente'].apply(check_city)]
+            
+            # Agrupa por Cliente e Produto
             agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
                 Fat_Total=('Faturamento Brut', 'sum'),
                 Ultima_Compra=('Data_Datetime', 'max'),
@@ -1038,22 +1062,54 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             
             agrupado['Dias_Sem_Comprar'] = (data_atual_sistema - agrupado['Ultima_Compra']).dt.days
             
-            # Filtra quem não compra há mais que 'dias_corte' e comprou algo de fato
+            # Filtra itens abandonados (acima dos dias de corte e com faturamento histórico > 0)
             abandonos = agrupado[(agrupado['Dias_Sem_Comprar'] >= dias_corte) & (agrupado['Fat_Total'] > 0)]
             
-            # Ordena pelo montante financeiro histórico (onde você "perde mais dinheiro")
-            abandonos = abandonos.sort_values(by='Fat_Total', ascending=False).head(50)
+            # Cria o ranking unificado por CLIENTE (Soma total de dinheiro paralisado)
+            clientes_abandonos = abandonos.groupby('Cliente').agg(
+                Fat_Perdido_Total=('Fat_Total', 'sum')
+            ).reset_index().sort_values(by='Fat_Perdido_Total', ascending=False).head(50)
             
-        if abandonos.empty:
-            st.success("Nenhum abandono identificado para este período!")
+        if clientes_abandonos.empty:
+            st.success("Nenhum abandono identificado para este período ou filtros selecionados!")
         else:
-            st.markdown(f"**Top 50 Oportunidades de Recuperação Financeira (>{dias_corte} dias ausentes)**")
-            for idx, row in abandonos.iterrows():
-                with st.expander(f"🚨 {row['Cliente']} parou de comprar {row['Produto']}"):
-                    st.write(f"**Histórico financeiro neste item:** R$ {row['Fat_Total']:,.2f} ({row['Qtd_Compras']} pedidos)")
-                    st.write(f"**Tempo sem comprar:** {row['Dias_Sem_Comprar']} dias (Última: {row['Ultima_Compra'].strftime('%d/%m/%Y')})")
+            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
+            
+            st.markdown(f"**Top {len(clientes_abandonos)} Clientes com Maior Oportunidade de Recuperação (>{dias_corte} dias ausentes)**")
+            
+            for idx, row_cli in clientes_abandonos.iterrows():
+                cliente_nome = row_cli['Cliente']
+                fat_total_cli = row_cli['Fat_Perdido_Total']
+                
+                # Resgata todos os produtos que este cliente específico abandonou
+                prods_cli = abandonos[abandonos['Cliente'] == cliente_nome].sort_values(by='Fat_Total', ascending=False)
+                
+                with st.expander(f"🚨 {cliente_nome} — Potencial: R$ {fat_total_cli:,.2f}"):
+                    st.markdown("**Itens que o cliente parou de comprar:**")
+                    
+                    for _, p_row in prods_cli.iterrows():
+                        prod = p_row['Produto']
+                        
+                        # Verifica se o produto abandonado está nas ofertas do dia
+                        is_oferta = False
+                        if ofertas_memoria:
+                            for of in ofertas_memoria:
+                                if all(c in limpar_texto(of) for c in extrair_palavras_produto(prod)[:2]):
+                                    is_oferta = True
+                                    break
+                        
+                        tag_oferta = " <span style='background-color:#DE350B; color:white; padding:2px 4px; border-radius:3px; font-size:10px; font-weight:bold;'>🚨 NA OFERTA!</span>" if is_oferta else ""
+                        
+                        st.markdown(f"""
+                        <p style='font-size: 14px; margin-bottom: 4px; line-height: 1.2;'>
+                            • {prod} {tag_oferta}<br>
+                            <span style='color: gray; font-size: 12px;'>Histórico: R$ {p_row['Fat_Total']:,.2f} ({p_row['Qtd_Compras']} ped.) | Última compra: {p_row['Ultima_Compra'].strftime('%d/%m/%Y')} (há {p_row['Dias_Sem_Comprar']} dias)</span>
+                        </p>
+                        """, unsafe_allow_html=True)
+                    
+                    st.write("")
                     if st.button(f"🔍 Ver Perfil Completo do Cliente", key=f"btn_recup_{idx}"):
-                        st.session_state.busca_direta_cliente = row['Cliente']
+                        st.session_state.busca_direta_cliente = cliente_nome
                         st.session_state.sub_aba_consulta = "👤 Por Cliente"
                         st.rerun()
 
