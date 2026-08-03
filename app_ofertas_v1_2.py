@@ -80,13 +80,12 @@ def carregar_dados_nuvem(data_atual):
     cod_to_full = {}
     cadastro_clientes = {}
     
-    # PASSO 1: Identificar a planilha que possui a coluna unificada (Cód - Nome (Fantasia) [Cidade])
+    # PASSO 1: Identificar a planilha que possui a coluna unificada
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
             for col in df.columns:
                 s_col = df[col].astype(str)
-                # Verifica se existem valores compatíveis com o novo padrão unificado
                 mask = s_col.str.contains(r'^\d+\s*[-|–]?\s*.*\s*\[.*\]', regex=True, na=False)
                 if mask.any():
                     for val in s_col[mask]:
@@ -94,7 +93,7 @@ def carregar_dados_nuvem(data_atual):
                         m_cod = re.match(r'^(\d+)', val_str)
                         if m_cod:
                             cod = m_cod.group(1)
-                            cod_to_full[cod] = val_str # Mapeia Cód -> String Completa
+                            cod_to_full[cod] = val_str 
                             
                             m_fan = re.search(r'\((.*?)\)', val_str)
                             m_mun = re.search(r'\[(.*?)\]', val_str)
@@ -106,7 +105,7 @@ def carregar_dados_nuvem(data_atual):
                                 }
         except: pass
         
-    # PASSO 2: Carregar faturamento e cruzar Cód para unificar o nome em todas as telas
+    # PASSO 2: Carregar faturamento
     lista_dfs = []
     for arquivo in arquivos_excel:
         try:
@@ -128,7 +127,6 @@ def carregar_dados_nuvem(data_atual):
                 sub = df[sel].copy()
                 sub.columns = heads
                 
-                # Substituição inteligente: Lê o cód da venda e injeta o texto completo unificado
                 def resolve_client(orig):
                     orig_str = str(orig).strip().upper()
                     m_cod = re.match(r'^(\d+)', orig_str)
@@ -152,7 +150,6 @@ def carregar_dados_nuvem(data_atual):
         unificado = pd.concat(lista_dfs, ignore_index=True)
         unificado = unificado[unificado['Cliente'] != 'NAN']
         
-        # Garante que todo cliente nas vendas tenha registro na memória
         for cli in unificado['Cliente'].unique():
             if cli not in cadastro_clientes:
                 m_fan = re.search(r'\((.*?)\)', str(cli))
@@ -504,14 +501,18 @@ real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.
 real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
+# --- FUNÇÃO ATUALIZADA CONFORME DESENHO DO CABEÇALHO ---
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    # Colunas lado a lado
+    col1, col2, col3 = st.columns([1, 1, 1])
     col1.write(f"**{label}**")
     col2.write(f"Meta: {f'R$ {meta:,.0f}' if eh_faturamento else meta}")
     col3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
+    
+    # Barra logo abaixo
     perc = (realizado / meta * 100) if meta > 0 else 0
     cor = "#00875A" if perc >= 100 else "#DE350B"
-    col4.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold;">{perc:.0f}%</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold; margin-bottom: 20px; padding: 4px;">{perc:.0f}%</div>', unsafe_allow_html=True)
 
 st.subheader("📊 Painel de Metas")
 if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
@@ -657,7 +658,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
                     segs_oferta_limpos = [limpar_texto(s) for s in set(segs_oferta)]
 
                     for cli_cad, info_cad in dict_cadastro.items():
-                        # O nome do cliente já engloba fantasia e municipio!
                         nome_cli_limpo = limpar_texto(cli_cad) 
                         if any(s in nome_cli_limpo for s in segs_oferta_limpos if len(s)>2):
                             interessados_seg.add(cli_cad)
@@ -871,9 +871,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
+    # --- NOVA OPÇÃO DE ABA ADICIONADA: "📉 Recuperação" ---
     st.session_state.sub_aba_consulta = st.radio(
         "Filtro de Pesquisa:", 
-        ["👤 Por Cliente", "📦 Por Produto", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
+        ["👤 Por Cliente", "📦 Por Produto", "📉 Recuperação", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
         horizontal=True
     )
     st.write("---")
@@ -1019,6 +1020,42 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Brut']:,.2f}")
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
+
+    # --- TELA NOVA: RECUPERAÇÃO DE VENDAS PERDIDAS ---
+    elif st.session_state.sub_aba_consulta == "📉 Recuperação":
+        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
+        st.write("Identifique clientes que compravam muito um determinado item e pararam. A lista atualizará automaticamente quando eles voltarem a comprar.")
+        
+        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, step=5)
+        
+        with st.spinner("Calculando ranking de perdas no banco de dados..."):
+            df_calc = df_total.dropna(subset=['Data_Datetime', 'Faturamento Brut', 'Cliente', 'Produto'])
+            agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
+                Fat_Total=('Faturamento Brut', 'sum'),
+                Ultima_Compra=('Data_Datetime', 'max'),
+                Qtd_Compras=('Data_Datetime', 'count')
+            ).reset_index()
+            
+            agrupado['Dias_Sem_Comprar'] = (data_atual_sistema - agrupado['Ultima_Compra']).dt.days
+            
+            # Filtra quem não compra há mais que 'dias_corte' e comprou algo de fato
+            abandonos = agrupado[(agrupado['Dias_Sem_Comprar'] >= dias_corte) & (agrupado['Fat_Total'] > 0)]
+            
+            # Ordena pelo montante financeiro histórico (onde você "perde mais dinheiro")
+            abandonos = abandonos.sort_values(by='Fat_Total', ascending=False).head(50)
+            
+        if abandonos.empty:
+            st.success("Nenhum abandono identificado para este período!")
+        else:
+            st.markdown(f"**Top 50 Oportunidades de Recuperação Financeira (>{dias_corte} dias ausentes)**")
+            for idx, row in abandonos.iterrows():
+                with st.expander(f"🚨 {row['Cliente']} parou de comprar {row['Produto']}"):
+                    st.write(f"**Histórico financeiro neste item:** R$ {row['Fat_Total']:,.2f} ({row['Qtd_Compras']} pedidos)")
+                    st.write(f"**Tempo sem comprar:** {row['Dias_Sem_Comprar']} dias (Última: {row['Ultima_Compra'].strftime('%d/%m/%Y')})")
+                    if st.button(f"🔍 Ver Perfil Completo do Cliente", key=f"btn_recup_{idx}"):
+                        st.session_state.busca_direta_cliente = row['Cliente']
+                        st.session_state.sub_aba_consulta = "👤 Por Cliente"
+                        st.rerun()
 
     elif st.session_state.sub_aba_consulta == "🏢 Exclusivos Filial 6":
         st.subheader("🎯 Clientes Exclusivos da Filial 6")
