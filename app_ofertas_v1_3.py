@@ -282,6 +282,7 @@ def extrair_segmentos_reais_base(dict_cad):
     return list(set(top_termos))
 
 def classificar_produtos_lote_ia(lista_produtos, dict_cad):
+    global dict_produtos_segmentos
     if not lista_produtos: return
     segmentos_reais = extrair_segmentos_reais_base(dict_cad)
     prompt = f"""Atue como um analista de Food Service.
@@ -1093,8 +1094,10 @@ elif st.session_state.tela_atual == "Consultas":
                             for of in ofertas_memoria:
                                 if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
                                     resultado_final.append(of)
-                                    match_encontrado = True; break
-                        if not match_encontrado: resultado_final.append(linha_cot) 
+                                    match_encontrado = True
+                                    break
+                        if not match_encontrado: 
+                            resultado_final.append(linha_cot) 
                     st.session_state.resultado_cotacao = "\n".join(resultado_final)
                     st.success("✅ Cotação concluída!")
             else:
