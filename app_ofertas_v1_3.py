@@ -501,15 +501,18 @@ real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.
 real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
+def formatar_brl(valor):
+    return f"R${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 # --- FUNÇÃO PARA GERAR O CARD DA MEIA LUA (SVG RESPONSIVO PARA CELULAR) ---
 def render_meia_lua_card(subtitulo, realizado, meta, eh_faturamento=False):
     perc = (realizado / meta * 100) if meta > 0 else 0
     perc_display = f"{perc:.1f}%".replace('.', ',')
     
-    # Formatação dos valores
+    # Formatação exata para modelo integral: R$999.999,99
     if eh_faturamento:
-        meta_str = f"R$ {meta/1000:,.1f}k".replace(',', '.') if meta >= 1000 else f"R$ {meta:,.0f}"
-        real_str = f"R$ {realizado/1000:,.1f}k".replace(',', '.') if realizado >= 1000 else f"R$ {realizado:,.0f}"
+        meta_str = formatar_brl(meta)
+        real_str = formatar_brl(realizado)
     else:
         meta_str = f"{int(meta)}"
         real_str = f"{int(realizado)}"
@@ -549,8 +552,8 @@ if st.session_state.get('editar_aberto', False):
             
             st.write("Faturamento (FL2 e FL6)")
             c3, c4 = st.columns(2)
-            m['fat_fl2'] = c3.number_input("FL2 (R$)", value=float(m['fat_fl2']), key="inp_fat_fl2")
-            m['fat_fl6'] = c4.number_input("FL6 (R$)", value=float(m['fat_fl6']), key="inp_fat_fl6")
+            m['fat_fl2'] = c3.number_input("FL2 (R$)", value=float(m['fat_fl2']), format="%.2f", key="inp_fat_fl2")
+            m['fat_fl6'] = c4.number_input("FL6 (R$)", value=float(m['fat_fl6']), format="%.2f", key="inp_fat_fl6")
             
             if st.form_submit_button("Salvar Metas"):
                 # Soma automática das metas FL2 + FL6 para gerar a meta Geral
