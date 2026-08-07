@@ -17,7 +17,7 @@ from datetime import date
 # ==========================================
 # 0. CONFIGURAÇÃO DA PÁGINA
 # ==========================================
-st.set_page_config(page_title="Delly's Inteligência", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Painel de Controle", layout="centered", initial_sidebar_state="collapsed")
 
 # ==========================================
 # ESTILIZAÇÃO VERDE & CABEÇALHO MOBILE
@@ -40,37 +40,43 @@ st.markdown("""
     html, body, [class*="css"], p, span { font-size: 15px !important; }
     h3 { font-size: 18px !important; font-weight: bold !important; color: #1B5E20 !important; margin: 0 !important; }
     
-    /* Botões do Menu Principal (Grid Compacto 2x2 Mobile) */
+    /* Botões do Menu Principal (Grid 2x2 Expandido para Mobile) */
     .main-grid button {
         width: 100% !important;
-        height: 75px !important;
-        font-size: 16px !important;
+        height: 100px !important; /* Aumentado para fácil clique no celular */
+        font-size: 19px !important;
         font-weight: bold !important;
-        margin-bottom: 8px !important;
-        border-radius: 14px !important;
-        background-color: #FFFFFF !important;
-        color: #1B5E20 !important;
-        border: 2px solid #A5D6A7 !important;
-        box-shadow: 0 3px 6px rgba(0, 135, 90, 0.08) !important;
+        margin-bottom: 12px !important;
+        border-radius: 16px !important;
+        background-color: #2E7D32 !important; /* Verde Principal */
+        color: #FFFFFF !important;
+        border: none !important;
+        box-shadow: 0 4px 8px rgba(0, 135, 90, 0.2) !important;
+        transition: all 0.2s ease-in-out !important;
     }
     
     .main-grid button:hover {
-        background-color: #00875A !important;
+        background-color: #1B5E20 !important; /* Verde Escuro no Hover */
         color: #FFFFFF !important;
-        border-color: #00875A !important;
     }
 
-    /* Links/Botões Compactos do Cabeçalho Superior */
+    /* Links/Botões Compactos do Cabeçalho Superior e Voltar */
     .top-link button {
-        height: 32px !important;
-        font-size: 12px !important;
-        padding: 2px 4px !important;
-        background-color: transparent !important;
-        color: #2E7D32 !important;
-        border: 1px solid #A5D6A7 !important;
-        border-radius: 6px !important;
+        height: 36px !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        padding: 4px 10px !important;
+        background-color: #2E7D32 !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
         box-shadow: none !important;
         margin: 0 !important;
+    }
+
+    .top-link button:hover {
+        background-color: #1B5E20 !important;
+        color: #FFFFFF !important;
     }
 
     button[kind="primary"] {
@@ -282,7 +288,6 @@ def extrair_segmentos_reais_base(dict_cad):
     return list(set(top_termos))
 
 def classificar_produtos_lote_ia(lista_produtos, dict_cad):
-    global dict_produtos_segmentos
     if not lista_produtos: return
     segmentos_reais = extrair_segmentos_reais_base(dict_cad)
     prompt = f"""Atue como um analista de Food Service.
@@ -453,7 +458,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
     texto_ofertas_seg = "\n".join([f"- {of}" for of in ofertas_seg]) if ofertas_seg else "Nenhum no momento."
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
     
-    prompt = f"""Você é um vendedor experiente da distribuidora Delly's. Escreva uma mensagem de WhatsApp persuasiva para '{nome_cliente}'.
+    prompt = f"""Você é um vendedor experiente da distribuidora. Escreva uma mensagem de WhatsApp persuasiva para '{nome_cliente}'.
     Histórico: {texto_historico}
     Ofertas do que já compra: {texto_ofertas_hist}
     Ofertas indicadas p/ segmento: {texto_ofertas_seg}
@@ -496,33 +501,33 @@ def obter_badges_html(cliente_nome):
     for tag in info["tags"]:
         if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">POSITIVADO</span>'
         elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">NÃO POSITIVADO</span>'
-        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 2</span>'
-        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 6</span>'
+        elif tag == "FILIAL 2": html += '<span style="background-color:#2E7D32; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 2</span>'
+        elif tag == "FILIAL 6": html += '<span style="background-color:#388E3C; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 6</span>'
         elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">⚠️ SUMIDO</span>'
     return html
 
 # ==============================================================================
-# NAVEGAÇÃO: BOTÃO DE VOLTAR AO MENU (NAS SUB-TELAS)
+# NAVEGAÇÃO: BOTÃO COMPACTO "VOLTAR AO MENU" EM TODAS AS SUB-TELAS
 # ==============================================================================
 if st.session_state.tela_atual != "Menu":
-    col_nav1, col_nav2 = st.columns([1, 4])
-    with col_nav1:
-        if st.button("⬅️ Menu", key="btn_voltar_menu"):
-            st.session_state.tela_atual = "Menu"
-            st.rerun()
+    st.markdown('<div class="top-link">', unsafe_allow_html=True)
+    if st.button("⬅️ Menu", key="btn_voltar_menu"):
+        st.session_state.tela_atual = "Menu"
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.write("")
 
 # ==============================================================================
-# 📱 TELA PRINCIPAL: MENU DE BOTÕES (GRID MOBILE RESPONSIVO 2X2)
+# 📱 TELA PRINCIPAL: MENU DE BOTÕES (GRID MOBILE RESPONSIVO 2X2 AUMENTADO)
 # ==============================================================================
 if st.session_state.tela_atual == "Menu":
-    # Cabeçalho Compacto: Imagem à Esquerda + Título e Links Rápidos
+    # Cabeçalho Compacto com Opções de Sincronização
     col_img, col_info = st.columns([1, 3], vertical_alignment="center")
     
     with col_img:
-        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyPVIv2occ4qcx4coRayjeLgPd_z_VfLOBVIfgZB27s6EPQnm0UosImhQ&s=10", width=70)
+        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyPVIv2occ4qcx4coRayjeLgPd_z_VfLOBVIfgZB27s6EPQnm0UosImhQ&s=10", width=65)
         
     with col_info:
-        st.markdown("<h3>Delly's Inteligência</h3>", unsafe_allow_html=True)
         c1_link, c2_link = st.columns(2)
         with c1_link:
             st.markdown('<div class="top-link">', unsafe_allow_html=True)
@@ -546,7 +551,7 @@ if st.session_state.tela_atual == "Menu":
 
     st.write("---")
     
-    # Grid 2x2 para caber sem necessidade de scroll no celular
+    # Grid 2x2 Expandido para facilitar o toque no celular
     st.markdown('<div class="main-grid">', unsafe_allow_html=True)
     
     row1_col1, row1_col2 = st.columns(2)
@@ -594,7 +599,7 @@ elif st.session_state.tela_atual == "Metas":
         c3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
         
         perc = (realizado / meta * 100) if meta > 0 else 0
-        cor = "#00875A" if perc >= 100 else "#DE350B"
+        cor = "#2E7D32" if perc >= 100 else "#DE350B"
         st.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold; margin-bottom: 12px; padding: 3px;">{perc:.0f}%</div>', unsafe_allow_html=True)
 
     if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
@@ -986,7 +991,7 @@ elif st.session_state.tela_atual == "Consultas":
                 
                 if st.button("🧠 Gerar Abordagem via IA", type="primary"):
                     prompt_cruzada = f"""
-                    Atue como vendedor B2B Delly's. Crie mensagem WhatsApp para '{c_sel}'.
+                    Atue como vendedor B2B. Crie mensagem WhatsApp para '{c_sel}'.
                     Abandonados: {texto_abandonados_p_ia if texto_abandonados_p_ia else "Nenhum."}
                     Sugestões Segmento ({', '.join(segmentos_do_cliente)}): {', '.join(sugestoes_segmento[:5])}
                     Ofertas hoje: {', '.join(ofertas_memoria[:6]) if ofertas_memoria else "Nenhuma"}
@@ -1094,10 +1099,8 @@ elif st.session_state.tela_atual == "Consultas":
                             for of in ofertas_memoria:
                                 if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
                                     resultado_final.append(of)
-                                    match_encontrado = True
-                                    break
-                        if not match_encontrado: 
-                            resultado_final.append(linha_cot) 
+                                    match_encontrado = True; break
+                        if not match_encontrado: resultado_final.append(linha_cot) 
                     st.session_state.resultado_cotacao = "\n".join(resultado_final)
                     st.success("✅ Cotação concluída!")
             else:
