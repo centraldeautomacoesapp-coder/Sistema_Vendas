@@ -22,10 +22,10 @@ st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 # ==========================================
 # 1. CONFIGURAÇÕES E CHAVES FIXAS
 # ==========================================
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-NEON_DB_URL = st.secrets["NEON_DB_URL"]
-DRIVE_VENDAS = st.secrets["DRIVE_VENDAS"]
-DRIVE_CADASTRO = st.secrets["DRIVE_CADASTRO"]
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+NEON_DB_URL = st.secrets.get("NEON_DB_URL", "")
+DRIVE_VENDAS = st.secrets.get("DRIVE_VENDAS", "")
+DRIVE_CADASTRO = st.secrets.get("DRIVE_CADASTRO", "")
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
@@ -53,6 +53,16 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
+def extrair_id_drive(url_ou_id):
+    """ Extrai o ID limpo de uma URL de pasta do Google Drive """
+    if not url_ou_id: return ""
+    if "drive.google.com" in str(url_ou_id):
+        match = re.search(r'folders/([a-zA-Z0-9_-]+)', str(url_ou_id))
+        if match: return match.group(1)
+        match_id = re.search(r'id=([a-zA-Z0-9_-]+)', str(url_ou_id))
+        if match_id: return match_id.group(1)
+    return str(url_ou_id).strip()
+
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -63,7 +73,7 @@ try:
 except Exception as e:
     st.error(f"Erro ao configurar a API do Gemini: {e}")
 
-# --- CARREGAMENTO DE DADOS (DRIVE) ---
+# --- CARREGAMENTO DE DADOS (DRIVE AJUSTADO) ---
 @st.cache_data(ttl=86400) 
 def carregar_dados_nuvem(data_atual):
     diretorio_atual = os.path.dirname(os.path.abspath(__file__))
@@ -71,9 +81,15 @@ def carregar_dados_nuvem(data_atual):
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     
     try:
-        gdown.download_folder(DRIVE_VENDAS, output=pasta_destino, quiet=True)
-        gdown.download_folder(DRIVE_CADASTRO, output=pasta_destino, quiet=True)
-    except: pass
+        id_vendas = extrair_id_drive(DRIVE_VENDAS)
+        id_cadastro = extrair_id_drive(DRIVE_CADASTRO)
+        
+        if id_vendas:
+            gdown.download_folder(id=id_vendas, output=pasta_destino, quiet=True, use_python=True)
+        if id_cadastro:
+            gdown.download_folder(id=id_cadastro, output=pasta_destino, quiet=True, use_python=True)
+    except Exception as e:
+        st.warning(f"⚠️ Aviso ao sincronizar com Google Drive: {e}")
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
     
@@ -168,11 +184,13 @@ def carregar_dados_nuvem(data_atual):
         return {"df": unificado, "cadastro": cadastro_clientes}
     return {"df": pd.DataFrame(), "cadastro": {}}
 
-# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON (AJUSTADO) ---
 def obter_conexao_neon():
     try:
         url = NEON_DB_URL.replace("postgres://", "postgresql://", 1)
-        return create_engine(url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
+        if "sslmode" not in url:
+            url += "?sslmode=require" if "?" not in url else "&sslmode=require"
+        return create_engine(url, pool_pre_ping=True)
     except Exception as e:
         st.error(f"⚠️ Erro ao conectar ao Neon DB: {e}")
         return None
@@ -181,7 +199,7 @@ def criar_tabelas_neon():
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.connect() as conn:
+            with engine.begin() as conn:  # USAR engine.begin() PARA APLICAR ALTERAÇÕES (COMMIT)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS produtos_segmentos (
                         cod_produto VARCHAR(50),
@@ -233,7 +251,7 @@ def salvar_cardapio_neon(cliente, produtos, fantasia=""):
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.connect() as conn:
+            with engine.begin() as conn:  # USAR engine.begin()
                 conn.execute(text("""
                     INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
                     VALUES (:c, :f, :p)
@@ -271,7 +289,7 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
         
         engine = obter_conexao_neon()
         if engine:
-            with engine.connect() as conn:
+            with engine.begin() as conn:  # USAR engine.begin()
                 for linha_original, segs in dados_json.items():
                     cod, nome = extrair_codigo_nome(linha_original)
                     conn.execute(text("""
@@ -350,7 +368,7 @@ with st.sidebar:
             engine = obter_conexao_neon()
             if engine:
                 try:
-                    with engine.connect() as conn:
+                    with engine.begin() as conn:  # USAR engine.begin()
                         conn.execute(text("TRUNCATE TABLE produtos_segmentos;"))
                     st.success("✅ Tabela limpa com sucesso!")
                 except Exception as e:
@@ -378,7 +396,7 @@ def salvar_metas_neon(m):
     engine = obter_conexao_neon()
     if engine:
         try:
-            with engine.connect() as conn:
+            with engine.begin() as conn:  # USAR engine.begin()
                 query = text("""
                     INSERT INTO metas_mensais (mes, pos_geral, pos_fl2, pos_fl6, fat_geral, fat_fl2, fat_fl6)
                     VALUES (:mes, :pos_geral, :pos_fl2, :pos_fl6, :fat_geral, :fat_fl2, :fat_fl6)
@@ -501,7 +519,6 @@ real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.
 real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
-# --- FUNÇÃO ATUALIZADA CONFORME DESENHO DO CABEÇALHO ---
 def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
     col1, col2, col3 = st.columns([1, 1, 1])
     col1.write(f"**{label}**")
@@ -546,7 +563,7 @@ exibir_kpi_linha("FL2", m['pos_fl2'], real_pos_fl2)
 exibir_kpi_linha("FL6", m['pos_fl6'], real_pos_fl6)
 
 st.write("---")
-st.markdown("### ROB FATURAMENTO")
+st.markdown("### FATURAMENTO")
 exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
 exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
 exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
@@ -601,7 +618,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # Prepara filtro de cidades - Busca apenas dentro dos colchetes unificados []
     cidades_disponiveis = set()
     for cli in dict_cadastro.keys():
         m = re.search(r'\[(.*?)\]', str(cli))
@@ -691,7 +707,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     else:
         clientes_restantes = list(fila_ativa.keys())
         
-        # Filtro de Município após gerar a lista:
         if cidades_selecionadas:
             cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas]
             filtrados = []
@@ -720,7 +735,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
-            # Cliente já está com string unificada: Cód - Nome (Fantasia) [Cidade]
             st.markdown(f"**🏢 {cliente_atual}**")
             st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
             st.write("")
@@ -869,7 +883,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
-    # --- NOVA OPÇÃO DE ABA ADICIONADA: "📉 Recuperação" ---
     st.session_state.sub_aba_consulta = st.radio(
         "Filtro de Pesquisa:", 
         ["👤 Por Cliente", "📦 Por Produto", "📉 Recuperação", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
@@ -1019,12 +1032,10 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
 
-    # --- TELA NOVA: RECUPERAÇÃO DE VENDAS PERDIDAS ---
     elif st.session_state.sub_aba_consulta == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
         st.write("Identifique clientes que compravam muito determinados itens e pararam. A lista agrupa todos os itens perdidos por cliente.")
         
-        # Filtro de Cidades
         cidades_disponiveis_rec = set()
         for cli in dict_cadastro.keys():
             m = re.search(r'\[(.*?)\]', str(cli))
@@ -1042,7 +1053,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         with st.spinner("Calculando ranking de perdas no banco de dados..."):
             df_calc = df_total.dropna(subset=['Data_Datetime', 'Faturamento Brut', 'Cliente', 'Produto'])
             
-            # Aplica o filtro de cidade, se houver
             if cidades_selecionadas_rec:
                 cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
                 def check_city(cli):
@@ -1053,7 +1063,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     return False
                 df_calc = df_calc[df_calc['Cliente'].apply(check_city)]
             
-            # Agrupa por Cliente e Produto
             agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
                 Fat_Total=('Faturamento Brut', 'sum'),
                 Ultima_Compra=('Data_Datetime', 'max'),
@@ -1062,10 +1071,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             
             agrupado['Dias_Sem_Comprar'] = (data_atual_sistema - agrupado['Ultima_Compra']).dt.days
             
-            # Filtra itens abandonados (acima dos dias de corte e com faturamento histórico > 0)
             abandonos = agrupado[(agrupado['Dias_Sem_Comprar'] >= dias_corte) & (agrupado['Fat_Total'] > 0)]
             
-            # Cria o ranking unificado por CLIENTE (Soma total de dinheiro paralisado)
             clientes_abandonos = abandonos.groupby('Cliente').agg(
                 Fat_Perdido_Total=('Fat_Total', 'sum')
             ).reset_index().sort_values(by='Fat_Perdido_Total', ascending=False).head(50)
@@ -1081,7 +1088,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 cliente_nome = row_cli['Cliente']
                 fat_total_cli = row_cli['Fat_Perdido_Total']
                 
-                # Resgata todos os produtos que este cliente específico abandonou
                 prods_cli = abandonos[abandonos['Cliente'] == cliente_nome].sort_values(by='Fat_Total', ascending=False)
                 
                 with st.expander(f"🚨 {cliente_nome} — Potencial: R$ {fat_total_cli:,.2f}"):
@@ -1090,7 +1096,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     for _, p_row in prods_cli.iterrows():
                         prod = p_row['Produto']
                         
-                        # Verifica se o produto abandonado está nas ofertas do dia
                         is_oferta = False
                         if ofertas_memoria:
                             for of in ofertas_memoria:
