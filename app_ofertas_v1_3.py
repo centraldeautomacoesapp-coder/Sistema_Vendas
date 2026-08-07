@@ -317,6 +317,7 @@ st.markdown("""
         font-weight: bold !important; margin-bottom: 10px !important; border-radius: 8px !important;
     }
     code { font-size: 14px !important; white-space: pre-wrap !important; }
+    .st-emotion-cache-12w0q32 { padding-top: 1.5rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -331,6 +332,7 @@ with st.sidebar:
     st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
     st.markdown("### 🧭 Menu de Navegação")
     
+    if st.button("📊 Painel Metas", type="primary" if st.session_state.aba_atual == "📊 Painel Metas" else "secondary"): st.session_state.aba_atual = "📊 Painel Metas"; st.rerun()
     if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
     if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
     if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
@@ -491,7 +493,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
         return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
 
 # ==============================================================================
-# PAINEL DE METAS (CABEÇALHO COM MEIAS LUAS SVG & SOMA AUTOMÁTICA)
+# CÁLCULOS DAS METAS E BARRINHA MINIMALISTA NO TOPO
 # ==============================================================================
 df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
 df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
@@ -501,95 +503,28 @@ real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.
 real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
+m = st.session_state.metas_config
+
+# Cálculos das Porcentagens
+p_fat_g = (real_fat_geral / m['fat_geral'] * 100) if m['fat_geral'] > 0 else 0
+p_fat_f2 = (real_fat_fl2 / m['fat_fl2'] * 100) if m['fat_fl2'] > 0 else 0
+p_fat_f6 = (real_fat_fl6 / m['fat_fl6'] * 100) if m['fat_fl6'] > 0 else 0
+
+p_pos_g = (real_pos_geral / m['pos_geral'] * 100) if m['pos_geral'] > 0 else 0
+p_pos_f2 = (real_pos_fl2 / m['pos_fl2'] * 100) if m['pos_fl2'] > 0 else 0
+p_pos_f6 = (real_pos_fl6 / m['pos_fl6'] * 100) if m['pos_fl6'] > 0 else 0
+
 def formatar_brl(valor):
     return f"R${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- FUNÇÃO PARA GERAR O CARD DA MEIA LUA (SVG RESPONSIVO PARA CELULAR) ---
-def render_meia_lua_card(subtitulo, realizado, meta, eh_faturamento=False):
-    perc = (realizado / meta * 100) if meta > 0 else 0
-    perc_display = f"{perc:.1f}%".replace('.', ',')
-    
-    # Formatação exata para modelo integral: R$999.999,99
-    if eh_faturamento:
-        meta_str = formatar_brl(meta)
-        real_str = formatar_brl(realizado)
-    else:
-        meta_str = f"{int(meta)}"
-        real_str = f"{int(realizado)}"
-        
-    # Cálculo do arco SVG (comprimento do arco semi-circular = ~125.66)
-    perc_clamped = min(max(perc, 0), 100)
-    dashoffset = 125.66 * (1 - (perc_clamped / 100))
-    cor_barra = "#00875A" if perc >= 100 else "#0052CC"
-    
-    return f"""
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 8px 4px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.1); border: 1px solid #e1e4e8; margin-bottom: 5px;">
-        <div style="font-weight: bold; font-size: 13px; color: #333; margin-bottom: 2px;">{subtitulo}</div>
-        <div style="position: relative; width: 100%; max-width: 110px; margin: 0 auto;">
-            <svg viewBox="0 0 100 55" style="width: 100%; height: auto; display: block;">
-                <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#EAEAEA" stroke-width="12" stroke-linecap="round" />
-                <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="{cor_barra}" stroke-width="12" stroke-dasharray="125.66" stroke-dashoffset="{dashoffset}" stroke-linecap="round" />
-                <text x="50" y="46" text-anchor="middle" font-size="15" font-weight="bold" fill="#172B4D">{perc_display}</text>
-            </svg>
-        </div>
-        <div style="font-size: 10px; color: #5e6c84; margin-top: 2px; line-height: 1.2;">
-            <b>Meta:</b> {meta_str}<br><b>Real:</b> {real_str}
-        </div>
-    </div>
-    """
-
-st.subheader("📊 Painel de Metas")
-if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
-
-if st.session_state.get('editar_aberto', False):
-    with st.expander("Configurar Metas", expanded=True):
-        m = st.session_state.metas_config.copy()
-        with st.form("form_metas"):
-            st.write("Positivação (FL2 e FL6)")
-            c1, c2 = st.columns(2)
-            m['pos_fl2'] = c1.number_input("FL2 (Qtd)", value=int(m['pos_fl2']), key="inp_pos_fl2")
-            m['pos_fl6'] = c2.number_input("FL6 (Qtd)", value=int(m['pos_fl6']), key="inp_pos_fl6")
-            
-            st.write("Faturamento (FL2 e FL6)")
-            c3, c4 = st.columns(2)
-            m['fat_fl2'] = c3.number_input("FL2 (R$)", value=float(m['fat_fl2']), format="%.2f", key="inp_fat_fl2")
-            m['fat_fl6'] = c4.number_input("FL6 (R$)", value=float(m['fat_fl6']), format="%.2f", key="inp_fat_fl6")
-            
-            if st.form_submit_button("Salvar Metas"):
-                # Soma automática das metas FL2 + FL6 para gerar a meta Geral
-                m['pos_geral'] = int(m['pos_fl2'] + m['pos_fl6'])
-                m['fat_geral'] = float(m['fat_fl2'] + m['fat_fl6'])
-                
-                st.session_state.metas_config = m
-                salvar_metas_neon(m)
-                salvar_progresso_atual()
-                st.session_state.editar_aberto = False
-                st.toast("Metas salvas! Valores 'Geral' somados automaticamente.", icon="💾")
-                st.rerun()
-
-m = st.session_state.metas_config
-
-# --- BLOCO 1: MOVIMENTAÇÃO / POSITIVAÇÃO ---
-st.markdown("### 📈 Positivação")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown(render_meia_lua_card("Geral", real_pos_geral, m['pos_geral']), unsafe_allow_html=True)
-with col2:
-    st.markdown(render_meia_lua_card("FL2", real_pos_fl2, m['pos_fl2']), unsafe_allow_html=True)
-with col3:
-    st.markdown(render_meia_lua_card("FL6", real_pos_fl6, m['pos_fl6']), unsafe_allow_html=True)
-
-# --- BLOCO 2: ROB FATURAMENTO ---
-st.markdown("### 💰 ROB Faturamento")
-col4, col5, col6 = st.columns(3)
-with col4:
-    st.markdown(render_meia_lua_card("Geral", real_fat_geral, m['fat_geral'], eh_faturamento=True), unsafe_allow_html=True)
-with col5:
-    st.markdown(render_meia_lua_card("FL2", real_fat_fl2, m['fat_fl2'], eh_faturamento=True), unsafe_allow_html=True)
-with col6:
-    st.markdown(render_meia_lua_card("FL6", real_fat_fl6, m['fat_fl6'], eh_faturamento=True), unsafe_allow_html=True)
-
-st.write("---")
+# --- BARRINHA FIXA MINIMALISTA NO TOPO DA TELA ---
+st.markdown(f"""
+<div style="background-color: #f4f5f7; border: 1px solid #dcdfe6; border-radius: 6px; padding: 4px 8px; text-align: center; margin-bottom: 12px; font-size: 11px; color: #172b4d;">
+    <b>ROB:</b> G {p_fat_g:.1f}% | FL2 {p_fat_f2:.1f}% | FL6 {p_fat_f6:.1f}% 
+    &nbsp;&nbsp;<b>—</b>&nbsp;&nbsp; 
+    <b>POS:</b> G {p_pos_g:.1f}% | FL2 {p_pos_f2:.1f}% | FL6 {p_pos_f6:.1f}%
+</div>
+""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
@@ -628,9 +563,85 @@ def obter_badges_html(cliente_nome):
     return html
 
 # ==============================================================================
+# --- ABA PAINEL DE METAS (ISOLADA) ---
+# ==============================================================================
+if st.session_state.aba_atual == "📊 Painel Metas":
+    st.subheader("📊 Painel Detalhado de Metas")
+    
+    if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
+
+    if st.session_state.get('editar_aberto', False):
+        with st.expander("Configurar Metas", expanded=True):
+            m_edit = st.session_state.metas_config.copy()
+            with st.form("form_metas"):
+                st.write("Positivação (FL2 e FL6)")
+                c1, c2 = st.columns(2)
+                m_edit['pos_fl2'] = c1.number_input("FL2 (Qtd)", value=int(m_edit['pos_fl2']), key="inp_pos_fl2")
+                m_edit['pos_fl6'] = c2.number_input("FL6 (Qtd)", value=int(m_edit['pos_fl6']), key="inp_pos_fl6")
+                
+                st.write("Faturamento (FL2 e FL6)")
+                c3, c4 = st.columns(2)
+                m_edit['fat_fl2'] = c3.number_input("FL2 (R$)", value=float(m_edit['fat_fl2']), format="%.2f", key="inp_fat_fl2")
+                m_edit['fat_fl6'] = c4.number_input("FL6 (R$)", value=float(m_edit['fat_fl6']), format="%.2f", key="inp_fat_fl6")
+                
+                if st.form_submit_button("Salvar Metas"):
+                    m_edit['pos_geral'] = int(m_edit['pos_fl2'] + m_edit['pos_fl6'])
+                    m_edit['fat_geral'] = float(m_edit['fat_fl2'] + m_edit['fat_fl6'])
+                    
+                    st.session_state.metas_config = m_edit
+                    salvar_metas_neon(m_edit)
+                    salvar_progresso_atual()
+                    st.session_state.editar_aberto = False
+                    st.toast("Metas salvas! Valores 'Geral' somados automaticamente.", icon="💾")
+                    st.rerun()
+
+    def render_meia_lua_card(subtitulo, realizado, meta, eh_faturamento=False):
+        perc = (realizado / meta * 100) if meta > 0 else 0
+        perc_display = f"{perc:.1f}%".replace('.', ',')
+        
+        if eh_faturamento:
+            meta_str = formatar_brl(meta)
+            real_str = formatar_brl(realizado)
+        else:
+            meta_str = f"{int(meta)}"
+            real_str = f"{int(realizado)}"
+            
+        perc_clamped = min(max(perc, 0), 100)
+        dashoffset = 125.66 * (1 - (perc_clamped / 100))
+        cor_barra = "#00875A" if perc >= 100 else "#0052CC"
+        
+        return f"""
+        <div style="background-color: #ffffff; border-radius: 8px; padding: 8px 4px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.1); border: 1px solid #e1e4e8; margin-bottom: 5px;">
+            <div style="font-weight: bold; font-size: 13px; color: #333; margin-bottom: 2px;">{subtitulo}</div>
+            <div style="position: relative; width: 100%; max-width: 110px; margin: 0 auto;">
+                <svg viewBox="0 0 100 55" style="width: 100%; height: auto; display: block;">
+                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#EAEAEA" stroke-width="12" stroke-linecap="round" />
+                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="{cor_barra}" stroke-width="12" stroke-dasharray="125.66" stroke-dashoffset="{dashoffset}" stroke-linecap="round" />
+                    <text x="50" y="46" text-anchor="middle" font-size="15" font-weight="bold" fill="#172B4D">{perc_display}</text>
+                </svg>
+            </div>
+            <div style="font-size: 10px; color: #5e6c84; margin-top: 2px; line-height: 1.2;">
+                <b>Meta:</b> {meta_str}<br><b>Real:</b> {real_str}
+            </div>
+        </div>
+        """
+
+    st.markdown("### 📈 Positivação")
+    col1, col2, col3 = st.columns(3)
+    with col1: st.markdown(render_meia_lua_card("Geral", real_pos_geral, m['pos_geral']), unsafe_allow_html=True)
+    with col2: st.markdown(render_meia_lua_card("FL2", real_pos_fl2, m['pos_fl2']), unsafe_allow_html=True)
+    with col3: st.markdown(render_meia_lua_card("FL6", real_pos_fl6, m['pos_fl6']), unsafe_allow_html=True)
+
+    st.markdown("### 💰 ROB Faturamento")
+    col4, col5, col6 = st.columns(3)
+    with col4: st.markdown(render_meia_lua_card("Geral", real_fat_geral, m['fat_geral'], eh_faturamento=True), unsafe_allow_html=True)
+    with col5: st.markdown(render_meia_lua_card("FL2", real_fat_fl2, m['fat_fl2'], eh_faturamento=True), unsafe_allow_html=True)
+    with col6: st.markdown(render_meia_lua_card("FL6", real_fat_fl6, m['fat_fl6'], eh_faturamento=True), unsafe_allow_html=True)
+
+# ==============================================================================
 # --- ABA 1: OFERTAS ---
 # ==============================================================================
-if st.session_state.aba_atual == "🟢 Ofertas":
+elif st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão c/ IA 🧠")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
@@ -639,7 +650,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
-    # Prepara filtro de cidades - Busca apenas dentro dos colchetes unificados []
     cidades_disponiveis = set()
     for cli in dict_cadastro.keys():
         m = re.search(r'\[(.*?)\]', str(cli))
@@ -729,7 +739,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
     else:
         clientes_restantes = list(fila_ativa.keys())
         
-        # Filtro de Município após gerar a lista:
         if cidades_selecionadas:
             cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas]
             filtrados = []
@@ -758,7 +767,6 @@ if st.session_state.aba_atual == "🟢 Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
-            # Cliente já está com string unificada: Cód - Nome (Fantasia) [Cidade]
             st.markdown(f"**🏢 {cliente_atual}**")
             st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
             st.write("")
