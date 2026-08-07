@@ -85,9 +85,9 @@ def carregar_dados_nuvem(data_atual):
         id_cadastro = extrair_id_drive(DRIVE_CADASTRO)
         
         if id_vendas:
-            gdown.download_folder(id=id_vendas, output=pasta_destino, quiet=True, use_python=True)
+            gdown.download_folder(id=id_vendas, output=pasta_destino, quiet=True,)
         if id_cadastro:
-            gdown.download_folder(id=id_cadastro, output=pasta_destino, quiet=True, use_python=True)
+            gdown.download_folder(id=id_cadastro, output=pasta_destino, quiet=True,)
     except Exception as e:
         st.warning(f"⚠️ Aviso ao sincronizar com Google Drive: {e}")
     
