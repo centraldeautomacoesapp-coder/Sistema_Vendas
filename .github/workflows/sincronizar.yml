@@ -1,0 +1,31 @@
+name: Auto Sincronização Drive para Neon
+
+on:
+  schedule:
+    # Roda automaticamente a cada 15 minutos (100% Grátis)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Permite disparar manualmente via botão no app do GitHub se desejar
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar Código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependências
+        run: |
+          pip install pandas gdown sqlalchemy psycopg2-binary openpyxl
+
+      - name: Executar Sincronização
+        env:
+          NEON_DB_URL: ${{ secrets.NEON_DB_URL }}
+          DRIVE_VENDAS: ${{ secrets.DRIVE_VENDAS }}
+          DRIVE_CADASTRO: ${{ secrets.DRIVE_CADASTRO }}
+        run: |
+          python sync_drive_neon.py
