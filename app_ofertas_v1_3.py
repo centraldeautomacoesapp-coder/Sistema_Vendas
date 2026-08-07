@@ -15,79 +15,9 @@ from sqlalchemy import create_engine, text
 from datetime import date
 
 # ==========================================
-# 0. CONFIGURAÇÃO DA PÁGINA
+# 0. CONFIGURAÇÃO DA PÁGINA (Deve ser o 1º comando)
 # ==========================================
-st.set_page_config(page_title="Painel de Controle", layout="centered", initial_sidebar_state="collapsed")
-
-# ==========================================
-# ESTILIZAÇÃO VERDE & CABEÇALHO MOBILE
-# ==========================================
-st.markdown("""
-    <style>
-    /* Estilo Global e Fundo Verde Suave */
-    .stApp {
-        background-color: #F4FBF7 !important;
-    }
-    
-    /* Redução de margens internas topo/base para mobile */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-        padding-left: 0.8rem !important;
-        padding-right: 0.8rem !important;
-    }
-
-    html, body, [class*="css"], p, span { font-size: 15px !important; }
-    h3 { font-size: 18px !important; font-weight: bold !important; color: #1B5E20 !important; margin: 0 !important; }
-    
-    /* Botões do Menu Principal (Grid 2x2 Expandido para Mobile) */
-    .main-grid button {
-        width: 100% !important;
-        height: 100px !important; /* Aumentado para fácil clique no celular */
-        font-size: 19px !important;
-        font-weight: bold !important;
-        margin-bottom: 12px !important;
-        border-radius: 16px !important;
-        background-color: #2E7D32 !important; /* Verde Principal */
-        color: #FFFFFF !important;
-        border: none !important;
-        box-shadow: 0 4px 8px rgba(0, 135, 90, 0.2) !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    
-    .main-grid button:hover {
-        background-color: #1B5E20 !important; /* Verde Escuro no Hover */
-        color: #FFFFFF !important;
-    }
-
-    /* Links/Botões Compactos do Cabeçalho Superior e Voltar */
-    .top-link button {
-        height: 36px !important;
-        font-size: 13px !important;
-        font-weight: 600 !important;
-        padding: 4px 10px !important;
-        background-color: #2E7D32 !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 8px !important;
-        box-shadow: none !important;
-        margin: 0 !important;
-    }
-
-    .top-link button:hover {
-        background-color: #1B5E20 !important;
-        color: #FFFFFF !important;
-    }
-
-    button[kind="primary"] {
-        background-color: #00875A !important;
-        color: white !important;
-        border: none !important;
-    }
-    
-    code { font-size: 13px !important; white-space: pre-wrap !important; }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 
 # ==========================================
 # 1. CONFIGURAÇÕES E CHAVES FIXAS
@@ -119,7 +49,7 @@ def extrair_codigo_nome(linha):
 def extrair_palavras_produto(linha):
     _, nome_produto = extrair_codigo_nome(linha)
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(nome_produto))
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pc', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
@@ -150,6 +80,7 @@ def carregar_dados_nuvem(data_atual):
     cod_to_full = {}
     cadastro_clientes = {}
     
+    # PASSO 1: Identificar a planilha que possui a coluna unificada
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
@@ -169,10 +100,12 @@ def carregar_dados_nuvem(data_atual):
                             if val_str not in cadastro_clientes:
                                 cadastro_clientes[val_str] = {
                                     "fantasia": m_fan.group(1).strip() if m_fan else "",
-                                    "municipio": m_mun.group(1).strip() if m_mun else ""
+                                    "municipio": m_mun.group(1).strip() if m_mun else "",
+                                    "cardapio": ""
                                 }
         except: pass
         
+    # PASSO 2: Carregar faturamento
     lista_dfs = []
     for arquivo in arquivos_excel:
         try:
@@ -210,7 +143,7 @@ def carregar_dados_nuvem(data_atual):
                     sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
                 lista_dfs.append(sub)
-        except Exception: 
+        except Exception as e: 
             continue
         
     if lista_dfs:
@@ -223,7 +156,8 @@ def carregar_dados_nuvem(data_atual):
                 m_mun = re.search(r'\[(.*?)\]', str(cli))
                 cadastro_clientes[cli] = {
                     "fantasia": m_fan.group(1).strip() if m_fan else "",
-                    "municipio": m_mun.group(1).strip() if m_mun else ""
+                    "municipio": m_mun.group(1).strip() if m_mun else "",
+                    "cardapio": ""
                 }
 
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
@@ -234,7 +168,7 @@ def carregar_dados_nuvem(data_atual):
         return {"df": unificado, "cadastro": cadastro_clientes}
     return {"df": pd.DataFrame(), "cadastro": {}}
 
-# --- INTEGRAÇÃO COM BANCO NEON ---
+# --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
     try:
         url = NEON_DB_URL.replace("postgres://", "postgresql://", 1)
@@ -253,6 +187,13 @@ def criar_tabelas_neon():
                         cod_produto VARCHAR(50),
                         produto VARCHAR(255) PRIMARY KEY,
                         segmentos TEXT
+                    );
+                """))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS cardapios_clientes (
+                        cliente VARCHAR(255) PRIMARY KEY,
+                        fantasia VARCHAR(255),
+                        produtos TEXT
                     );
                 """))
                 conn.execute(text("""
@@ -276,6 +217,30 @@ def carregar_produtos_segmentos():
         except: pass
     return mapa
 
+def carregar_cardapios_neon():
+    engine = obter_conexao_neon()
+    mapa = {}
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT cliente, produtos FROM cardapios_clientes;")).fetchall()
+                for row in res:
+                    mapa[row[0]] = json.loads(row[1])
+        except: pass
+    return mapa
+
+def salvar_cardapio_neon(cliente, produtos, fantasia=""):
+    engine = obter_conexao_neon()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
+                    VALUES (:c, :f, :p)
+                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos, fantasia = EXCLUDED.fantasia;
+                """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
+        except Exception as e: st.error(f"Erro ao salvar cardápio no Neon: {e}")
+
 def extrair_segmentos_reais_base(dict_cad):
     palavras = []
     ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado', 'distribuidora', 'hortifruti']
@@ -295,7 +260,7 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
     As chaves devem ser o nome exato do produto fornecido.
     Os valores devem ser uma lista com 2 a 4 tipos de estabelecimentos que compram isso.
     
-    REGRA ABSOLUTA: Use APENAS segmentos desta lista abaixo:
+    REGRA ABSOLUTA: Use APENAS segmentos desta lista abaixo (existem na base):
     {', '.join(segmentos_reais)}
     
     Produtos para classificar: {json.dumps(lista_produtos)}"""
@@ -316,29 +281,84 @@ def classificar_produtos_lote_ia(lista_produtos, dict_cad):
                     
                     dict_produtos_segmentos[nome if nome else linha_original] = segs
     except Exception as e:
-        st.error(f"⚠️ Erro de comunicação com Neon DB / IA: {e}")
+        st.error(f"⚠️ Erro de comunicação com o banco Neon ou com a IA: {e}")
 
 # --- SINCRONIZAÇÃO INICIAL ---
-with st.spinner("Carregando sistema..."):
+with st.spinner("Sincronizando base de dados e IA..."):
     dados_carregados = carregar_dados_nuvem(date.today())
     df_total = dados_carregados["df"]
     dict_cadastro = dados_carregados["cadastro"]
     
     criar_tabelas_neon()
     dict_produtos_segmentos = carregar_produtos_segmentos()
+    dict_cardapios_neon = carregar_cardapios_neon()
+    
+    for cli_neon, prods_neon in dict_cardapios_neon.items():
+        if cli_neon in dict_cadastro:
+            dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
+        else:
+            dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
 
 if df_total.empty:
-    st.warning("Base de dados vazia ou pendente de processamento no Drive.")
+    st.warning("Base de dados de vendas vazia ou pendente de processamento no Drive.")
     st.stop()
 
 mes_atual_referencia = date.today().strftime('%Y-%m') 
 df_mes_atual = df_total[df_total['Ano_Mes'] == mes_atual_referencia]
 
+# --- ESTILIZAÇÃO E MENU LATERAL ---
+st.markdown("""
+    <style>
+    html, body, [class*="css"], p, span { font-size: 16px !important; }
+    h3 { font-size: 20px !important; font-weight: bold !important; }
+    h4 { font-size: 18px !important; }
+    div.stButton > button {
+        width: 100% !important; height: 52px !important; font-size: 16px !important;
+        font-weight: bold !important; margin-bottom: 10px !important; border-radius: 8px !important;
+    }
+    code { font-size: 14px !important; white-space: pre-wrap !important; }
+    </style>
+""", unsafe_allow_html=True)
+
 # INICIALIZAÇÕES DE ESTADO
-if 'tela_atual' not in st.session_state: st.session_state.tela_atual = "Menu"
+if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofertas"
 if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
 
-# --- CARREGAMENTO DE METAS E PROGRESSO ---
+# ==============================================================================
+# BARRAL LATERAL (SIDEBAR) - NAVEGAÇÃO
+# ==============================================================================
+with st.sidebar:
+    st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
+    st.markdown("### 🧭 Menu de Navegação")
+    
+    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
+    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
+    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
+    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): st.session_state.aba_atual = "💲 Cotação"; st.rerun()
+    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): st.session_state.aba_atual = "🍔 Cardápios"; st.rerun()
+
+    st.write("---")
+    
+    if st.button("🔄 Sincronizar / Zerar IA"):
+        st.cache_data.clear()
+        st.toast("Sincronizando...", icon="🔄")
+        st.rerun() 
+        
+    with st.expander("⚙️ Manutenção do Sistema (Neon)"):
+        st.write("Se os segmentos estiverem estáticos ou errados, limpe a memória.")
+        if st.button("🧹 Limpar Banco de Segmentos"):
+            engine = obter_conexao_neon()
+            if engine:
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text("TRUNCATE TABLE produtos_segmentos;"))
+                    st.success("✅ Tabela limpa com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao limpar: {e}")
+
+# ==============================================================================
+# CARREGAMENTO DE METAS E PROGRESSO
+# ==============================================================================
 data_atual_sistema = pd.Timestamp.now().normalize()
 data_hoje_str = data_atual_sistema.strftime('%Y-%m-%d')
 
@@ -447,7 +467,7 @@ def adiantar_cliente_fila_callback(id_fila_param):
             st.session_state[id_fila_param] = nova_fila
             st.session_state.cliente_ia_atual = ""
             salvar_progresso_atual()
-            st.toast(f"🏢 {cliente_escolhido} adiantado!", icon="⚡")
+            st.toast(f"🏢 {cliente_escolhido} foi puxado para a frente!", icon="⚡")
     st.session_state[chave_selectbox] = "-- Digite ou selecione um cliente para adiantar --"
 
 def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
@@ -458,17 +478,115 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
     texto_ofertas_seg = "\n".join([f"- {of}" for of in ofertas_seg]) if ofertas_seg else "Nenhum no momento."
     texto_historico = "\n".join([f"- {hist}" for hist in historico_compras])
     
-    prompt = f"""Você é um vendedor experiente da distribuidora. Escreva uma mensagem de WhatsApp persuasiva para '{nome_cliente}'.
+    prompt = f"""Você é um vendedor experiente da distribuidora Delly's. Escreva uma mensagem de WhatsApp persuasiva para '{nome_cliente}'.
     Histórico: {texto_historico}
     Ofertas do que já compra: {texto_ofertas_hist}
     Ofertas indicadas p/ segmento: {texto_ofertas_seg}
-    REGRAS: Retorne a mensagem em texto puro formatado para WhatsApp. Chamada pra ação no final. Sem assinaturas."""
+    REGRAS: Retorne a mensagem em texto puro formatado para WhatsApp (com pular linhas e emojis). NÃO retorne em formato JSON para esta tarefa. Termine chamando pra ação. Sem 'Assinado'."""
     
     try: 
         modelo_txt = genai.GenerativeModel('gemini-1.5-flash')
         return modelo_txt.generate_content(prompt).text.strip()
     except: 
-        return f"Olá!\nSeparei ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
+        return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
+
+# ==============================================================================
+# PAINEL DE METAS (CABEÇALHO COM MEIAS LUAS SVG & SOMA AUTOMÁTICA)
+# ==============================================================================
+df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
+df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
+
+real_pos_fl2, real_pos_fl6 = df_fl2['Cliente'].nunique(), df_fl6['Cliente'].nunique()
+real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.empty or not df_fl6.empty else 0
+real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
+real_fat_geral = real_fat_fl2 + real_fat_fl6
+
+# --- FUNÇÃO PARA GERAR O CARD DA MEIA LUA (SVG RESPONSIVO PARA CELULAR) ---
+def render_meia_lua_card(subtitulo, realizado, meta, eh_faturamento=False):
+    perc = (realizado / meta * 100) if meta > 0 else 0
+    perc_display = f"{perc:.1f}%".replace('.', ',')
+    
+    # Formatação dos valores
+    if eh_faturamento:
+        meta_str = f"R$ {meta/1000:,.1f}k".replace(',', '.') if meta >= 1000 else f"R$ {meta:,.0f}"
+        real_str = f"R$ {realizado/1000:,.1f}k".replace(',', '.') if realizado >= 1000 else f"R$ {realizado:,.0f}"
+    else:
+        meta_str = f"{int(meta)}"
+        real_str = f"{int(realizado)}"
+        
+    # Cálculo do arco SVG (comprimento do arco semi-circular = ~125.66)
+    perc_clamped = min(max(perc, 0), 100)
+    dashoffset = 125.66 * (1 - (perc_clamped / 100))
+    cor_barra = "#00875A" if perc >= 100 else "#0052CC"
+    
+    return f"""
+    <div style="background-color: #ffffff; border-radius: 8px; padding: 8px 4px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.1); border: 1px solid #e1e4e8; margin-bottom: 5px;">
+        <div style="font-weight: bold; font-size: 13px; color: #333; margin-bottom: 2px;">{subtitulo}</div>
+        <div style="position: relative; width: 100%; max-width: 110px; margin: 0 auto;">
+            <svg viewBox="0 0 100 55" style="width: 100%; height: auto; display: block;">
+                <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#EAEAEA" stroke-width="12" stroke-linecap="round" />
+                <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="{cor_barra}" stroke-width="12" stroke-dasharray="125.66" stroke-dashoffset="{dashoffset}" stroke-linecap="round" />
+                <text x="50" y="46" text-anchor="middle" font-size="15" font-weight="bold" fill="#172B4D">{perc_display}</text>
+            </svg>
+        </div>
+        <div style="font-size: 10px; color: #5e6c84; margin-top: 2px; line-height: 1.2;">
+            <b>Meta:</b> {meta_str}<br><b>Real:</b> {real_str}
+        </div>
+    </div>
+    """
+
+st.subheader("📊 Painel de Metas")
+if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
+
+if st.session_state.get('editar_aberto', False):
+    with st.expander("Configurar Metas", expanded=True):
+        m = st.session_state.metas_config.copy()
+        with st.form("form_metas"):
+            st.write("Positivação (FL2 e FL6)")
+            c1, c2 = st.columns(2)
+            m['pos_fl2'] = c1.number_input("FL2 (Qtd)", value=int(m['pos_fl2']), key="inp_pos_fl2")
+            m['pos_fl6'] = c2.number_input("FL6 (Qtd)", value=int(m['pos_fl6']), key="inp_pos_fl6")
+            
+            st.write("Faturamento (FL2 e FL6)")
+            c3, c4 = st.columns(2)
+            m['fat_fl2'] = c3.number_input("FL2 (R$)", value=float(m['fat_fl2']), key="inp_fat_fl2")
+            m['fat_fl6'] = c4.number_input("FL6 (R$)", value=float(m['fat_fl6']), key="inp_fat_fl6")
+            
+            if st.form_submit_button("Salvar Metas"):
+                # Soma automática das metas FL2 + FL6 para gerar a meta Geral
+                m['pos_geral'] = int(m['pos_fl2'] + m['pos_fl6'])
+                m['fat_geral'] = float(m['fat_fl2'] + m['fat_fl6'])
+                
+                st.session_state.metas_config = m
+                salvar_metas_neon(m)
+                salvar_progresso_atual()
+                st.session_state.editar_aberto = False
+                st.toast("Metas salvas! Valores 'Geral' somados automaticamente.", icon="💾")
+                st.rerun()
+
+m = st.session_state.metas_config
+
+# --- BLOCO 1: MOVIMENTAÇÃO / POSITIVAÇÃO ---
+st.markdown("### 📈 Positivação")
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown(render_meia_lua_card("Geral", real_pos_geral, m['pos_geral']), unsafe_allow_html=True)
+with col2:
+    st.markdown(render_meia_lua_card("FL2", real_pos_fl2, m['pos_fl2']), unsafe_allow_html=True)
+with col3:
+    st.markdown(render_meia_lua_card("FL6", real_pos_fl6, m['pos_fl6']), unsafe_allow_html=True)
+
+# --- BLOCO 2: ROB FATURAMENTO ---
+st.markdown("### 💰 ROB Faturamento")
+col4, col5, col6 = st.columns(3)
+with col4:
+    st.markdown(render_meia_lua_card("Geral", real_fat_geral, m['fat_geral'], eh_faturamento=True), unsafe_allow_html=True)
+with col5:
+    st.markdown(render_meia_lua_card("FL2", real_fat_fl2, m['fat_fl2'], eh_faturamento=True), unsafe_allow_html=True)
+with col6:
+    st.markdown(render_meia_lua_card("FL6", real_fat_fl6, m['fat_fl6'], eh_faturamento=True), unsafe_allow_html=True)
+
+st.write("---")
 
 @st.cache_data(ttl=120)
 def analisar_carteira_clientes(df, df_mes, data_hoje):
@@ -499,151 +617,17 @@ def obter_badges_html(cliente_nome):
     info = dict_carteira.get(cliente_nome, {"tags": []})
     html = ""
     for tag in info["tags"]:
-        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">POSITIVADO</span>'
-        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">NÃO POSITIVADO</span>'
-        elif tag == "FILIAL 2": html += '<span style="background-color:#2E7D32; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 2</span>'
-        elif tag == "FILIAL 6": html += '<span style="background-color:#388E3C; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">FILIAL 6</span>'
-        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:3px;">⚠️ SUMIDO</span>'
+        if tag == "POSITIVADO": html += '<span style="background-color:#00875A; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">POSITIVADO</span>'
+        elif tag == "NÃO POSITIVADO": html += '<span style="background-color:#DE350B; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">NÃO POSITIVADO</span>'
+        elif tag == "FILIAL 2": html += '<span style="background-color:#0052CC; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 2</span>'
+        elif tag == "FILIAL 6": html += '<span style="background-color:#FF8B00; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">FILIAL 6</span>'
+        elif tag == "SUMIDO": html += '<span style="background-color:#6554C0; color:white; padding:4px 6px; border-radius:4px; font-weight:bold; font-size:12px; margin-right:4px;">⚠️ SUMIDO</span>'
     return html
 
 # ==============================================================================
-# NAVEGAÇÃO: BOTÃO COMPACTO "VOLTAR AO MENU" EM TODAS AS SUB-TELAS
+# --- ABA 1: OFERTAS ---
 # ==============================================================================
-if st.session_state.tela_atual != "Menu":
-    st.markdown('<div class="top-link">', unsafe_allow_html=True)
-    if st.button("⬅️ Menu", key="btn_voltar_menu"):
-        st.session_state.tela_atual = "Menu"
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.write("")
-
-# ==============================================================================
-# 📱 TELA PRINCIPAL: MENU DE BOTÕES (GRID MOBILE RESPONSIVO 2X2 AUMENTADO)
-# ==============================================================================
-if st.session_state.tela_atual == "Menu":
-    # Cabeçalho Compacto com Opções de Sincronização
-    col_img, col_info = st.columns([1, 3], vertical_alignment="center")
-    
-    with col_img:
-        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyPVIv2occ4qcx4coRayjeLgPd_z_VfLOBVIfgZB27s6EPQnm0UosImhQ&s=10", width=65)
-        
-    with col_info:
-        c1_link, c2_link = st.columns(2)
-        with c1_link:
-            st.markdown('<div class="top-link">', unsafe_allow_html=True)
-            if st.button("🔄 Sincronizar", key="hdr_sync"):
-                st.cache_data.clear()
-                st.toast("Base sincronizada!", icon="🔄")
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-        with c2_link:
-            st.markdown('<div class="top-link">', unsafe_allow_html=True)
-            if st.button("⚙️ Limpar Neon", key="hdr_neon"):
-                engine = obter_conexao_neon()
-                if engine:
-                    try:
-                        with engine.connect() as conn:
-                            conn.execute(text("TRUNCATE TABLE produtos_segmentos;"))
-                        st.toast("✅ Tabela Neon limpa!", icon="🧹")
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    st.write("---")
-    
-    # Grid 2x2 Expandido para facilitar o toque no celular
-    st.markdown('<div class="main-grid">', unsafe_allow_html=True)
-    
-    row1_col1, row1_col2 = st.columns(2)
-    with row1_col1:
-        if st.button("📊 Metas", key="btn_menu_metas"):
-            st.session_state.tela_atual = "Metas"
-            st.rerun()
-            
-    with row1_col2:
-        if st.button("🟢 Ofertas", key="btn_menu_ofertas"):
-            st.session_state.tela_atual = "Ofertas"
-            st.rerun()
-
-    row2_col1, row2_col2 = st.columns(2)
-    with row2_col1:
-        if st.button("🚨 Alertas", key="btn_menu_alertas"):
-            st.session_state.tela_atual = "Alertas"
-            st.rerun()
-
-    with row2_col2:
-        if st.button("🔍 Consultas", key="btn_menu_consultas"):
-            st.session_state.tela_atual = "Consultas"
-            st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ==============================================================================
-# 📊 TELA 1: METAS
-# ==============================================================================
-elif st.session_state.tela_atual == "Metas":
-    st.subheader("📊 Painel de Metas")
-    
-    df_fl2 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]
-    df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]
-
-    real_pos_fl2, real_pos_fl6 = df_fl2['Cliente'].nunique(), df_fl6['Cliente'].nunique()
-    real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.empty or not df_fl6.empty else 0
-    real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
-    real_fat_geral = real_fat_fl2 + real_fat_fl6
-
-    def exibir_kpi_linha(label, meta, realizado, eh_faturamento=False):
-        c1, c2, c3 = st.columns([1, 1, 1])
-        c1.write(f"**{label}**")
-        c2.write(f"Meta: {f'R$ {meta:,.0f}' if eh_faturamento else meta}")
-        c3.write(f"Real: {f'R$ {realizado:,.0f}' if eh_faturamento else realizado}")
-        
-        perc = (realizado / meta * 100) if meta > 0 else 0
-        cor = "#2E7D32" if perc >= 100 else "#DE350B"
-        st.markdown(f'<div style="background-color:{cor}; color:white; text-align:center; border-radius:4px; font-weight:bold; margin-bottom: 12px; padding: 3px;">{perc:.0f}%</div>', unsafe_allow_html=True)
-
-    if st.button("✏️ Editar Metas do Mês"): st.session_state.editar_aberto = True
-
-    if st.session_state.get('editar_aberto', False):
-        with st.expander("Configurar Metas", expanded=True):
-            m = st.session_state.metas_config.copy()
-            with st.form("form_metas"):
-                st.write("Positivação (Qtd Clientes)")
-                c1, c2, c3 = st.columns(3)
-                m['pos_geral'] = c1.number_input("Geral", value=int(m['pos_geral']), key="inp_pos_geral")
-                m['pos_fl2'] = c2.number_input("FL2", value=int(m['pos_fl2']), key="inp_pos_fl2")
-                m['pos_fl6'] = c3.number_input("FL6", value=int(m['pos_fl6']), key="inp_pos_fl6")
-                
-                st.write("Faturamento (R$)")
-                c4, c5, c6 = st.columns(3)
-                m['fat_geral'] = c4.number_input("Geral", value=float(m['fat_geral']), key="inp_fat_geral")
-                m['fat_fl2'] = c5.number_input("FL2", value=float(m['fat_fl2']), key="inp_fat_fl2")
-                m['fat_fl6'] = c6.number_input("FL6", value=float(m['fat_fl6']), key="inp_fat_fl6")
-                
-                if st.form_submit_button("Salvar Metas"):
-                    st.session_state.metas_config = m
-                    salvar_metas_neon(m)
-                    salvar_progresso_atual()
-                    st.session_state.editar_aberto = False
-                    st.toast("Metas salvas com sucesso!", icon="💾")
-                    st.rerun()
-
-    st.markdown("### Positivação")
-    m = st.session_state.metas_config
-    exibir_kpi_linha("Geral", m['pos_geral'], real_pos_geral)
-    exibir_kpi_linha("FL2", m['pos_fl2'], real_pos_fl2)
-    exibir_kpi_linha("FL6", m['pos_fl6'], real_pos_fl6)
-
-    st.write("---")
-    st.markdown("### ROB FATURAMENTO")
-    exibir_kpi_linha("Geral", m['fat_geral'], real_fat_geral, eh_faturamento=True)
-    exibir_kpi_linha("FL2", m['fat_fl2'], real_fat_fl2, eh_faturamento=True)
-    exibir_kpi_linha("FL6", m['fat_fl6'], real_fat_fl6, eh_faturamento=True)
-
-# ==============================================================================
-# 🟢 TELA 2: OFERTAS
-# ==============================================================================
-elif st.session_state.tela_atual == "Ofertas":
+if st.session_state.aba_atual == "🟢 Ofertas":
     st.subheader("📋 Painel de Transmissão c/ IA 🧠")
     st.markdown(f"📊 Envia hoje: **{st.session_state.envios_hoje}** listas")
     
@@ -652,13 +636,14 @@ elif st.session_state.tela_atual == "Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
+    # Prepara filtro de cidades - Busca apenas dentro dos colchetes unificados []
     cidades_disponiveis = set()
     for cli in dict_cadastro.keys():
         m = re.search(r'\[(.*?)\]', str(cli))
         if m: cidades_disponiveis.add(m.group(1).strip().upper())
     cidades_disponiveis = sorted(list(cidades_disponiveis))
 
-    cidades_selecionadas = st.multiselect("📍 Filtrar por Município(s):", options=cidades_disponiveis, placeholder="Selecione as cidades")
+    cidades_selecionadas = st.multiselect("📍 Filtrar lista de disparo por Município(s):", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
 
     with st.expander("📝 Inserir Bloco de Ofertas"):
         txt_novas = st.text_area("Cole as linhas de ofertas aqui:", height=100, key=f"txt_{id_fila}")
@@ -676,7 +661,7 @@ elif st.session_state.tela_atual == "Ofertas":
                         produtos_desconhecidos.append(linha)
                 
                 if produtos_desconhecidos:
-                    with st.spinner(f"🧠 IA aprendendo e classificando novos produtos..."):
+                    with st.spinner(f"🧠 IA aprendendo e classificando {len(produtos_desconhecidos)} novos produtos..."):
                         classificar_produtos_lote_ia(produtos_desconhecidos, dict_cadastro)
                 
                 prod_to_clientes = df_total.groupby('Produto')['Cliente'].unique().to_dict()
@@ -709,6 +694,10 @@ elif st.session_state.tela_atual == "Ofertas":
                         nome_cli_limpo = limpar_texto(cli_cad) 
                         if any(s in nome_cli_limpo for s in segs_oferta_limpos if len(s)>2):
                             interessados_seg.add(cli_cad)
+                                        
+                        cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
+                        if cardapio_texto and all(c in cardapio_texto for c in chaves):
+                            interessados_seg.add(cli_cad)
                     
                     for cli in (interessados_hist | interessados_seg):
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
@@ -726,7 +715,7 @@ elif st.session_state.tela_atual == "Ofertas":
                 
                 st.session_state[id_fila] = nova_fila
                 salvar_progresso_atual()
-                st.success("Fila vinculada e processada!")
+                st.success("Fila vinculada! Ofertas separadas (Histórico / Segmento)!")
                 st.rerun()
 
     st.write("---")
@@ -737,6 +726,7 @@ elif st.session_state.tela_atual == "Ofertas":
     else:
         clientes_restantes = list(fila_ativa.keys())
         
+        # Filtro de Município após gerar a lista:
         if cidades_selecionadas:
             cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas]
             filtrados = []
@@ -749,12 +739,12 @@ elif st.session_state.tela_atual == "Ofertas":
             clientes_restantes = filtrados
         
         if not clientes_restantes:
-            st.info("Nenhum cliente pendente para os municípios selecionados.")
+            st.info("Nenhum cliente pendente na fila para os municípios selecionados.")
         else:
             st.markdown(f"🎯 Pendentes na Fila: **{len(clientes_restantes)}**")
             
             st.selectbox(
-                "🚀 Puxar cliente para frente:", 
+                "🚀 Puxar cliente para a frente da fila:", 
                 options=["-- Digite ou selecione um cliente para adiantar --"] + clientes_restantes,
                 key=f"puxar_frente_{id_fila}",
                 on_change=adiantar_cliente_fila_callback,
@@ -765,6 +755,7 @@ elif st.session_state.tela_atual == "Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
+            # Cliente já está com string unificada: Cód - Nome (Fantasia) [Cidade]
             st.markdown(f"**🏢 {cliente_atual}**")
             st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
             st.write("")
@@ -772,7 +763,7 @@ elif st.session_state.tela_atual == "Ofertas":
             if st.session_state.cliente_ia_atual != cliente_atual:
                 st.session_state.cliente_ia_atual = cliente_atual
                 historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
-                with st.spinner("🧠 Gemini gerando mensagem personalizada..."):
+                with st.spinner("🧠 Gemini analisando cruzamentos e organizando formatação para WhatsApp..."):
                     st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
             
             st.code(st.session_state.msg_ia_atual, language=None)
@@ -787,32 +778,32 @@ elif st.session_state.tela_atual == "Ofertas":
                     salvar_progresso_atual()
                     st.rerun()
             with col_b2:
-                if st.button("❌ Excluir", key=f"ex_{str(cliente_atual)[:5]}"):
+                if st.button("❌ Excluir da Fila", key=f"ex_{str(cliente_atual)[:5]}"):
                     st.session_state[id_excluidos].add(cliente_atual)
                     del st.session_state[id_fila][cliente_atual]
                     st.session_state.cliente_ia_atual = ""
                     salvar_progresso_atual()
                     st.rerun()
             with col_b3:
-                if st.button("⏭️ Pular", key=f"pular_{str(cliente_atual)[:5]}"):
+                if st.button("⏭️ Pular p/ Final", key=f"pular_{str(cliente_atual)[:5]}"):
                     dados_cliente = st.session_state[id_fila].pop(cliente_atual)
                     st.session_state[id_fila][cliente_atual] = dados_cliente
                     st.session_state.cliente_ia_atual = ""
                     salvar_progresso_atual()
-                    st.toast(f"{cliente_atual} movido para o final!", icon="⏭️")
+                    st.toast(f"{cliente_atual} jogado para o final da fila!", icon="⏭️")
                     st.rerun()
 
 # ==============================================================================
-# 🚨 TELA 3: ALERTAS
+# --- ABA 2: ALERTAS ---
 # ==============================================================================
-elif st.session_state.tela_atual == "Alertas":
+elif st.session_state.aba_atual == "🚨 Alertas":
     st.subheader("🚨 Radar de Clientes Pendentes")
     if st.session_state.texto_supervisor_gerado:
         with st.expander("📋 RELATÓRIO DO SUPERVISOR GERADO", expanded=True):
-            st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=180, key="txt_sup_area_fix")
+            st.text_area("Texto estruturado:", value=st.session_state.texto_supervisor_gerado, height=200, key="txt_sup_area_fix")
             texto_js_safe = json.dumps(st.session_state.texto_supervisor_gerado)
             html_button_js = f"""
-            <button id="copyBtn" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 15px; cursor: pointer;">📋 Copiar Relatório</button>
+            <button id="copyBtn" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar Relatório</button>
             <script>
             document.getElementById('copyBtn').addEventListener('click', function() {{
                 navigator.clipboard.writeText({texto_js_safe});
@@ -821,7 +812,7 @@ elif st.session_state.tela_atual == "Alertas":
             }});
             </script>
             """
-            components.html(html_button_js, height=50)
+            components.html(html_button_js, height=55)
             
             if st.button("💾 Marcar Selecionados como Reportados"):
                 for c_nome in st.session_state.clientes_processados_aguardando:
@@ -834,7 +825,7 @@ elif st.session_state.tela_atual == "Alertas":
             st.write("---")
 
     st.markdown("### Filtros da Lista")
-    filtro_status = st.selectbox("Status de envio:", ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"])
+    filtro_status = st.selectbox("Filtrar por status de envio:", ["Mostrar todos", "Apenas Não Reportados", "Apenas Reportados"])
     busca_alerta = st.text_input("🔍 Buscar Cliente em Alerta:", placeholder="Digite o nome...").strip()
 
     grid_alertas = []
@@ -854,27 +845,27 @@ elif st.session_state.tela_atual == "Alertas":
         df_alertas_visuais = df_alertas_visuais[df_alertas_visuais['Cliente'].apply(lambda x: termo_limpo in limpar_texto(x))]
     
     if df_alertas_visuais.empty:
-        st.info("Nenhum cliente localizado.")
+        st.info("Nenhum cliente localizado para os filtros selecionados.")
     else:
-        st.markdown(f"📊 Total: **{len(df_alertas_visuais)}** clientes")
+        st.markdown(f"📊 Exibindo **{len(df_alertas_visuais)}** clientes nesta lista:")
         for idx, row in df_alertas_visuais.iterrows():
             c_nome = row["Cliente"]
             if f"chk_{c_nome}" not in st.session_state: st.session_state[f"chk_{c_nome}"] = False
             
             with st.container():
-                st.checkbox(f"📍 {c_nome} ({row['Dias']}d sem comprar)", key=f"chk_{c_nome}")
+                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
                 html_badges = obter_badges_html(c_nome)
-                if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:2px 4px; border-radius:3px; font-weight:bold; font-size:10px; margin-right:3px;">📅 REPORTADO</span>'
+                if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
                 st.markdown(html_badges, unsafe_allow_html=True)
                 
                 if st.button(f"🔍 Histórico...", key=f"btn_h_{idx}"):
                     st.session_state.busca_direta_cliente = c_nome
                     st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                    st.session_state.tela_atual = "Consultas"  
+                    st.session_state.aba_atual = "🔍 Consulta"  
                     st.rerun()
             st.write("---")
         
-        if st.button("⚡ GERAR RELATÓRIO SELECIONADOS", type="primary"):
+        if st.button("⚡ GERAR RELATÓRIO DOS SELECIONADOS", type="primary"):
             novo_texto_acumulado = ""
             clientes_selecionados_na_rodada = []
             
@@ -907,15 +898,15 @@ elif st.session_state.tela_atual == "Alertas":
                 st.session_state.clientes_processados_aguardando = clientes_selecionados_na_rodada
                 st.rerun()
             else:
-                st.warning("⚠️ Marque ao menos um cliente na lista!")
+                st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # ==============================================================================
-# 🔍 TELA 4: CONSULTAS
+# --- ABA 3: CONSULTA ---
 # ==============================================================================
-elif st.session_state.tela_atual == "Consultas":
+elif st.session_state.aba_atual == "🔍 Consulta":
     st.session_state.sub_aba_consulta = st.radio(
-        "Filtro:", 
-        ["👤 Por Cliente", "📦 Por Produto", "📉 Recuperação", "🏢 Exclusivos FL6", "🏆 Parceiros", "💲 Cotação"], 
+        "Filtro de Pesquisa:", 
+        ["👤 Por Cliente", "📦 Por Produto", "📉 Recuperação", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
         horizontal=True
     )
     st.write("---")
@@ -941,7 +932,7 @@ elif st.session_state.tela_atual == "Consultas":
                     st.markdown(f"<p style='font-size: 13px; margin-bottom: 2px;'>• {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})</p>", unsafe_allow_html=True)
                 
                 st.write("---")
-                st.write("📉 **Produtos Abandonados:**")
+                st.write("📉 **Produtos Abandonados (Parou de comprar):**")
                 
                 max_dates = df_cli.groupby('Produto')['Data_Datetime'].max()
                 abandonados = max_dates[max_dates.apply(lambda x: (data_atual_sistema - x).days > 30)].index.tolist()
@@ -961,17 +952,30 @@ elif st.session_state.tela_atual == "Consultas":
                             is_oferta = True
                             break
                     
-                    tag_oferta = " <span style='background-color:#DE350B; color:white; padding:1px 3px; border-radius:2px; font-size:9px; font-weight:bold;'>🚨 OFERTA</span>" if is_oferta else ""
-                    html_ab += f"<p style='font-size: 13px; margin-bottom: 2px;'>• {prod} <i>(⏳ {dias}d)</i>{tag_oferta}</p>"
+                    tag_oferta = " <span style='background-color:#DE350B; color:white; padding:2px 4px; border-radius:3px; font-size:10px; font-weight:bold;'>🚨 NA OFERTA!</span>" if is_oferta else ""
+                    html_ab += f"<p style='font-size: 13px; margin-bottom: 3px;'>• {prod} <i>(⏳ {dias} dias)</i>{tag_oferta}</p>"
                     texto_abandonados_p_ia += f"- {prod} ({dias} dias sem comprar) {'[ESTÁ NA OFERTA]' if is_oferta else ''}\n"
                 
                 if html_ab:
                     st.markdown(html_ab, unsafe_allow_html=True)
+                    texto_js_abandonados = json.dumps("Produtos Abandonados pelo Cliente:\n" + texto_abandonados_p_ia)
+                    components.html(f"""
+                        <button id="copyBtnAb" style="width: 100%; max-width: 200px; background-color: #42526E; color: white; border: none; padding: 8px; border-radius: 4px; font-weight: bold; font-size: 13px; cursor: pointer; margin-top: 5px;">📋 Copiar Abandonados</button>
+                        <script>
+                        document.getElementById('copyBtnAb').addEventListener('click', function() {{
+                            navigator.clipboard.writeText({texto_js_abandonados});
+                            this.innerText = '✅ Copiado!';
+                            setTimeout(() => {{ this.innerText = '📋 Copiar Abandonados'; }}, 2000);
+                        }});
+                        </script>
+                    """, height=50)
                 else:
-                    st.markdown("<p style='font-size: 13px;'>Nenhum abandono >30d.</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='font-size: 13px;'>Nenhum abandono acima de 30 dias detectado.</p>", unsafe_allow_html=True)
 
                 st.write("---")
-                st.markdown("### 💡 Venda Cruzada Inteligente")
+                st.markdown("### 💡 Venda Cruzada Inteligente (Oferta + Histórico + Cardápio)")
+                
+                info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
                 nome_limpo_cli = limpar_texto(c_sel)
                 
                 segmentos_do_cliente = set()
@@ -986,46 +990,100 @@ elif st.session_state.tela_atual == "Consultas":
                 for prod, segs in dict_produtos_segmentos.items():
                     if any(s in segmentos_do_cliente for s in segs) and prod not in produtos_ja_comprados:
                         sugestoes_segmento.append(prod)
+                        
+                if info_c_extra["cardapio"]:
+                    sugestoes_segmento.extend([i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()])
                 
                 chave_sessao_msg = f'msg_cruzada_{c_sel}'
                 
-                if st.button("🧠 Gerar Abordagem via IA", type="primary"):
+                if st.button("🧠 Gerar Abordagem de Vendas via IA", type="primary"):
                     prompt_cruzada = f"""
-                    Atue como vendedor B2B. Crie mensagem WhatsApp para '{c_sel}'.
-                    Abandonados: {texto_abandonados_p_ia if texto_abandonados_p_ia else "Nenhum."}
-                    Sugestões Segmento ({', '.join(segmentos_do_cliente)}): {', '.join(sugestoes_segmento[:5])}
-                    Ofertas hoje: {', '.join(ofertas_memoria[:6]) if ofertas_memoria else "Nenhuma"}
-                    REGRAS: Pule linhas, emojis, *negrito* nos produtos. Sem preços inventados.
+                    Atue como um excelente vendedor B2B da distribuidora Delly's. Crie uma mensagem curta de WhatsApp para o cliente '{c_sel}'.
+                    
+                    Use ESTES DADOS para construir a mensagem:
+                    1. Produtos que ele parou de comprar (Abandonados): 
+                    {texto_abandonados_p_ia if texto_abandonados_p_ia else "Nenhum no momento."}
+                    2. Sugestões inovadoras para o segmento dele ({', '.join(segmentos_do_cliente)}):
+                    {', '.join(sugestoes_segmento[:5])}
+                    3. Principais Ofertas de hoje:
+                    {', '.join(ofertas_memoria[:6]) if ofertas_memoria else "Nenhuma no momento"}
+                    
+                    REGRAS PARA A MENSAGEM:
+                    - MUITO IMPORTANTE: Se houver algum 'Produto Abandonado' que 'ESTÁ NA OFERTA', você DEVE enfatizar isso dizendo que o preço do que ele costumava comprar baixou.
+                    - Faça links inteligentes ("Vi que você tem Pizzaria, sugiro o produto X...").
+                    - Formato exclusivo para WhatsApp: Pule linhas (duplas) entre os assuntos, use Emojis e *negrito* nos nomes dos produtos.
+                    - NÃO INVENTE PREÇOS, deixe apenas os produtos.
+                    - Mensagem direta e vendedora.
                     """
                     with st.spinner("Conectando ao Gemini..."):
                         try:
                             modelo_msg = genai.GenerativeModel('gemini-1.5-flash')
                             st.session_state[chave_sessao_msg] = modelo_msg.generate_content(prompt_cruzada).text
                         except Exception as e:
-                            st.error(f"Erro ao gerar IA: {e}")
+                            st.error(f"Erro ao gerar com IA: {e}")
                 
                 if chave_sessao_msg in st.session_state and st.session_state[chave_sessao_msg]:
-                    st.text_area("Mensagem Formatada:", value=st.session_state[chave_sessao_msg], height=200)
+                    st.text_area("Mensagem Formatada:", value=st.session_state[chave_sessao_msg], height=220)
+                    texto_js_cruzada = json.dumps(st.session_state[chave_sessao_msg])
+                    components.html(f"""
+                        <button id="copyBtnCrz" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 15px; cursor: pointer;">📋 Copiar Mensagem para WhatsApp</button>
+                        <script>
+                        document.getElementById('copyBtnCrz').addEventListener('click', function() {{
+                            navigator.clipboard.writeText({texto_js_cruzada});
+                            this.innerText = '✅ Copiado com sucesso!';
+                            setTimeout(() => {{ this.innerText = '📋 Copiar Mensagem para WhatsApp'; }}, 2000);
+                        }});
+                        </script>
+                    """, height=55)
 
+            else:
+                st.warning("Cliente não encontrado.")
+                
     elif st.session_state.sub_aba_consulta == "📦 Por Produto":
         st.subheader("Análise por Produto")
         input_prod = st.text_input("Nome do produto:").strip()
         if input_prod:
             filtrados_p = filtrar_por_palavras(df_total, 'Produto_Busca', input_prod)
             if not filtrados_p.empty:
-                st.write(f"✅ Encontrados **{len(filtrados_p['Produto'].unique())}** produtos.")
+                st.write(f"✅ Encontrados **{len(filtrados_p['Produto'].unique())}** produtos semelhantes.")
+                st.markdown("### Top 10 Compradores deste Item")
                 top_compradores = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
                 for idx, row in top_compradores.iterrows():
                     st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Brut']:,.2f}")
             else:
-                st.warning("Nenhum produto encontrado.")
+                st.warning("Nenhum produto encontrado com este nome.")
 
     elif st.session_state.sub_aba_consulta == "📉 Recuperação":
-        st.subheader("📉 Ranking de Abandonos")
-        dias_corte = st.slider("Considerar abandono após (dias):", min_value=15, max_value=120, value=30, step=5)
+        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
+        st.write("Identifique clientes que compravam muito determinados itens e pararam. A lista agrupa todos os itens perdidos por cliente.")
         
-        with st.spinner("Calculando..."):
+        cidades_disponiveis_rec = set()
+        for cli in dict_cadastro.keys():
+            m = re.search(r'\[(.*?)\]', str(cli))
+            if m: cidades_disponiveis_rec.add(m.group(1).strip().upper())
+        cidades_disponiveis_rec = sorted(list(cidades_disponiveis_rec))
+        
+        cidades_selecionadas_rec = st.multiselect(
+            "📍 Filtrar Ranking por Município(s):", 
+            options=cidades_disponiveis_rec, 
+            placeholder="Selecione as cidades (deixe vazio para o ranking geral)"
+        )
+
+        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, step=5)
+        
+        with st.spinner("Calculando ranking de perdas no banco de dados..."):
             df_calc = df_total.dropna(subset=['Data_Datetime', 'Faturamento Brut', 'Cliente', 'Produto'])
+            
+            if cidades_selecionadas_rec:
+                cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
+                def check_city(cli):
+                    m_mun = re.search(r'\[(.*?)\]', str(cli))
+                    if m_mun:
+                        cidade_cli = limpar_texto(m_mun.group(1))
+                        return any(cs in cidade_cli or cidade_cli in cs for cs in cidades_sel_limpas)
+                    return False
+                df_calc = df_calc[df_calc['Cliente'].apply(check_city)]
+            
             agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
                 Fat_Total=('Faturamento Brut', 'sum'),
                 Ultima_Compra=('Data_Datetime', 'max'),
@@ -1033,6 +1091,7 @@ elif st.session_state.tela_atual == "Consultas":
             ).reset_index()
             
             agrupado['Dias_Sem_Comprar'] = (data_atual_sistema - agrupado['Ultima_Compra']).dt.days
+            
             abandonos = agrupado[(agrupado['Dias_Sem_Comprar'] >= dias_corte) & (agrupado['Fat_Total'] > 0)]
             
             clientes_abandonos = abandonos.groupby('Cliente').agg(
@@ -1040,31 +1099,68 @@ elif st.session_state.tela_atual == "Consultas":
             ).reset_index().sort_values(by='Fat_Perdido_Total', ascending=False).head(50)
             
         if clientes_abandonos.empty:
-            st.success("Nenhum abandono identificado!")
+            st.success("Nenhum abandono identificado para este período ou filtros selecionados!")
         else:
+            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
+            
+            st.markdown(f"**Top {len(clientes_abandonos)} Clientes com Maior Oportunidade de Recuperação (>{dias_corte} dias ausentes)**")
+            
             for idx, row_cli in clientes_abandonos.iterrows():
                 cliente_nome = row_cli['Cliente']
                 fat_total_cli = row_cli['Fat_Perdido_Total']
+                
                 prods_cli = abandonos[abandonos['Cliente'] == cliente_nome].sort_values(by='Fat_Total', ascending=False)
                 
-                with st.expander(f"🚨 {cliente_nome} — R$ {fat_total_cli:,.2f}"):
+                with st.expander(f"🚨 {cliente_nome} — Potencial: R$ {fat_total_cli:,.2f}"):
+                    st.markdown("**Itens que o cliente parou de comprar:**")
+                    
                     for _, p_row in prods_cli.iterrows():
-                        st.markdown(f"• {p_row['Produto']} | R$ {p_row['Fat_Total']:,.2f} ({p_row['Dias_Sem_Comprar']}d sem comprar)")
+                        prod = p_row['Produto']
+                        
+                        is_oferta = False
+                        if ofertas_memoria:
+                            for of in ofertas_memoria:
+                                if all(c in limpar_texto(of) for c in extrair_palavras_produto(prod)[:2]):
+                                    is_oferta = True
+                                    break
+                        
+                        tag_oferta = " <span style='background-color:#DE350B; color:white; padding:2px 4px; border-radius:3px; font-size:10px; font-weight:bold;'>🚨 NA OFERTA!</span>" if is_oferta else ""
+                        
+                        st.markdown(f"""
+                        <p style='font-size: 14px; margin-bottom: 4px; line-height: 1.2;'>
+                            • {prod} {tag_oferta}<br>
+                            <span style='color: gray; font-size: 12px;'>Histórico: R$ {p_row['Fat_Total']:,.2f} ({p_row['Qtd_Compras']} ped.) | Última compra: {p_row['Ultima_Compra'].strftime('%d/%m/%Y')} (há {p_row['Dias_Sem_Comprar']} dias)</span>
+                        </p>
+                        """, unsafe_allow_html=True)
+                    
+                    st.write("")
+                    if st.button(f"🔍 Ver Perfil Completo do Cliente", key=f"btn_recup_{idx}"):
+                        st.session_state.busca_direta_cliente = cliente_nome
+                        st.session_state.sub_aba_consulta = "👤 Por Cliente"
+                        st.rerun()
 
-    elif st.session_state.sub_aba_consulta == "🏢 Exclusivos FL6":
-        st.subheader("🎯 Clientes Exclusivos FL6")
+    elif st.session_state.sub_aba_consulta == "🏢 Exclusivos Filial 6":
+        st.subheader("🎯 Clientes Exclusivos da Filial 6")
+        st.write("Estes clientes compraram somente na Filial 6 este mês. Excelente gancho para oferecer o mix da Filial 2!")
+        
         clientes_fl6_mes = df_fl6['Cliente'].unique() if not df_fl6.empty else []
         clientes_fl2_mes = df_fl2['Cliente'].unique() if not df_fl2.empty else []
         exclusivos_fl6 = [c for c in clientes_fl6_mes if c not in clientes_fl2_mes]
         
         if not exclusivos_fl6:
-            st.info("Nenhum cliente exclusivo da Filial 6.")
+            st.info("Nenhum cliente exclusivo da Filial 6 identificado no mês atual.")
         else:
+            st.write(f"Identificados **{len(exclusivos_fl6)}** clientes nesta condição:")
             for c_excl in exclusivos_fl6:
-                st.write(f"🏢 {c_excl}")
+                with st.expander(f"🏢 {c_excl}"):
+                    df_c_excl = df_total[df_total['Cliente'] == c_excl]
+                    st.markdown("**Top itens comprados na FL6:**")
+                    top_compras_excl = df_c_excl.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
+                    for _, r in top_compras_excl.iterrows():
+                        st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
 
-    elif st.session_state.sub_aba_consulta == "🏆 Parceiros":
-        st.subheader("🎯 Marcas Estratégicas")
+    elif st.session_state.sub_aba_consulta == "🏆 Parceiros Estratégicos":
+        st.subheader("🎯 Oportunidades: Marcas Estratégicas")
         marcas_parceiras = {
             "Marca 1: Lebon, Doriana, Seara, Frangosul": ["lebon", "doriana", "seara", "frangosul"],
             "Marca 2: Frivatti": ["frivatti"],
@@ -1073,38 +1169,162 @@ elif st.session_state.tela_atual == "Consultas":
             "Marca 5: Ceratti": ["ceratti"],
             "Marca 6: Confrescor": ["confrescor"]
         }
-        marca_selecionada = st.selectbox("Selecione:", list(marcas_parceiras.keys()))
+        
+        col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
+        with col_m1: marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
+        with col_m2: produto_filtro = st.text_input("Filtro Adicional (Cód. ou Produto):", placeholder="Ex: Batata Mccain...")
+        with col_m3: busca_cliente_op = st.text_input("Localizar Cliente:", placeholder="Nome...")
+            
         palavras_da_marca = marcas_parceiras[marca_selecionada]
+        nome_amigavel_marca = marca_selecionada.split(':')[0]
         
-        mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
-        compradores_alvo_df = df_mes_atual[mask_marca]
-        st.info(f"📈 Positivados: **{compradores_alvo_df['Cliente'].nunique()}**")
+        clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
+        
+        if produto_filtro.strip():
+            compradores_alvo_df = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
+            texto_aviso = f"o produto '{produto_filtro.strip()}'"
+        else:
+            mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
+            compradores_alvo_df = df_mes_atual[mask_marca]
+            texto_aviso = f"nenhum produto da marca selecionada"
 
-    elif st.session_state.sub_aba_consulta == "💲 Cotação":
-        st.subheader("💲 Cotação Ágil")
-        texto_cotacao = st.text_area("📋 Cole a lista de produtos:", height=130)
+        compradores_alvo = compradores_alvo_df['Cliente'].unique().tolist()
+            
+        col_kpi, col_btn = st.columns([2, 1])
+        with col_kpi:
+            st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
         
-        if st.button("🔍 Cruzar Ofertas", type="primary"):
-            if texto_cotacao.strip():
-                ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
-                if not ofertas_memoria:
-                    st.warning("⚠️ Insira ofertas na tela 'Ofertas' antes.")
-                else:
-                    linhas_cot = [l.strip() for l in texto_cotacao.split('\n') if l.strip()]
-                    resultado_final = []
-                    for linha_cot in linhas_cot:
-                        chaves_cot = extrair_palavras_produto(linha_cot)
-                        match_encontrado = False
-                        if chaves_cot:
-                            for of in ofertas_memoria:
-                                if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
-                                    resultado_final.append(of)
-                                    match_encontrado = True; break
-                        if not match_encontrado: resultado_final.append(linha_cot) 
-                    st.session_state.resultado_cotacao = "\n".join(resultado_final)
-                    st.success("✅ Cotação concluída!")
+        with col_btn:
+            if not compradores_alvo_df.empty:
+                compradores_alvo_df['Data_Formatada'] = pd.to_datetime(compradores_alvo_df['Dt. Delivery']).dt.strftime('%d/%m/%Y')
+                df_export = compradores_alvo_df[['Data_Formatada', 'Cliente', 'Produto']].copy()
+                df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_export.to_excel(writer, index=False, sheet_name='Positivados')
+                st.download_button(label="📥 Baixar Excel", data=buffer.getvalue(), file_name=f"positivados.xlsx")
+        
+        clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
+        clientes_oportunidade = [c for c in clientes_oportunidade_brutos if busca_cliente_op.strip().upper() in c.upper()]
+        
+        st.write("---")
+        if not clientes_oportunidade:
+            st.success(f"Excelente! Todos os clientes positivados este mês já compraram {texto_aviso}.")
+        else:
+            st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
+            for c_op in clientes_oportunidade:
+                with st.expander(f"📍 {c_op}"):
+                    df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
+                    st.markdown("**O que ele comprou neste mês (Outras Marcas):**")
+                    top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
+                    for _, r in top_compras_op.iterrows():
+                        st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
+
+# ==============================================================================
+# --- ABA 4: COTAÇÃO ---
+# ==============================================================================
+elif st.session_state.aba_atual == "💲 Cotação":
+    st.subheader("💲 Sistema Ágil de Cotação")
+    st.markdown("Cole sua lista de produtos solicitados pelo cliente. O sistema vai cruzar com as ofertas ativas hoje.")
+    
+    texto_cotacao = st.text_area("📋 Cole a lista de produtos (um por linha):", height=200)
+    
+    if st.button("🔍 Cruzar com Ofertas da Memória", type="primary"):
+        if texto_cotacao.strip():
+            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
+            if not ofertas_memoria:
+                st.warning("⚠️ Cole as ofertas do dia na aba 'Ofertas' antes de realizar cotações cruzadas.")
             else:
-                st.warning("Cole os produtos.")
+                linhas_cot = [l.strip() for l in texto_cotacao.split('\n') if l.strip()]
+                resultado_final = []
+                for linha_cot in linhas_cot:
+                    chaves_cot = extrair_palavras_produto(linha_cot)
+                    match_encontrado = False
+                    if chaves_cot:
+                        for of in ofertas_memoria:
+                            if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
+                                resultado_final.append(of)
+                                match_encontrado = True; break
+                            elif len(chaves_cot) < 2 and limpar_texto(chaves_cot[0]) in limpar_texto(of):
+                                resultado_final.append(of)
+                                match_encontrado = True; break
+                    if not match_encontrado: resultado_final.append(linha_cot) 
+                st.session_state.resultado_cotacao = "\n".join(resultado_final)
+                st.success("✅ Cotação cruzada com sucesso!")
+        else:
+            st.warning("Cole alguma lista.")
+            
+    if "resultado_cotacao" in st.session_state and st.session_state.resultado_cotacao:
+        st.text_area("🎯 Lista Pronta para Retorno:", value=st.session_state.resultado_cotacao, height=300)
+        
+        texto_js_safe_cot = json.dumps(st.session_state.resultado_cotacao)
+        components.html(f"""
+        <button id="copyBtnCot" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar para WhatsApp</button>
+        <script>
+        document.getElementById('copyBtnCot').addEventListener('click', function() {{
+            navigator.clipboard.writeText({texto_js_safe_cot});
+            this.innerText = '✅ Copiado com sucesso!';
+            setTimeout(() => {{ this.innerText = '📋 Copiar para WhatsApp'; }}, 2000);
+        }});
+        </script>
+        """, height=55)
+
+# ==============================================================================
+# --- ABA 5: CARDÁPIOS ---
+# ==============================================================================
+elif st.session_state.aba_atual == "🍔 Cardápios":
+    st.subheader("📝 Cadastro Inteligente de Cardápios")
+    st.write("Insira os produtos do cardápio do cliente. O sistema salvará no Neon e cruzará com todas as recomendações da sua carteira.")
+
+    clientes_lista = sorted([c for c in df_total['Cliente'].dropna().unique() if str(c).strip()])
+    cliente_selecionado = st.selectbox("🔍 Selecione o Cliente (digite para buscar):", ["-- Selecione --"] + clientes_lista)
+
+    if cliente_selecionado != "-- Selecione --":
+        texto_cardapio = st.text_area("📋 Cole os produtos do cardápio (um por linha):", height=150)
+        
+        if 'alerta_cardapio' not in st.session_state:
+            st.session_state.alerta_cardapio = False
+        
+        if st.button("💾 Analisar e Salvar", type="primary"):
+            if texto_cardapio.strip():
+                linhas = [l.strip() for l in texto_cardapio.split('\n') if l.strip()]
+                novos_produtos = []
+                for linha in linhas:
+                    limpo = limpar_texto(linha)
+                    if limpo and limpo not in novos_produtos:
+                        novos_produtos.append(limpo)
                 
-        if "resultado_cotacao" in st.session_state and st.session_state.resultado_cotacao:
-            st.text_area("🎯 Resultado:", value=st.session_state.resultado_cotacao, height=180)
+                st.session_state.temp_novos_produtos = novos_produtos
+                
+                if cliente_selecionado in dict_cardapios_neon:
+                    st.session_state.alerta_cardapio = True
+                    st.rerun()
+                else:
+                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    salvar_cardapio_neon(cliente_selecionado, novos_produtos, info_cli.get("fantasia", ""))
+                    st.success("✅ Cardápio salvo com sucesso no banco de dados!")
+                    st.session_state.alerta_cardapio = False
+                    st.rerun()
+            else:
+                st.warning("⚠️ O campo de produtos está vazio.")
+                    
+        if st.session_state.get('alerta_cardapio', False):
+            st.warning(f"⚠️ O cliente **{cliente_selecionado}** já possui um cardápio cadastrado!")
+            st.write("**Produtos já existentes:**", ", ".join(dict_cardapios_neon[cliente_selecionado]))
+            
+            col_up, col_ig = st.columns(2)
+            with col_up:
+                if st.button("🔄 Atualizar Cardápio (Adicionar Novos)"):
+                    produtos_antigos = dict_cardapios_neon[cliente_selecionado]
+                    produtos_combinados = list(set(produtos_antigos + st.session_state.temp_novos_produtos))
+                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    salvar_cardapio_neon(cliente_selecionado, produtos_combinados, info_cli.get("fantasia", ""))
+                    st.success("✅ Cardápio atualizado com novos itens e Fantasia sincronizada!")
+                    st.session_state.alerta_cardapio = False
+                    st.rerun()
+            with col_ig:
+                if st.button("❌ Ignorar (Cancelar)"):
+                    st.session_state.alerta_cardapio = False
+                    st.info("Ação cancelada.")
+                    st.rerun()
