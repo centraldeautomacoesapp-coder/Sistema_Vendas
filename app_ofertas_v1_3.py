@@ -329,14 +329,26 @@ if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
 # BARRAL LATERAL (SIDEBAR) - NAVEGAÇÃO
 # ==============================================================================
 with st.sidebar:
-        st.markdown("### 🧭 Menu de Navegação")
+    st.markdown("### 🧭 Menu de Navegação")
     
-    if st.button("📊 Painel Metas", type="primary" if st.session_state.aba_atual == "📊 Painel Metas" else "secondary"): st.session_state.aba_atual = "📊 Painel Metas"; st.rerun()
-    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
-    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): st.session_state.aba_atual = "🚨 Alertas"; st.rerun()
-    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): st.session_state.aba_atual = "🔍 Consulta"; st.rerun()
-    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): st.session_state.aba_atual = "💲 Cotação"; st.rerun()
-    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): st.session_state.aba_atual = "🍔 Cardápios"; st.rerun()
+    if st.button("📊 Painel Metas", type="primary" if st.session_state.aba_atual == "📊 Painel Metas" else "secondary"): 
+        st.session_state.aba_atual = "📊 Painel Metas"
+        st.rerun()
+    if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): 
+        st.session_state.aba_atual = "🟢 Ofertas"
+        st.rerun()
+    if st.button("🚨 Alertas", type="primary" if st.session_state.aba_atual == "🚨 Alertas" else "secondary"): 
+        st.session_state.aba_atual = "🚨 Alertas"
+        st.rerun()
+    if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): 
+        st.session_state.aba_atual = "🔍 Consulta"
+        st.rerun()
+    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): 
+        st.session_state.aba_atual = "💲 Cotação"
+        st.rerun()
+    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): 
+        st.session_state.aba_atual = "🍔 Cardápios"
+        st.rerun()
 
     st.write("---")
     
