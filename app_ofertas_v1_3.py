@@ -53,6 +53,76 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
+# --- EXTRAÇÃO E COMPOSIÇÃO DO CARD DO CLIENTE ---
+def extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos):
+    cliente_str = str(cliente_nome).strip()
+    
+    # 1. Código
+    m_cod = re.match(r'^(\d+)', cliente_str)
+    codigo = m_cod.group(1) if m_cod else "S/C"
+    
+    # 2. Dados do cadastro
+    info = dict_cadastro.get(cliente_nome, {})
+    fantasia = info.get("fantasia", "").strip()
+    cidade = info.get("municipio", "").strip()
+    
+    if not fantasia:
+        m_fan = re.search(r'\((.*?)\)', cliente_str)
+        if m_fan: fantasia = m_fan.group(1).strip()
+        
+    if not cidade:
+        m_mun = re.search(r'\[(.*?)\]', cliente_str)
+        if m_mun: cidade = m_mun.group(1).strip()
+        
+    # 3. Nome Limpo do Cliente (sem código, fantasia ou cidade)
+    nome_limpo = cliente_str
+    if m_cod:
+        nome_limpo = re.sub(r'^\d+\s*[-|–]?\s*', '', nome_limpo)
+    nome_limpo = re.sub(r'\s*\(.*?\)', '', nome_limpo)
+    nome_limpo = re.sub(r'\s*\[.*?\]', '', nome_limpo).strip()
+    if not nome_limpo:
+        nome_limpo = cliente_str
+        
+    # 4. Segmento do Cliente (Cruzamento inteligente com o cadastro / IA)
+    segmentos_encontrados = set()
+    nome_busca = limpar_texto(cliente_str)
+    for prod, segs in dict_produtos_segmentos.items():
+        for s in segs:
+            s_limp = limpar_texto(s)
+            if len(s_limp) > 2 and s_limp in nome_busca:
+                segmentos_encontrados.add(s.capitalize())
+                
+    segmento_str = ", ".join(sorted(list(segmentos_encontrados))) if segmentos_encontrados else "Geral / Não Especificado"
+    
+    return {
+        "codigo": codigo,
+        "nome": nome_limpo,
+        "fantasia": fantasia if fantasia else "Não informada",
+        "cidade": cidade if cidade else "Não informada",
+        "segmento": segmento_str
+    }
+
+def renderizar_card_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos, badges_html=""):
+    detalhes = extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos)
+    
+    html_card = f"""
+    <div style="background-color: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+        <div style="font-size: 16px; font-weight: bold; color: #172b4d; margin-bottom: 4px;">
+            🏢 {detalhes['codigo']} - {detalhes['nome']}
+        </div>
+        <div style="font-size: 14px; color: #253858; margin-bottom: 4px;">
+            <b>🏷️ Fantasia:</b> {detalhes['fantasia']}
+        </div>
+        <div style="font-size: 13px; color: #5e6c84; margin-bottom: 8px;">
+            <b>📍 Cidade:</b> {detalhes['cidade']} &nbsp;|&nbsp; <b>🍽️ Segmento:</b> {detalhes['segmento']}
+        </div>
+        <div>
+            {badges_html}
+        </div>
+    </div>
+    """
+    st.markdown(html_card, unsafe_allow_html=True)
+
 # --- CONFIGURAÇÃO DA API DO GEMINI ---
 try:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -326,7 +396,7 @@ if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🟢 Ofert
 if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
 
 # ==============================================================================
-# BARRAL LATERAL (SIDEBAR) - NAVEGAÇÃO
+# BARRA LATERAL (SIDEBAR) - NAVEGAÇÃO
 # ==============================================================================
 with st.sidebar:
     st.markdown("### 🧭 Menu de Navegação")
@@ -791,9 +861,8 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
-            st.markdown(f"**🏢 {cliente_atual}**")
-            st.markdown(obter_badges_html(cliente_atual), unsafe_allow_html=True)
-            st.write("")
+            # --- NOVO CARD VISUAL E ESTRUTURADO DO CLIENTE ---
+            renderizar_card_cliente(cliente_atual, dict_cadastro, dict_produtos_segmentos, obter_badges_html(cliente_atual))
             
             if st.session_state.cliente_ia_atual != cliente_atual:
                 st.session_state.cliente_ia_atual = cliente_atual
@@ -888,10 +957,10 @@ elif st.session_state.aba_atual == "🚨 Alertas":
             if f"chk_{c_nome}" not in st.session_state: st.session_state[f"chk_{c_nome}"] = False
             
             with st.container():
-                st.checkbox(f"📍 {c_nome} ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
+                st.checkbox(f"📍 Selecionar para Relatório ({row['Dias']} dias sem comprar)", key=f"chk_{c_nome}")
                 html_badges = obter_badges_html(c_nome)
                 if row["Reportado"]: html_badges += '<span style="background-color:#FFC400; color:#111; padding:3px 5px; border-radius:4px; font-weight:bold; font-size:11px; margin-right:4px;">📅 JÁ REPORTADO</span>'
-                st.markdown(html_badges, unsafe_allow_html=True)
+                renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, html_badges)
                 
                 if st.button(f"🔍 Histórico...", key=f"btn_h_{idx}"):
                     st.session_state.busca_direta_cliente = c_nome
@@ -956,8 +1025,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             
             if len(nomes_encontrados) > 0:
                 c_sel = st.selectbox("Selecione o Cliente:", nomes_encontrados)
-                st.markdown(f"### Ficha: {c_sel}")
-                st.markdown(obter_badges_html(c_sel), unsafe_allow_html=True)
+                
+                # --- CARD NOVO E VISUAL DO CLIENTE ---
+                renderizar_card_cliente(c_sel, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_sel))
                 
                 df_cli = df_total[df_total['Cliente'] == c_sel]
                 st.write("**Mix de Itens Históricos:**")
@@ -1146,7 +1216,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 prods_cli = abandonos[abandonos['Cliente'] == cliente_nome].sort_values(by='Fat_Total', ascending=False)
                 
-                with st.expander(f"🚨 {cliente_nome} — Potencial: R$ {fat_total_cli:,.2f}"):
+                detalhes_c = extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos)
+                
+                with st.expander(f"🚨 {detalhes_c['codigo']} - {detalhes_c['nome']} (Fantasia: {detalhes_c['fantasia']}) — Potencial: R$ {fat_total_cli:,.2f}"):
                     st.markdown("**Itens que o cliente parou de comprar:**")
                     
                     for _, p_row in prods_cli.iterrows():
@@ -1187,7 +1259,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         else:
             st.write(f"Identificados **{len(exclusivos_fl6)}** clientes nesta condição:")
             for c_excl in exclusivos_fl6:
-                with st.expander(f"🏢 {c_excl}"):
+                renderizar_card_cliente(c_excl, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_excl))
+                with st.expander(f"📦 Ver Mix Comprado na FL6 por {c_excl}"):
                     df_c_excl = df_total[df_total['Cliente'] == c_excl]
                     st.markdown("**Top itens comprados na FL6:**")
                     top_compras_excl = df_c_excl.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
@@ -1249,9 +1322,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         else:
             st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
             for c_op in clientes_oportunidade:
-                with st.expander(f"📍 {c_op}"):
+                renderizar_card_cliente(c_op, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_op))
+                with st.expander(f"📦 O que ele comprou neste mês (Outras Marcas)"):
                     df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
-                    st.markdown("**O que ele comprou neste mês (Outras Marcas):**")
                     top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
                     for _, r in top_compras_op.iterrows():
                         st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
