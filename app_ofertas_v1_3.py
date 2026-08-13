@@ -528,12 +528,25 @@ p_pos_f6 = (real_pos_fl6 / m['pos_fl6'] * 100) if m['pos_fl6'] > 0 else 0
 def formatar_brl(valor):
     return f"R${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- BARRINHA FIXA MINIMALISTA NO TOPO DA TELA ---
+def obter_cor_pct(p):
+    if p < 50:
+        return "#DE350B"  # Vermelho (0 a 49%)
+    elif p < 80:
+        return "#D97706"  # Amarelo (50 a 79%)
+    elif p < 100:
+        return "#0052CC"  # Azul (80 a 99%)
+    else:
+        return "#00875A"  # Verde (100% ou mais)
+
+def fmt_pct_html(p):
+    cor = obter_cor_pct(p)
+    return f'<span style="color: {cor}; font-weight: bold;">{p:.1f}%</span>'
+
+# --- BARRINHA FIXA MINIMALISTA EM 2 LINHAS NO TOPO DA TELA ---
 st.markdown(f"""
-<div style="background-color: #f4f5f7; border: 1px solid #dcdfe6; border-radius: 6px; padding: 4px 8px; text-align: center; margin-bottom: 12px; font-size: 11px; color: #172b4d;">
-    <b>ROB:</b> G {p_fat_g:.1f}% | FL2 {p_fat_f2:.1f}% | FL6 {p_fat_f6:.1f}% 
-    &nbsp;&nbsp;<b>—</b>&nbsp;&nbsp; 
-    <b>POS:</b> G {p_pos_g:.1f}% | FL2 {p_pos_f2:.1f}% | FL6 {p_pos_f6:.1f}%
+<div style="background-color: #f4f5f7; border: 1px solid #dcdfe6; border-radius: 6px; padding: 6px 12px; text-align: center; margin-bottom: 12px; font-size: 13px; color: #172b4d; line-height: 1.6;">
+    <div><b>ROB:</b> G {fmt_pct_html(p_fat_g)} | FL2 {fmt_pct_html(p_fat_f2)} | FL6 {fmt_pct_html(p_fat_f6)}</div>
+    <div><b>POS:</b> G {fmt_pct_html(p_pos_g)} | FL2 {fmt_pct_html(p_pos_f2)} | FL6 {fmt_pct_html(p_pos_f6)}</div>
 </div>
 """, unsafe_allow_html=True)
 
