@@ -49,7 +49,7 @@ def extrair_codigo_nome(linha):
 def extrair_palavras_produto(linha):
     _, nome_produto = extrair_codigo_nome(linha)
     linha_limpa = re.sub(r'[^\w\s]', ' ', limpar_texto(nome_produto))
-    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pc', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
+    ignorar = ['da', 'de', 'do', 'e', 'o', 'a', 'com', 'para', 'em', 'kg', 'g', 'un', 'cx', 'rl', 'pct', 'rs', 'r', 'unid', 'pc', 'promocao', 'oferta', 'frita', 'fritas', 'congelada', 'congeladas']
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
@@ -61,10 +61,14 @@ def extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmento
     m_cod = re.match(r'^(\d+)', cliente_str)
     codigo = m_cod.group(1) if m_cod else "S/C"
     
-    # 2. Dados do cadastro
-    info = dict_cadastro.get(cliente_nome, {})
+    # 2. Dados do cadastro (Busca por Nome ou Código)
+    info = dict_cadastro.get(cliente_str, {})
+    if not info and codigo != "S/C":
+        info = dict_cadastro.get(codigo, {})
+        
     fantasia = info.get("fantasia", "").strip()
-    cidade = info.get("municipio", "").strip()
+    cidade = info.get("cidade", "").strip() or info.get("municipio", "").strip()
+    segmento_cad = info.get("segmento", "").strip()
     
     if not fantasia:
         m_fan = re.search(r'\((.*?)\)', cliente_str)
@@ -85,13 +89,16 @@ def extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmento
         
     # 4. Segmento do Cliente (Cruzamento inteligente com o cadastro / IA)
     segmentos_encontrados = set()
-    nome_busca = limpar_texto(cliente_str)
+    if segmento_cad:
+        segmentos_encontrados.add(segmento_cad.capitalize())
+
+    nome_busca = limpar_texto(cliente_str) + " " + limpar_texto(fantasia)
     for prod, segs in dict_produtos_segmentos.items():
         for s in segs:
             s_limp = limpar_texto(s)
             if len(s_limp) > 2 and s_limp in nome_busca:
                 segmentos_encontrados.add(s.capitalize())
-                
+                    
     segmento_str = ", ".join(sorted(list(segmentos_encontrados))) if segmentos_encontrados else "Geral / Não Especificado"
     
     return {
@@ -145,15 +152,57 @@ def carregar_dados_nuvem(data_atual):
         gdown.download_folder(DRIVE_CADASTRO, output=pasta_destino, quiet=True)
     except: pass
     
-    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True)
+    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True) + \
+                     glob.glob(os.path.join(pasta_destino, "**", "*.xls"), recursive=True)
     
     cod_to_full = {}
     cadastro_clientes = {}
     
-    # PASSO 1: Identificar a planilha que possui a coluna unificada
+    # PASSO 1: Mapear Planilhas de Cadastro e Colunas Unificadas
     for arquivo in arquivos_excel:
         try:
             df = pd.read_excel(arquivo)
+            df_cols_clean = [limpar_texto(c) for c in df.columns]
+            
+            # Identifica colunas específicas de cadastro na planilha
+            c_cod = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cod', 'codigo'])), None)
+            c_cli = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cliente', 'razao', 'nome']) and 'fantasia' not in c), None)
+            c_fan = next((df.columns[i] for i, c in enumerate(df_cols_clean) if 'fantasia' in c), None)
+            c_cid = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cidade', 'municipio'])), None)
+            c_seg = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['segmento', 'ramo'])), None)
+
+            # 1.1 Mapeia linhas das colunas estruturadas
+            if (c_cod or c_cli) and (c_fan or c_cid or c_seg):
+                for _, row in df.iterrows():
+                    cod_val = str(row[c_cod]).strip() if c_cod and pd.notna(row[c_cod]) else ""
+                    m_c = re.match(r'^(\d+)', cod_val)
+                    if m_c: cod_val = m_c.group(1)
+                    
+                    fan_val = str(row[c_fan]).strip() if c_fan and pd.notna(row[c_fan]) else ""
+                    cid_val = str(row[c_cid]).strip() if c_cid and pd.notna(row[c_cid]) else ""
+                    seg_val = str(row[c_seg]).strip() if c_seg and pd.notna(row[c_seg]) else ""
+                    
+                    if fan_val.lower() == 'nan': fan_val = ""
+                    if cid_val.lower() == 'nan': cid_val = ""
+                    if seg_val.lower() == 'nan': seg_val = ""
+
+                    dict_info = {
+                        "fantasia": fan_val,
+                        "cidade": cid_val,
+                        "municipio": cid_val,
+                        "segmento": seg_val,
+                        "cardapio": ""
+                    }
+
+                    if cod_val:
+                        if cod_val not in cadastro_clientes or not cadastro_clientes[cod_val].get("fantasia"):
+                            cadastro_clientes[cod_val] = dict_info
+                    if c_cli and pd.notna(row[c_cli]):
+                        cli_val = str(row[c_cli]).strip().upper()
+                        if cli_val not in cadastro_clientes or not cadastro_clientes[cli_val].get("fantasia"):
+                            cadastro_clientes[cli_val] = dict_info
+
+            # 1.2 Procura por colunas unificadas tipo "CÓDIGO - NOME (FANTASIA) [CIDADE]"
             for col in df.columns:
                 s_col = df[col].astype(str)
                 mask = s_col.str.contains(r'^\d+\s*[-|–]?\s*.*\s*\[.*\]', regex=True, na=False)
@@ -167,12 +216,18 @@ def carregar_dados_nuvem(data_atual):
                             
                             m_fan = re.search(r'\((.*?)\)', val_str)
                             m_mun = re.search(r'\[(.*?)\]', val_str)
-                            if val_str not in cadastro_clientes:
-                                cadastro_clientes[val_str] = {
-                                    "fantasia": m_fan.group(1).strip() if m_fan else "",
-                                    "municipio": m_mun.group(1).strip() if m_mun else "",
-                                    "cardapio": ""
-                                }
+                            
+                            fan_ext = m_fan.group(1).strip() if m_fan else ""
+                            cid_ext = m_mun.group(1).strip() if m_mun else ""
+                            
+                            exist = cadastro_clientes.get(val_str, {})
+                            cadastro_clientes[val_str] = {
+                                "fantasia": exist.get("fantasia") or fan_ext,
+                                "cidade": exist.get("cidade") or cid_ext,
+                                "municipio": exist.get("municipio") or cid_ext,
+                                "segmento": exist.get("segmento") or "",
+                                "cardapio": exist.get("cardapio") or ""
+                            }
         except: pass
         
     # PASSO 2: Carregar faturamento
@@ -221,14 +276,25 @@ def carregar_dados_nuvem(data_atual):
         unificado = unificado[unificado['Cliente'] != 'NAN']
         
         for cli in unificado['Cliente'].unique():
-            if cli not in cadastro_clientes:
-                m_fan = re.search(r'\((.*?)\)', str(cli))
-                m_mun = re.search(r'\[(.*?)\]', str(cli))
-                cadastro_clientes[cli] = {
-                    "fantasia": m_fan.group(1).strip() if m_fan else "",
-                    "municipio": m_mun.group(1).strip() if m_mun else "",
-                    "cardapio": ""
-                }
+            m_cod = re.match(r'^(\d+)', str(cli))
+            cod = m_cod.group(1) if m_cod else ""
+            
+            info_existente = cadastro_clientes.get(cli) or cadastro_clientes.get(cod, {})
+            
+            m_fan = re.search(r'\((.*?)\)', str(cli))
+            m_mun = re.search(r'\[(.*?)\]', str(cli))
+            
+            fan_final = info_existente.get("fantasia") or (m_fan.group(1).strip() if m_fan else "")
+            cid_final = info_existente.get("cidade") or info_existente.get("municipio") or (m_mun.group(1).strip() if m_mun else "")
+            seg_final = info_existente.get("segmento", "")
+
+            cadastro_clientes[cli] = {
+                "fantasia": fan_final,
+                "cidade": cid_final,
+                "municipio": cid_final,
+                "segmento": seg_final,
+                "cardapio": info_existente.get("cardapio", "")
+            }
 
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
         unificado['Ano_Mes'] = unificado['Data_Datetime'].dt.strftime('%Y-%m')
@@ -236,7 +302,7 @@ def carregar_dados_nuvem(data_atual):
         unificado['Cliente_Busca'] = unificado['Cliente'].apply(limpar_texto)
         if 'Filial' not in unificado.columns: unificado['Filial'] = "1"
         return {"df": unificado, "cadastro": cadastro_clientes}
-    return {"df": pd.DataFrame(), "cadastro": {}}
+    return {"df": pd.DataFrame(), "cadastro": cadastro_clientes}
 
 # --- 🗄️ INTEGRAÇÃO COM O BANCO DE DADOS NEON ---
 def obter_conexao_neon():
@@ -316,7 +382,8 @@ def extrair_segmentos_reais_base(dict_cad):
     ignorar = ['ltda', 'me', 'eireli', 'cia', 'restaurante', 'bar', 'lanchonete', 'comercio', 'alimentos', 'mercado', 'distribuidora', 'hortifruti']
     for info in dict_cad.values():
         fantasia = limpar_texto(info.get('fantasia', ''))
-        for p in fantasia.split():
+        seg = limpar_texto(info.get('segmento', ''))
+        for p in (fantasia + " " + seg).split():
             if len(p) > 3 and p not in ignorar: palavras.append(p)
     contagem = collections.Counter(palavras)
     top_termos = [p[0].capitalize() for p in contagem.most_common(30)]
@@ -367,7 +434,7 @@ with st.spinner("Sincronizando base de dados e IA..."):
         if cli_neon in dict_cadastro:
             dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
         else:
-            dict_cadastro[cli_neon] = {"fantasia": "", "municipio": "", "cardapio": ", ".join(prods_neon)}
+            dict_cadastro[cli_neon] = {"fantasia": "", "cidade": "", "municipio": "", "segmento": "", "cardapio": ", ".join(prods_neon)}
 
 if df_total.empty:
     st.warning("Base de dados de vendas vazia ou pendente de processamento no Drive.")
@@ -744,10 +811,28 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
     id_memoria = "memoria_ofertas_cruas_dia" if "☀️" in tipo_lista else "memoria_ofertas_cruas_rel"
     id_excluidos = "excluidos_ofertas_dia" if "☀️" in tipo_lista else "excluidos_ofertas_relampago"
     
+    # Extração robusta das cidades para o Filtro de Município
     cidades_disponiveis = set()
-    for cli in dict_cadastro.keys():
+    for cli_cad, info_cad in dict_cadastro.items():
+        cid = info_cad.get("cidade") or info_cad.get("municipio")
+        if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
+            cidades_disponiveis.add(str(cid).strip().upper())
+        m = re.search(r'\[(.*?)\]', str(cli_cad))
+        if m and m.group(1).strip():
+            cidades_disponiveis.add(m.group(1).strip().upper())
+
+    for cli in df_total['Cliente'].unique():
+        if pd.isna(cli) or str(cli).lower() == 'nan': continue
+        m_cod = re.match(r'^(\d+)', str(cli))
+        codigo = m_cod.group(1) if m_cod else ""
+        info = dict_cadastro.get(str(cli), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
+        cid = info.get("cidade") or info.get("municipio")
+        if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
+            cidades_disponiveis.add(str(cid).strip().upper())
         m = re.search(r'\[(.*?)\]', str(cli))
-        if m: cidades_disponiveis.add(m.group(1).strip().upper())
+        if m and m.group(1).strip():
+            cidades_disponiveis.add(m.group(1).strip().upper())
+
     cidades_disponiveis = sorted(list(cidades_disponiveis))
 
     cidades_selecionadas = st.multiselect("📍 Filtrar lista de disparo por Município(s):", options=cidades_disponiveis, placeholder="Selecione as cidades (deixe vazio para todas)")
@@ -798,7 +883,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                     segs_oferta_limpos = [limpar_texto(s) for s in set(segs_oferta)]
 
                     for cli_cad, info_cad in dict_cadastro.items():
-                        nome_cli_limpo = limpar_texto(cli_cad) 
+                        nome_cli_limpo = limpar_texto(cli_cad) + " " + limpar_texto(info_cad.get("fantasia", "")) + " " + limpar_texto(info_cad.get("segmento", ""))
                         if any(s in nome_cli_limpo for s in segs_oferta_limpos if len(s)>2):
                             interessados_seg.add(cli_cad)
                                         
@@ -837,11 +922,19 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
             cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas]
             filtrados = []
             for c in clientes_restantes:
-                m_mun = re.search(r'\[(.*?)\]', str(c))
-                if m_mun:
-                    cidade_cli_limpa = limpar_texto(m_mun.group(1))
-                    if any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas):
-                        filtrados.append(c)
+                m_cod = re.match(r'^(\d+)', str(c))
+                codigo = m_cod.group(1) if m_cod else ""
+                info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
+                cidade_cli = info.get("cidade") or info.get("municipio") or ""
+                cidade_cli_limpa = limpar_texto(cidade_cli)
+                
+                if not cidade_cli_limpa:
+                    m_mun = re.search(r'\[(.*?)\]', str(c))
+                    if m_mun:
+                        cidade_cli_limpa = limpar_texto(m_mun.group(1))
+                        
+                if cidade_cli_limpa and any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas):
+                    filtrados.append(c)
             clientes_restantes = filtrados
         
         if not clientes_restantes:
@@ -861,7 +954,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
             cliente_atual = clientes_restantes[0]
             ofertas_cliente = fila_ativa[cliente_atual]
             
-            # --- NOVO CARD VISUAL E ESTRUTURADO DO CLIENTE ---
+            # --- CARD VISUAL E ESTRUTURADO DO CLIENTE ---
             renderizar_card_cliente(cliente_atual, dict_cadastro, dict_produtos_segmentos, obter_badges_html(cliente_atual))
             
             if st.session_state.cliente_ia_atual != cliente_atual:
@@ -1080,7 +1173,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 st.write("---")
                 st.markdown("### 💡 Venda Cruzada Inteligente (Oferta + Histórico + Cardápio)")
                 
-                info_c_extra = dict_cadastro.get(c_sel, {"fantasia": "", "cardapio": ""})
+                m_cod_c = re.match(r'^(\d+)', str(c_sel))
+                cod_c = m_cod_c.group(1) if m_cod_c else ""
+                info_c_extra = dict_cadastro.get(c_sel) or dict_cadastro.get(cod_c, {"fantasia": "", "cardapio": ""})
                 nome_limpo_cli = limpar_texto(c_sel)
                 
                 segmentos_do_cliente = set()
@@ -1096,7 +1191,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     if any(s in segmentos_do_cliente for s in segs) and prod not in produtos_ja_comprados:
                         sugestoes_segmento.append(prod)
                         
-                if info_c_extra["cardapio"]:
+                if info_c_extra.get("cardapio"):
                     sugestoes_segmento.extend([i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()])
                 
                 chave_sessao_msg = f'msg_cruzada_{c_sel}'
@@ -1163,9 +1258,14 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         st.write("Identifique clientes que compravam muito determinados itens e pararam. A lista agrupa todos os itens perdidos por cliente.")
         
         cidades_disponiveis_rec = set()
-        for cli in dict_cadastro.keys():
-            m = re.search(r'\[(.*?)\]', str(cli))
-            if m: cidades_disponiveis_rec.add(m.group(1).strip().upper())
+        for cli_cad, info_cad in dict_cadastro.items():
+            cid = info_cad.get("cidade") or info_cad.get("municipio")
+            if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
+                cidades_disponiveis_rec.add(str(cid).strip().upper())
+            m = re.search(r'\[(.*?)\]', str(cli_cad))
+            if m and m.group(1).strip():
+                cidades_disponiveis_rec.add(m.group(1).strip().upper())
+                
         cidades_disponiveis_rec = sorted(list(cidades_disponiveis_rec))
         
         cidades_selecionadas_rec = st.multiselect(
@@ -1182,11 +1282,15 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             if cidades_selecionadas_rec:
                 cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
                 def check_city(cli):
-                    m_mun = re.search(r'\[(.*?)\]', str(cli))
-                    if m_mun:
-                        cidade_cli = limpar_texto(m_mun.group(1))
-                        return any(cs in cidade_cli or cidade_cli in cs for cs in cidades_sel_limpas)
-                    return False
+                    m_cod = re.match(r'^(\d+)', str(cli))
+                    codigo = m_cod.group(1) if m_cod else ""
+                    info = dict_cadastro.get(str(cli), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
+                    cidade_cli = info.get("cidade") or info.get("municipio") or ""
+                    cidade_cli_limpa = limpar_texto(cidade_cli)
+                    if not cidade_cli_limpa:
+                        m_mun = re.search(r'\[(.*?)\]', str(cli))
+                        if m_mun: cidade_cli_limpa = limpar_texto(m_mun.group(1))
+                    return any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas)
                 df_calc = df_calc[df_calc['Cliente'].apply(check_city)]
             
             agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
@@ -1409,7 +1513,9 @@ elif st.session_state.aba_atual == "🍔 Cardápios":
                     st.session_state.alerta_cardapio = True
                     st.rerun()
                 else:
-                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    m_cod_c = re.match(r'^(\d+)', str(cliente_selecionado))
+                    cod_c = m_cod_c.group(1) if m_cod_c else ""
+                    info_cli = dict_cadastro.get(cliente_selecionado) or dict_cadastro.get(cod_c, {})
                     salvar_cardapio_neon(cliente_selecionado, novos_produtos, info_cli.get("fantasia", ""))
                     st.success("✅ Cardápio salvo com sucesso no banco de dados!")
                     st.session_state.alerta_cardapio = False
@@ -1426,7 +1532,9 @@ elif st.session_state.aba_atual == "🍔 Cardápios":
                 if st.button("🔄 Atualizar Cardápio (Adicionar Novos)"):
                     produtos_antigos = dict_cardapios_neon[cliente_selecionado]
                     produtos_combinados = list(set(produtos_antigos + st.session_state.temp_novos_produtos))
-                    info_cli = dict_cadastro.get(cliente_selecionado, {})
+                    m_cod_c = re.match(r'^(\d+)', str(cliente_selecionado))
+                    cod_c = m_cod_c.group(1) if m_cod_c else ""
+                    info_cli = dict_cadastro.get(cliente_selecionado) or dict_cadastro.get(cod_c, {})
                     salvar_cardapio_neon(cliente_selecionado, produtos_combinados, info_cli.get("fantasia", ""))
                     st.success("✅ Cardápio atualizado com novos itens e Fantasia sincronizada!")
                     st.session_state.alerta_cardapio = False
