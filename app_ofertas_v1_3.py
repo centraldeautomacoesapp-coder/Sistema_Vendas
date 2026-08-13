@@ -329,8 +329,7 @@ if 'envios_hoje' not in st.session_state: st.session_state.envios_hoje = 0
 # BARRAL LATERAL (SIDEBAR) - NAVEGAÇÃO
 # ==============================================================================
 with st.sidebar:
-    st.image("https://coredf.org.br/wp-content/uploads/2024/08/dellys.jpeg", use_container_width=True)
-    st.markdown("### 🧭 Menu de Navegação")
+        st.markdown("### 🧭 Menu de Navegação")
     
     if st.button("📊 Painel Metas", type="primary" if st.session_state.aba_atual == "📊 Painel Metas" else "secondary"): st.session_state.aba_atual = "📊 Painel Metas"; st.rerun()
     if st.button("🟢 Ofertas", type="primary" if st.session_state.aba_atual == "🟢 Ofertas" else "secondary"): st.session_state.aba_atual = "🟢 Ofertas"; st.rerun()
