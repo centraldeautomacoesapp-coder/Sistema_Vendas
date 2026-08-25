@@ -134,7 +134,7 @@ def renderizar_card_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos
 try:
     genai.configure(api_key=GEMINI_API_KEY)
     modelo_ia = genai.GenerativeModel(
-        model_name='gemini-3.6-flash',
+        model_name='gemini-3.5-flash-lite',
         generation_config={"response_mime_type": "application/json"}
     )
 except Exception as e:
