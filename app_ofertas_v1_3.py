@@ -189,7 +189,7 @@ def carregar_dados_nuvem(data_atual):
             c_cli = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cliente', 'razao', 'nome']) and 'fantasia' not in c), None)
             c_fan = next((df.columns[i] for i, c in enumerate(df_cols_clean) if 'fantasia' in c), None)
             c_cid = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cidade', 'municipio'])), None)
-            c_seg = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['segmento', 'ramo'])), None)
+            c_seg = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cnaes', 'segmento', 'ramo'])), None)
 
             # 1.1 Mapeia linhas das colunas estruturadas
             if (c_cod or c_cli) and (c_fan or c_cid or c_seg):
@@ -211,6 +211,7 @@ def carregar_dados_nuvem(data_atual):
                         "cidade": cid_val,
                         "municipio": cid_val,
                         "segmento": seg_val,
+                        "cnaes": cnae_val,
                         "cardapio": ""
                     }
 
@@ -246,6 +247,7 @@ def carregar_dados_nuvem(data_atual):
                                 "cidade": exist.get("cidade") or cid_ext,
                                 "municipio": exist.get("municipio") or cid_ext,
                                 "segmento": exist.get("segmento") or "",
+                                "cnaes": exist.get("cnaes") or "",
                                 "cardapio": exist.get("cardapio") or ""
                             }
         except: pass
@@ -306,13 +308,14 @@ def carregar_dados_nuvem(data_atual):
             
             fan_final = info_existente.get("fantasia") or (m_fan.group(1).strip() if m_fan else "")
             cid_final = info_existente.get("cidade") or info_existente.get("municipio") or (m_mun.group(1).strip() if m_mun else "")
-            seg_final = info_existente.get("segmento", "")
+            seg_final = info_existente.get("segmento", "cnaes") 
 
             cadastro_clientes[cli] = {
                 "fantasia": fan_final,
                 "cidade": cid_final,
                 "municipio": cid_final,
                 "segmento": seg_final,
+                "cnaes": cnae_final,
                 "cardapio": info_existente.get("cardapio", "")
             }
 
