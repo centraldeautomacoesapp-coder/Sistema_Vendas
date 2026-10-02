@@ -1232,10 +1232,11 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 st.warning("Nenhum produto encontrado com este nome.")
 
     elif sub_atual == "📉 Recuperação":
-        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação por Família/Palavra-Chave)")
-        st.write("Identifique clientes que compravam determinada família de produtos (palavra-chave) e pararam de comprar recentemente, verificando se não houve compra de outra marca equivalente.")
+        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
+        st.write("Analisa todo o histórico de compras de todas as planilhas. Identifica produtos específicos que o cliente parou de comprar, mas **desconsidera** se ele adquiriu outro produto equivalente (mesma palavra-chave/categoria, ex: outra marca de picanha) no período recente.")
         
         if not df_total.empty:
+            # Garantir formato numérico correto e sem R$ 0,00
             if df_total['Faturamento Bruto'].dtype == object or not pd.api.types.is_numeric_dtype(df_total['Faturamento Bruto']):
                 df_total['Faturamento Bruto'] = (
                     df_total['Faturamento Bruto'].astype(str)
@@ -1246,15 +1247,16 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 )
                 df_total['Faturamento Bruto'] = pd.to_numeric(df_total['Faturamento Bruto'], errors='coerce').fillna(0.0)
 
-            # Função auxiliar para extrair chave/família do produto (ex: Picanha Friboi -> Picanha)
-            def obter_chave_produto(nome_prod):
+            # Função para extrair palavra-chave base (ex: Picanha Friboi -> PICANHA)
+            def extrair_palavra_base(nome_prod):
                 limpo = re.sub(r'\b(\d+([kKgG]|ml|LT|UN|PCT|CX)?)\b', '', str(nome_prod), flags=re.IGNORECASE)
                 palavras = [p for p in limpo.split() if len(p) > 2]
-                return " ".join(palavras[:2]).upper() if palavras else str(nome_prod).upper()
+                return palavras[0].upper() if palavras else str(nome_prod).upper()
 
-            if 'Chave_Produto' not in df_total.columns:
-                df_total['Chave_Produto'] = df_total['Produto'].apply(obter_chave_produto)
+            if 'Palavra_Base' not in df_total.columns:
+                df_total['Palavra_Base'] = df_total['Produto'].apply(extrair_palavra_base)
 
+            # Mapear cidades disponíveis
             cidades_disponiveis_rec = set()
             for cli_cad, info_cad in dict_cadastro.items():
                 cid = info_cad.get("cidade")
@@ -1287,22 +1289,38 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 key="multiselect_rec_cidades"
             )
 
-            dias_corte = st.slider("Considerar abandono após (dias sem comprar a categoria/família):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
+            dias_corte = st.slider("Considerar abandono após (dias sem comprar o produto exato):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
 
-            with st.spinner("Calculando famílias de produtos abandonadas por cliente..."):
-                # Agrupar por Cliente e Chave_Produto (Família) para verificar se comprou recentemente QUALQUER marca dessa família
-                max_datas_cli_familia = df_total.groupby(['Cliente', 'Chave_Produto'])['Data_Datetime'].max().reset_index()
-                max_datas_cli_familia['Dias_Sem_Compra'] = (data_atual_sistema - max_datas_cli_familia['Data_Datetime']).dt.days
+            with st.spinner("Analisando histórico completo e cruzando trocas de marca..."):
+                df_validas = df_total[df_total['Data_Datetime'].notna() & (df_total['Faturamento Bruto'] > 0)].copy()
                 
-                df_abandonados_familia = max_datas_cli_familia[max_datas_cli_familia['Dias_Sem_Compra'] > dias_corte].copy()
+                # Última compra e faturamento histórico de cada produto exato por cliente
+                df_prod_cli = df_validas.groupby(['Cliente', 'Produto', 'Palavra_Base']).agg(
+                    Ult_Compra=('Data_Datetime', 'max'),
+                    Faturamento_Historico=('Faturamento Bruto', 'sum')
+                ).reset_index()
                 
-                if not df_abandonados_familia.empty:
-                    df_fat_familia = df_total.groupby(['Cliente', 'Chave_Produto'])['Faturamento Bruto'].sum().reset_index()
-                    df_abandonados_familia = pd.merge(df_abandonados_familia, df_fat_familia, on=['Cliente', 'Chave_Produto'], how='left')
-                    
-                    ranking_clientes = df_abandonados_familia.groupby('Cliente').agg(
-                        Fat_Total_Abandonado=('Faturamento Bruto', 'sum'),
-                        Qtd_Familias_Abandonadas=('Chave_Produto', 'count')
+                df_prod_cli['Dias_Sem_Compra'] = (data_atual_sistema - df_prod_cli['Ult_Compra']).dt.days
+                
+                # Candidatos que ultrapassaram o período de corte
+                candidatos = df_prod_cli[df_prod_cli['Dias_Sem_Compra'] > dias_corte].copy()
+                
+                # Identificar o que o cliente comprou recentemente (dentro do período de corte)
+                compras_recentes = df_validas[(data_atual_sistema - df_validas['Data_Datetime']).dt.days <= dias_corte]
+                pares_recentes = set(zip(compras_recentes['Cliente'], compras_recentes['Palavra_Base']))
+                
+                # Filtrar: se o cliente comprou QUALQUER produto da mesma palavra-base recentemente, ele trocou de marca (não é abandono real)
+                abandonados_reais = []
+                for _, row in candidatos.iterrows():
+                    if (row['Cliente'], row['Palavra_Base']) not in pares_recentes:
+                        abandonados_reais.append(row)
+                
+                df_aband_final = pd.DataFrame(abandonados_reais)
+                
+                if not df_aband_final.empty:
+                    ranking_clientes = df_aband_final.groupby('Cliente').agg(
+                        Fat_Total_Abandonado=('Faturamento_Historico', 'sum'),
+                        Qtd_Produtos_Abandonados=('Produto', 'count')
                     ).reset_index().sort_values(by='Fat_Total_Abandonado', ascending=False)
                     
                     if cidades_selecionadas_rec:
@@ -1327,7 +1345,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     total_cli_rec = len(ranking_clientes)
                     st.markdown(f"### 🏆 Total de Clientes com Oportunidades de Recuperação: **{total_cli_rec}**")
                     
-                    # Controles de Paginação para exibir todos os clientes sem cortes
+                    # Paginação completa para não cortar nenhum cliente da lista
                     c_pag1, c_pag2 = st.columns([2, 2])
                     with c_pag1:
                         tamanho_pagina_rec = st.selectbox("Exibir por página:", options=[10, 20, 50, 100, "Todos"], index=1, key="pag_rec_size_sel")
@@ -1346,25 +1364,22 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     for idx, row in clientes_pagina.iterrows():
                         c_nome = row['Cliente']
                         fat_perdido = row['Fat_Total_Abandonado']
-                        qtd_familias = row['Qtd_Familias_Abandonadas']
+                        qtd_prods = row['Qtd_Produtos_Abandonados']
                         
                         with st.container():
-                            badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_familias} categorias)</span>'
+                            badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_prods} itens)</span>'
                             renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_fat)
                             
-                            familias_cli_ab = df_abandonados_familia[df_abandonados_familia['Cliente'] == c_nome].sort_values(by='Faturamento Bruto', ascending=False)
+                            prods_cli_ab = df_aband_final[df_aband_final['Cliente'] == c_nome].sort_values(by='Faturamento_Historico', ascending=False)
                             
                             texto_itens_ab = ""
-                            for _, it_row in familias_cli_ab.iterrows():
-                                chave_fam = it_row['Chave_Produto']
-                                fat_fam = it_row['Faturamento Bruto']
-                                dias_fam = it_row['Dias_Sem_Compra']
-                                # Buscar produtos originais comprados nesta chave
-                                prods_originais = df_total[(df_total['Cliente'] == c_nome) & (df_total['Chave_Produto'] == chave_fam)]['Produto'].unique()
-                                lista_prods_str = ", ".join(prods_originais[:3])
-                                texto_itens_ab += f"  • Família [{chave_fam}] (Ex: {lista_prods_str}) — R$ {fat_fam:,.2f} ({dias_fam} dias sem comprar)\n"
+                            for _, it_row in prods_cli_ab.iterrows():
+                                nome_prod = it_row['Produto']
+                                fat_item = it_row['Faturamento_Historico']
+                                dias_item = it_row['Dias_Sem_Compra']
+                                texto_itens_ab += f"  • {nome_prod} — R$ {fat_item:,.2f} ({dias_item} dias sem comprar)\n"
                             
-                            with st.expander(f"📦 Ver as {qtd_familias} categorias abandonadas e gerar abordagem"):
+                            with st.expander(f"📦 Ver os {qtd_prods} produtos abandonados e gerar abordagem"):
                                 st.markdown(f"<pre style='font-size:12px; background:#f4f5f7; padding:8px;'>{texto_itens_ab}</pre>", unsafe_allow_html=True)
                                 
                                 chave_msg_rec = f"msg_rec_{idx}"
@@ -1373,12 +1388,12 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                                     prompt_rec = f"""
                                     Atue como um excelente representante comercial B2B da distribuidora Delly's. 
                                     Crie uma mensagem curta de WhatsApp para o cliente '{c_nome}'.
-                                    O objetivo é entender por que ele parou de comprar essas categorias/famílias de produtos de alto volume que abandonou há algum tempo:
+                                    O objetivo é entender por que ele parou de comprar estes produtos específicos de alto volume que abandonou há algum tempo:
                                     {texto_itens_ab}
                                     
                                     REGRAS PARA A MENSAGEM:
                                     - Tom empático, curioso e profissional.
-                                    - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes das categorias abandonadas.
+                                    - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes dos produtos abandonados.
                                     - Termine abrindo espaço para o diálogo.
                                     """
                                     with st.spinner("Gerando mensagem personalizada..."):
