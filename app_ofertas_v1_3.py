@@ -82,7 +82,7 @@ def extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmento
         info = dict_cadastro.get(codigo, {})
         
     fantasia = info.get("fantasia", "").strip()
-    cidade = info.get("cidade", "").strip() or info.get("municipio", "").strip()
+    cidade = info.get("cidade", "").strip() or info.get("cidade", "").strip()
     segmento_cad = info.get("segmento", "").strip()
     
     if not fantasia:
@@ -188,7 +188,7 @@ def carregar_dados_nuvem(data_atual):
             c_cod = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cod', 'codigo'])), None)
             c_cli = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cliente', 'razao', 'nome']) and 'fantasia' not in c), None)
             c_fan = next((df.columns[i] for i, c in enumerate(df_cols_clean) if 'fantasia' in c), None)
-            c_cid = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cidade', 'municipio'])), None)
+            c_cid = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['cidade', 'cidade'])), None)
             c_seg = next((df.columns[i] for i, c in enumerate(df_cols_clean) if any(k in c for k in ['segmento', 'ramo'])), None)
 
             # 1.1 Mapeia linhas das colunas estruturadas
@@ -209,7 +209,7 @@ def carregar_dados_nuvem(data_atual):
                     dict_info = {
                         "fantasia": fan_val,
                         "cidade": cid_val,
-                        "municipio": cid_val,
+                        "cidade": cid_val,
                         "segmento": seg_val,
                     }
 
@@ -243,7 +243,7 @@ def carregar_dados_nuvem(data_atual):
                             cadastro_clientes[val_str] = {
                                 "fantasia": exist.get("fantasia") or fan_ext,
                                 "cidade": exist.get("cidade") or cid_ext,
-                                "municipio": exist.get("municipio") or cid_ext,
+                                "cidade": exist.get("cidade") or cid_ext,
                                 "segmento": exist.get("segmento") or "",
                             }
         except: pass
@@ -303,13 +303,13 @@ def carregar_dados_nuvem(data_atual):
             m_mun = re.search(r'\[(.*?)\]', str(cli))
             
             fan_final = info_existente.get("fantasia") or (m_fan.group(1).strip() if m_fan else "")
-            cid_final = info_existente.get("cidade") or info_existente.get("municipio") or (m_mun.group(1).strip() if m_mun else "")
+            cid_final = info_existente.get("cidade") or info_existente.get("cidade") or (m_mun.group(1).strip() if m_mun else "")
             seg_final = info_existente.get("segmento", "") 
 
             cadastro_clientes[cli] = {
                 "fantasia": fan_final,
                 "cidade": cid_final,
-                "municipio": cid_final,
+                "cidade": cid_final,
                 "segmento": seg_final,
             }
 
@@ -787,7 +787,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
     # Extração robusta das cidades para o Filtro de Município
     cidades_disponiveis = set()
     for cli_cad, info_cad in dict_cadastro.items():
-        cid = info_cad.get("cidade") or info_cad.get("municipio")
+        cid = info_cad.get("cidade") or info_cad.get("cidade")
         if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
             cidades_disponiveis.add(str(cid).strip().upper())
         m = re.search(r'\[(.*?)\]', str(cli_cad))
@@ -799,7 +799,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
         m_cod = re.match(r'^(\d+)', str(cli))
         codigo = m_cod.group(1) if m_cod else ""
         info = dict_cadastro.get(str(cli), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
-        cid = info.get("cidade") or info.get("municipio")
+        cid = info.get("cidade") or info.get("cidade")
         if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
             cidades_disponiveis.add(str(cid).strip().upper())
         m = re.search(r'\[(.*?)\]', str(cli))
@@ -894,7 +894,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                 m_cod = re.match(r'^(\d+)', str(c))
                 codigo = m_cod.group(1) if m_cod else ""
                 info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
-                cidade_cli = info.get("cidade") or info.get("municipio") or ""
+                cidade_cli = info.get("cidade") or info.get("cidade") or ""
                 cidade_cli_limpa = limpar_texto(cidade_cli)
                 
                 if not cidade_cli_limpa:
@@ -1225,7 +1225,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         
         cidades_disponiveis_rec = set()
         for cli_cad, info_cad in dict_cadastro.items():
-            cid = info_cad.get("cidade") or info_cad.get("municipio")
+            cid = info_cad.get("cidade") or info_cad.get("cidade")
             if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
                 cidades_disponiveis_rec.add(str(cid).strip().upper())
             m = re.search(r'\[(.*?)\]', str(cli_cad))
