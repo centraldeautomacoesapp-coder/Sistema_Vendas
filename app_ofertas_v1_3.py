@@ -608,7 +608,7 @@ def gerar_mensagem_ia(nome_cliente, ofertas_dict, historico_compras):
     REGRAS: Retorne a mensagem em texto puro formatado para WhatsApp (com pular linhas e emojis). NÃO retorne em formato JSON para esta tarefa. Termine chamando pra ação. Sem 'Assinado'."""
     
     try: 
-        modelo_txt = genai.GenerativeModel('gemini-1.5-flash')
+        modelo_txt = genai.GenerativeModel('gemini-3.5-flash')
         return modelo_txt.generate_content(prompt).text.strip()
     except: 
         return f"Olá!\nSeparei umas ofertas exclusivas para você!\n\n*🛒 Produtos em oferta:*\n{texto_ofertas_hist}\n\nMe avise se posso garantir o seu pedido! 👍"
@@ -1183,7 +1183,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     """
                     with st.spinner("Conectando ao Gemini..."):
                         try:
-                            modelo_msg = genai.GenerativeModel('gemini-1.5-flash')
+                            modelo_msg = genai.GenerativeModel('gemini-3.5-flash')
                             st.session_state[chave_sessao_msg] = modelo_msg.generate_content(prompt_cruzada).text
                         except Exception as e:
                             st.error(f"Erro ao gerar com IA: {e}")
