@@ -1068,6 +1068,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
 
 # ==============================================================================
 # ==============================================================================
+# ==============================================================================
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
@@ -1081,6 +1082,17 @@ elif st.session_state.aba_atual == "🔍 Consulta":
     
     sub_atual = st.session_state.sub_aba_consulta
     
+    # Obter mês e ano atuais para filtros mensais
+    mes_atual_sis = data_atual_sistema.month
+    ano_atual_sis = data_atual_sistema.year
+    
+    df_mes_atual = pd.DataFrame()
+    if not df_total.empty and 'Data_Datetime' in df_total.columns:
+        df_mes_atual = df_total[
+            (df_total['Data_Datetime'].dt.month == mes_atual_sis) & 
+            (df_total['Data_Datetime'].dt.year == ano_atual_sis)
+        ]
+
     if sub_atual == "👤 Por Cliente":
         st.subheader("Raio-X do Cliente")
         input_busca = st.text_input("Nome ou Código:", value=st.session_state.busca_direta_cliente).strip()
@@ -1223,9 +1235,19 @@ elif st.session_state.aba_atual == "🔍 Consulta":
 
     elif sub_atual == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
-        st.write("Identifique clientes que compravam determinados itens e pararam. A lista agrupa o faturamento perdido por cliente.")
+        st.write("Identifique clientes que compravam determinados itens e pararam. Ordenado do maior para o menor valor em R$ em aberto.")
         
         if not df_total.empty:
+            if df_total['Faturamento Bruto'].dtype == object or not pd.api.types.is_numeric_dtype(df_total['Faturamento Bruto']):
+                df_total['Faturamento Bruto'] = (
+                    df_total['Faturamento Bruto'].astype(str)
+                    .str.replace('R$', '', regex=True)
+                    .str.replace('.', '', regex=False)
+                    .str.replace(',', '.', regex=False)
+                    .str.strip()
+                )
+                df_total['Faturamento Bruto'] = pd.to_numeric(df_total['Faturamento Bruto'], errors='coerce').fillna(0.0)
+
             cidades_disponiveis_rec = set()
             for cli_cad, info_cad in dict_cadastro.items():
                 cid = info_cad.get("cidade")
@@ -1309,7 +1331,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                             
                             texto_itens_ab = ""
                             for _, it_row in itens_cli_ab.iterrows():
-                                texto_itens_ab += f"  • {it_row['Produto']} ({it_row['Dias_Sem_Compra']} dias sem comprar)\n"
+                                fat_item = it_row['Faturamento Bruto']
+                                dias_item = it_row['Dias_Sem_Compra']
+                                texto_itens_ab += f"  • {it_row['Produto']} — R$ {fat_item:,.2f} ({dias_item} dias sem comprar)\n"
                             
                             with st.expander(f"📦 Ver os {qtd_itens} itens abandonados e gerar abordagem"):
                                 st.markdown(f"<pre style='font-size:12px; background:#f4f5f7; padding:8px;'>{texto_itens_ab}</pre>", unsafe_allow_html=True)
@@ -1320,7 +1344,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                                     prompt_rec = f"""
                                     Atue como um excelente representante comercial B2B da distribuidora Delly's. 
                                     Crie uma mensagem curta de WhatsApp para o cliente '{c_nome}'.
-                                    O objetivo é entender por que ele parou de comprar e resgatá-lo em relação aos seguintes produtos de alto volume que ele abandonou há algum tempo:
+                                    O objetivo é entender por que he parou de comprar e resgatá-lo em relação aos seguintes produtos de alto volume que he abandonou há algum tempo:
                                     {texto_itens_ab}
                                     
                                     REGRAS PARA A MENSAGEM:
@@ -1345,20 +1369,20 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             st.warning("Carregue os dados de vendas primeiro para visualizar a recuperação.")
 
     elif sub_atual == "🏢 Exclusivos Filial 6":
-        st.subheader("🏢 Clientes Exclusivos da Filial 6")
-        st.write("Clientes que possuem faturamento registrado na Filial 6, mas não possuem faturamento na Filial 2.")
+        st.subheader("🏢 Clientes Exclusivos da Filial 6 (No Mês)")
+        st.write("Clientes que compraram produtos da **Filial 6 no mês atual**, mas ainda não compraram na **Filial 2**.")
         
-        if not df_total.empty:
-            cli_fl2 = set(df_total[df_total['Filial'].astype(str).str.contains('2', na=False)]['Cliente'].unique())
-            cli_fl6 = set(df_total[df_total['Filial'].astype(str).str.contains('6', na=False)]['Cliente'].unique())
+        if not df_mes_atual.empty:
+            cli_fl2_mes = set(df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('2', na=False)]['Cliente'].unique())
+            cli_fl6_mes = set(df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=False)]['Cliente'].unique())
             
-            exclusivos_f6 = sorted(list(cli_fl6 - cli_fl2))
+            exclusivos_f6_mes = sorted(list(cli_fl6_mes - cli_fl2_mes))
             
-            if exclusivos_f6:
-                st.markdown(f"📊 Total de Clientes Exclusivos da Filial 6: **{len(exclusivos_f6)}**")
+            if exclusivos_f6_mes:
+                st.markdown(f"📊 Total de Clientes Exclusivos Filial 6 no mês: **{len(exclusivos_f6_mes)}**")
                 
                 cidades_fl6 = set()
-                for c in exclusivos_f6:
+                for c in exclusivos_f6_mes:
                     m_cod = re.match(r'^(\d+)', str(c))
                     cod = m_cod.group(1) if m_cod else ""
                     info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(cod, {}) if cod else {})
@@ -1368,11 +1392,11 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 cidades_fl6_list = sorted(list(cidades_fl6))
                 cidade_filtro_f6 = st.multiselect("📍 Filtrar por Município (Filial 6):", options=cidades_fl6_list, key="multiselect_f6_cid")
                 
-                clientes_exibicao_f6 = exclusivos_f6
+                clientes_exibicao_f6 = exclusivos_f6_mes
                 if cidade_filtro_f6:
                     cidades_sel_limpas = [limpar_texto(c) for c in cidade_filtro_f6]
                     clientes_exibicao_f6 = []
-                    for c in exclusivos_f6:
+                    for c in exclusivos_f6_mes:
                         m_cod = re.match(r'^(\d+)', str(c))
                         cod = m_cod.group(1) if m_cod else ""
                         info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(cod, {}) if cod else {})
@@ -1382,28 +1406,65 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 st.markdown(f"Exibindo **{len(clientes_exibicao_f6)}** clientes:")
                 for c_nome in clientes_exibicao_f6[:50]:
-                    fat_cli_f6 = df_total[(df_total['Cliente'] == c_nome) & (df_total['Filial'].astype(str).str.contains('6', na=False))]['Faturamento Bruto'].sum()
-                    badge_f6 = f'<span style="background-color:#FF8B00; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">💰 Faturamento Filial 6: R$ {fat_cli_f6:,.2f}</span>'
+                    fat_cli_f6 = df_mes_atual[(df_mes_atual['Cliente'] == c_nome) & (df_mes_atual['Filial'].astype(str).str.contains('6', na=False))]['Faturamento Bruto'].sum()
+                    badge_f6 = f'<span style="background-color:#FF8B00; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">💰 Faturamento Filial 6 (Mês): R$ {fat_cli_f6:,.2f}</span>'
                     renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_f6)
             else:
-                st.info("Nenhum cliente exclusivo da Filial 6 encontrado.")
+                st.info("Nenhum cliente exclusivo da Filial 6 encontrado para o mês atual.")
+        else:
+            st.warning("Não há dados de vendas registrados para o mês atual.")
 
     elif sub_atual == "🏆 Parceiros Estratégicos":
-        st.subheader("🏆 Parceiros Estratégicos (Top Clientes por Faturamento)")
-        st.write("Ranking dos principais clientes da base com base no faturamento bruto total acumulado.")
+        st.subheader("🏆 Análise de Parceiros Estratégicos (No Mês)")
+        st.write("Selecione um parceiro estratégico para ver quantos clientes foram positivados no mês e quais clientes ativos ainda não compram dele.")
         
-        if not df_total.empty:
-            top_parceiros = df_total.groupby('Cliente').agg(
-                Fat_Total=('Faturamento Bruto', 'sum'),
-                Qtd_Compras=('Faturamento Bruto', 'count')
-            ).reset_index().sort_values(by='Fat_Total', ascending=False).head(50)
+        if not df_mes_atual.empty:
+            # Tentar identificar coluna de parceiro/fornecedor/marca/segmento
+            colunas_parceiro_cand = [c for c in ['Fornecedor', 'Marca', 'Fabricante', 'Segmento', 'Categoria'] if c in df_mes_atual.columns]
             
-            st.markdown(f"Exibindo os **{len(top_parceiros)}** maiores parceiros estratégicos:")
+            if colunas_parceiro_cand:
+                col_parceiro_escolhida = colunas_parceiro_cand[0]
+                parceiros_disponiveis = sorted([str(x) for x in df_mes_atual[col_parceiro_escolhida].dropna().unique() if str(x).strip()])
+            else:
+                # Fallback: extrair segmentos do dicionário ou usar produtos
+                parceiros_disponiveis = sorted(list(dict_produtos_segmentos.keys())) if dict_produtos_segmentos else []
             
-            for idx, row in top_parceiros.iterrows():
-                c_nome = row['Cliente']
-                fat_total = row['Fat_Total']
-                qtd_compras = row['Qtd_Compras']
+            if parceiros_disponiveis:
+                parceiro_selecionado = st.selectbox("Selecione o Parceiro Estratégico:", options=parceiros_disponiveis, key="select_parceiro_est")
                 
-                badge_vip = f'<span style="background-color:#6554C0; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">👑 Faturamento Total: R$ {fat_total:,.2f} ({qtd_compras} pedidos)</span>'
-                renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_vip)
+                if parceiro_selecionado:
+                    # Identificar clientes que compraram deste parceiro no mês
+                    if colunas_parceiro_cand:
+                        cli_compraram_parceiro = set(df_mes_atual[df_mes_atual[col_parceiro_escolhida].astype(str) == str(parceiro_selecionado)]['Cliente'].unique())
+                    else:
+                        # Buscar por produtos associados ao segmento/parceiro
+                        prods_parceiro = [p for p, segs in dict_produtos_segmentos.items() if parceiro_selecionado in segs]
+                        cli_compraram_parceiro = set(df_mes_atual[df_mes_atual['Produto'].isin(prods_parceiro)]['Cliente'].unique())
+                    
+                    # Clientes positivados no mês total
+                    cli_ativos_mes = set(df_mes_atual['Cliente'].unique())
+                    
+                    # Clientes que compraram no mês mas NÃO compraram deste parceiro
+                    cli_nao_compraram_parceiro = sorted(list(cli_ativos_mes - cli_compraram_parceiro))
+                    
+                    # Métricas e contagem
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.metric("✅ Clientes Positivados do Parceiro", len(cli_compraram_parceiro))
+                    with col_m2:
+                        st.metric("🎯 Oportunidades (Ativos no Mês sem este Parceiro)", len(cli_nao_compraram_parceiro))
+                    
+                    st.write("---")
+                    st.markdown(f"### 📋 Clientes Ativos no Mês que **ainda não comprou** de `{parceiro_selecionado}`:")
+                    
+                    if cli_nao_compraram_parceiro:
+                        for c_nome in cli_nao_compraram_parceiro[:50]:
+                            fat_mes_cli = df_mes_atual[df_mes_atual['Cliente'] == c_nome]['Faturamento Bruto'].sum()
+                            badge_parc = f'<span style="background-color:#6554C0; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">🛒 Faturamento no Mês: R$ {fat_mes_cli:,.2f}</span>'
+                            renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_parc)
+                    else:
+                        st.info("Todos os clientes ativos no mês já compraram deste parceiro estratégico!")
+            else:
+                st.warning("Nenhum parceiro ou categoria identificada nos dados para seleção.")
+        else:
+            st.warning("Não há dados de vendas registrados para o mês atual.")
