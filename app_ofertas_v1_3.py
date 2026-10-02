@@ -1218,8 +1218,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Bruto']:,.2f}")
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
-
-   elif st.session_state.sub_aba_consulta == "📉 Recuperação":
+        elif st.session_state.sub_aba_consulta == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
         st.write("Identifique clientes que compravam determinados itens e pararam. A lista agrupa o faturamento perdido por cliente.")
         
@@ -1326,7 +1325,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                                 - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes dos produtos.
                                 - Termine chamando para ação e perguntando se pode separar a carga. Sem 'Assinado'.
                                 """
-                                with st.ynes_spinner if hasattr(st, 'ynes_spinner') else st.spinner("Gerando mensagem..."):
+                                spinner_func = getattr(st, 'ynes_spinner', st.spinner)
+                                with spinner_func("Gerando mensagem..."):
                                     try:
                                         modelo_msg = genai.GenerativeModel('gemini-3.5-flash')
                                         st.session_state[chave_msg_rec] = modelo_msg.generate_content(prompt_rec).text
