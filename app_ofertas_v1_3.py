@@ -211,7 +211,6 @@ def carregar_dados_nuvem(data_atual):
                         "cidade": cid_val,
                         "municipio": cid_val,
                         "segmento": seg_val,
-                        "cardapio": ""
                     }
 
                     if cod_val:
@@ -246,7 +245,6 @@ def carregar_dados_nuvem(data_atual):
                                 "cidade": exist.get("cidade") or cid_ext,
                                 "municipio": exist.get("municipio") or cid_ext,
                                 "segmento": exist.get("segmento") or "",
-                                "cardapio": exist.get("cardapio") or ""
                             }
         except: pass
         
@@ -265,7 +263,7 @@ def carregar_dados_nuvem(data_atual):
             
             if c_dt and c_cli_cad and c_prod and c_fat:
                 sel = [c_dt, c_cli_cad, c_prod, c_fat]
-                heads = ['Dt. Delivery', 'Cliente_Orig', 'Produto', 'Faturamento Brut']
+                heads = ['Dt. Delivery', 'Cliente_Orig', 'Produto', 'Faturamento Bruto']
                 if c_fil:
                     sel.append(c_fil)
                     heads.append('Filial')
@@ -284,9 +282,9 @@ def carregar_dados_nuvem(data_atual):
                 sub['Cliente'] = sub['Cliente_Orig'].apply(resolve_client)
                 sub.drop(columns=['Cliente_Orig'], inplace=True)
                 
-                if sub['Faturamento Brut'].dtype == 'object':
-                    sub['Faturamento Brut'] = sub['Faturamento Brut'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                sub['Faturamento Brut'] = pd.to_numeric(sub['Faturamento Brut'], errors='coerce')
+                if sub['Faturamento Bruto'].dtype == 'object':
+                    sub['Faturamento Bruto'] = sub['Faturamento Bruto'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                sub['Faturamento Bruto'] = pd.to_numeric(sub['Faturamento Bruto'], errors='coerce')
                 lista_dfs.append(sub)
         except Exception as e: 
             continue
@@ -313,7 +311,6 @@ def carregar_dados_nuvem(data_atual):
                 "cidade": cid_final,
                 "municipio": cid_final,
                 "segmento": seg_final,
-                "cardapio": info_existente.get("cardapio", "")
             }
 
         unificado['Data_Datetime'] = pd.to_datetime(unificado['Dt. Delivery'], dayfirst=True, errors='coerce')
@@ -346,13 +343,6 @@ def criar_tabelas_neon():
                     );
                 """))
                 conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS cardapios_clientes (
-                        cliente VARCHAR(255) PRIMARY KEY,
-                        fantasia VARCHAR(255),
-                        produtos TEXT
-                    );
-                """))
-                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS metas_mensais (
                         mes VARCHAR(10) PRIMARY KEY,
                         pos_geral INT, pos_fl2 INT, pos_fl6 INT,
@@ -372,30 +362,6 @@ def carregar_produtos_segmentos():
                     mapa[row[0]] = json.loads(row[1])
         except: pass
     return mapa
-
-def carregar_cardapios_neon():
-    engine = obter_conexao_neon()
-    mapa = {}
-    if engine:
-        try:
-            with engine.connect() as conn:
-                res = conn.execute(text("SELECT cliente, produtos FROM cardapios_clientes;")).fetchall()
-                for row in res:
-                    mapa[row[0]] = json.loads(row[1])
-        except: pass
-    return mapa
-
-def salvar_cardapio_neon(cliente, produtos, fantasia=""):
-    engine = obter_conexao_neon()
-    if engine:
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("""
-                    INSERT INTO cardapios_clientes (cliente, fantasia, produtos) 
-                    VALUES (:c, :f, :p)
-                    ON CONFLICT (cliente) DO UPDATE SET produtos = EXCLUDED.produtos, fantasia = EXCLUDED.fantasia;
-                """), {"c": cliente, "f": fantasia, "p": json.dumps(produtos)})
-        except Exception as e: st.error(f"Erro ao salvar cardápio no Neon: {e}")
 
 def extrair_segmentos_reais_base(dict_cad):
     palavras = []
@@ -448,14 +414,7 @@ with st.spinner("Sincronizando base de dados e IA..."):
     
     criar_tabelas_neon()
     dict_produtos_segmentos = carregar_produtos_segmentos()
-    dict_cardapios_neon = carregar_cardapios_neon()
     
-    for cli_neon, prods_neon in dict_cardapios_neon.items():
-        if cli_neon in dict_cadastro:
-            dict_cadastro[cli_neon]["cardapio"] = ", ".join(prods_neon)
-        else:
-            dict_cadastro[cli_neon] = {"fantasia": "", "cidade": "", "municipio": "", "segmento": "", "cardapio": ", ".join(prods_neon)}
-
 if df_total.empty:
     st.warning("Base de dados de vendas vazia ou pendente de processamento no Drive.")
     st.stop()
@@ -499,12 +458,6 @@ with st.sidebar:
         st.rerun()
     if st.button("🔍 Consulta", type="primary" if st.session_state.aba_atual == "🔍 Consulta" else "secondary"): 
         st.session_state.aba_atual = "🔍 Consulta"
-        st.rerun()
-    if st.button("💲 Cotação", type="primary" if st.session_state.aba_atual == "💲 Cotação" else "secondary"): 
-        st.session_state.aba_atual = "💲 Cotação"
-        st.rerun()
-    if st.button("🍔 Cardápios", type="primary" if st.session_state.aba_atual == "🍔 Cardápios" else "secondary"): 
-        st.session_state.aba_atual = "🍔 Cardápios"
         st.rerun()
 
     st.write("---")
@@ -668,7 +621,7 @@ df_fl6 = df_mes_atual[df_mes_atual['Filial'].astype(str).str.contains('6', na=Fa
 
 real_pos_fl2, real_pos_fl6 = df_fl2['Cliente'].nunique(), df_fl6['Cliente'].nunique()
 real_pos_geral = pd.concat([df_fl2, df_fl6])['Cliente'].nunique() if not df_fl2.empty or not df_fl6.empty else 0
-real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Brut'].sum(), df_fl6['Faturamento Brut'].sum()
+real_fat_fl2, real_fat_fl6 = df_fl2['Faturamento Bruto'].sum(), df_fl6['Faturamento Bruto'].sum()
 real_fat_geral = real_fat_fl2 + real_fat_fl6
 
 m = st.session_state.metas_config
@@ -905,11 +858,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
                     for cli_cad, info_cad in dict_cadastro.items():
                         nome_cli_limpo = limpar_texto(cli_cad) + " " + limpar_texto(info_cad.get("fantasia", "")) + " " + limpar_texto(info_cad.get("segmento", ""))
                         if any(s in nome_cli_limpo for s in segs_oferta_limpos if len(s)>2):
-                            interessados_seg.add(cli_cad)
-                                        
-                        cardapio_texto = limpar_texto(info_cad.get("cardapio", ""))
-                        if cardapio_texto and all(c in cardapio_texto for c in chaves):
-                            interessados_seg.add(cli_cad)
+                            interessados_seg.add(cli_cad)  
                     
                     for cli in (interessados_hist | interessados_seg):
                         if pd.isna(cli) or str(cli).lower() == 'nan': continue
@@ -979,7 +928,7 @@ elif st.session_state.aba_atual == "🟢 Ofertas":
             
             if st.session_state.cliente_ia_atual != cliente_atual:
                 st.session_state.cliente_ia_atual = cliente_atual
-                historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Brut'].sum().nlargest(5).index.tolist()
+                historico = df_total[df_total['Cliente'] == cliente_atual].groupby('Produto')['Faturamento Bruto'].sum().nlargest(5).index.tolist()
                 with st.spinner("🧠 Gemini analisando cruzamentos e organizando formatação para WhatsApp..."):
                     st.session_state.msg_ia_atual = gerar_mensagem_ia(cliente_atual, ofertas_cliente, historico)
             
@@ -1095,7 +1044,7 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                     
                     df_cli_h = df_total[df_total['Cliente'] == c_nome]
                     if not df_cli_h.empty:
-                        top_itens = df_cli_h.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).index.tolist()
+                        top_itens = df_cli_h.groupby('Produto')['Faturamento Bruto'].sum().nlargest(3).index.tolist()
                         novo_texto_acumulado += "   🔹 Mais Comprados pelo Cliente:\n"
                         for item in top_itens: novo_texto_acumulado += f"     ▪️ {item}\n"
                     
@@ -1144,10 +1093,10 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 df_cli = df_total[df_total['Cliente'] == c_sel]
                 st.write("**Mix de Itens Históricos:**")
-                rank_p = df_cli.groupby('Produto')['Faturamento Brut'].sum().nlargest(10).reset_index()
+                rank_p = df_cli.groupby('Produto')['Faturamento Bruto'].sum().nlargest(10).reset_index()
                 
                 for i, r in rank_p.iterrows():
-                    st.markdown(f"<p style='font-size: 13px; margin-bottom: 2px;'>• {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='font-size: 13px; margin-bottom: 2px;'>• {r['Produto']} (R$ {r['Faturamento Bruto']:,.2f})</p>", unsafe_allow_html=True)
                 
                 st.write("---")
                 st.write("📉 **Produtos Abandonados (Parou de comprar):**")
@@ -1155,7 +1104,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 max_dates = df_cli.groupby('Produto')['Data_Datetime'].max()
                 abandonados = max_dates[max_dates.apply(lambda x: (data_atual_sistema - x).days > 30)].index.tolist()
                 df_ab = df_cli[df_cli['Produto'].isin(abandonados)].groupby('Produto').agg(
-                    Fat=('Faturamento Brut', 'sum'), Ult_Compra=('Data_Datetime', 'max')
+                    Fat=('Faturamento Bruto', 'sum'), Ult_Compra=('Data_Datetime', 'max')
                 ).sort_values('Fat', ascending=False)
                 
                 ofertas_memoria = st.session_state.memoria_ofertas_cruas_dia + st.session_state.memoria_ofertas_cruas_rel
@@ -1191,11 +1140,11 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     st.markdown("<p style='font-size: 13px;'>Nenhum abandono acima de 30 dias detectado.</p>", unsafe_allow_html=True)
 
                 st.write("---")
-                st.markdown("### 💡 Venda Cruzada Inteligente (Oferta + Histórico + Cardápio)")
+                st.markdown("### 💡 Venda Cruzada Inteligente (Oferta + Histórico)")
                 
                 m_cod_c = re.match(r'^(\d+)', str(c_sel))
                 cod_c = m_cod_c.group(1) if m_cod_c else ""
-                info_c_extra = dict_cadastro.get(c_sel) or dict_cadastro.get(cod_c, {"fantasia": "", "cardapio": ""})
+                info_c_extra = dict_cadastro.get(c_sel) or dict_cadastro.get(cod_c, {"fantasia": ""})
                 nome_limpo_cli = limpar_texto(c_sel)
                 
                 segmentos_do_cliente = set()
@@ -1210,9 +1159,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 for prod, segs in dict_produtos_segmentos.items():
                     if any(s in segmentos_do_cliente for s in segs) and prod not in produtos_ja_comprados:
                         sugestoes_segmento.append(prod)
-                        
-                if info_c_extra.get("cardapio"):
-                    sugestoes_segmento.extend([i.strip() for i in info_c_extra["cardapio"].split(",") if i.strip()])
                 
                 chave_sessao_msg = f'msg_cruzada_{c_sel}'
                 
@@ -1267,9 +1213,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             if not filtrados_p.empty:
                 st.write(f"✅ Encontrados **{len(filtrados_p['Produto'].unique())}** produtos semelhantes.")
                 st.markdown("### Top 10 Compradores deste Item")
-                top_compradores = filtrados_p.groupby('Cliente')['Faturamento Brut'].sum().nlargest(10).reset_index()
+                top_compradores = filtrados_p.groupby('Cliente')['Faturamento Bruto'].sum().nlargest(10).reset_index()
                 for idx, row in top_compradores.iterrows():
-                    st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Brut']:,.2f}")
+                    st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Bruto']:,.2f}")
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
 
