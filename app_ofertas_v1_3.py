@@ -57,6 +57,17 @@ def extrair_palavras_produto(linha):
     palavras_validas = [re.sub(r'\d+', '', p) for p in linha_limpa.split() if re.sub(r'\d+', '', p) and len(re.sub(r'\d+', '', p)) > 1 and p not in ignorar]
     return palavras_validas[:3]
 
+def ler_planilha_generica(caminho_arquivo):
+    """Lê arquivos nos formatos Excel (.xlsx, .xls) e CSV (.csv)."""
+    extensao = os.path.splitext(caminho_arquivo)[1].lower()
+    if extensao == '.csv':
+        try:
+            return pd.read_csv(caminho_arquivo, sep=None, engine='python', encoding='utf-8')
+        except UnicodeDecodeError:
+            return pd.read_csv(caminho_arquivo, sep=None, engine='python', encoding='latin1')
+    else:
+        return pd.read_excel(caminho_arquivo)
+
 # --- EXTRAÇÃO E COMPOSIÇÃO DO CARD DO CLIENTE ---
 def extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos):
     cliente_str = str(cliente_nome).strip()
@@ -159,17 +170,18 @@ def carregar_dados_nuvem(data_atual):
         
     except: pass
     
-    arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True) + \
-                     glob.glob(os.path.join(pasta_destino, "**", "*.xls"), recursive=True) + \
-                     glob.glob(os.path.join(pasta_destino, "**", "*.csv"), recursive=True)
+    # Busca por planilhas Excel (.xlsx, .xls) e arquivos CSV (.csv)
+    arquivos_planilhas = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True) + \
+                         glob.glob(os.path.join(pasta_destino, "**", "*.xls"), recursive=True) + \
+                         glob.glob(os.path.join(pasta_destino, "**", "*.csv"), recursive=True)
     
     cod_to_full = {}
     cadastro_clientes = {}
     
     # PASSO 1: Mapear Planilhas de Cadastro e Colunas Unificadas
-    for arquivo in arquivos_excel:
+    for arquivo in arquivos_planilhas:
         try:
-            df = pd.read_excel(arquivo)
+            df = ler_planilha_generica(arquivo)
             df_cols_clean = [limpar_texto(c) for c in df.columns]
             
             # Identifica colunas específicas de cadastro na planilha
@@ -240,9 +252,9 @@ def carregar_dados_nuvem(data_atual):
         
     # PASSO 2: Carregar faturamento
     lista_dfs = []
-    for arquivo in arquivos_excel:
+    for arquivo in arquivos_planilhas:
         try:
-            df = pd.read_excel(arquivo)
+            df = ler_planilha_generica(arquivo)
             df.columns = df.columns.str.strip().str.lower()
             
             c_dt = next((c for c in df.columns if "dt" in c and "entrega" in c), None)
@@ -1282,273 +1294,4 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             placeholder="Selecione as cidades (deixe vazio para o ranking geral)"
         )
 
-        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, step=5)
-        
-        with st.spinner("Calculando ranking de perdas no banco de dados..."):
-            df_calc = df_total.dropna(subset=['Data_Datetime', 'Faturamento Brut', 'Cliente', 'Produto'])
-            
-            if cidades_selecionadas_rec:
-                cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
-                def check_city(cli):
-                    m_cod = re.match(r'^(\d+)', str(cli))
-                    codigo = m_cod.group(1) if m_cod else ""
-                    info = dict_cadastro.get(str(cli), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
-                    cidade_cli = info.get("cidade") or info.get("municipio") or ""
-                    cidade_cli_limpa = limpar_texto(cidade_cli)
-                    if not cidade_cli_limpa:
-                        m_mun = re.search(r'\[(.*?)\]', str(cli))
-                        if m_mun: cidade_cli_limpa = limpar_texto(m_mun.group(1))
-                    return any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas)
-                df_calc = df_calc[df_calc['Cliente'].apply(check_city)]
-            
-            agrupado = df_calc.groupby(['Cliente', 'Produto']).agg(
-                Fat_Total=('Faturamento Brut', 'sum'),
-                Ultima_Compra=('Data_Datetime', 'max'),
-                Qtd_Compras=('Data_Datetime', 'count')
-            ).reset_index()
-            
-            agrupado['Dias_Sem_Comprar'] = (data_atual_sistema - agrupado['Ultima_Compra']).dt.days
-            
-            abandonos = agrupado[(agrupado['Dias_Sem_Comprar'] >= dias_corte) & (agrupado['Fat_Total'] > 0)]
-            
-            clientes_abandonos = abandonos.groupby('Cliente').agg(
-                Fat_Perdido_Total=('Fat_Total', 'sum')
-            ).reset_index().sort_values(by='Fat_Perdido_Total', ascending=False).head(50)
-            
-        if clientes_abandonos.empty:
-            st.success("Nenhum abandono identificado para este período ou filtros selecionados!")
-        else:
-            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
-            
-            st.markdown(f"**Top {len(clientes_abandonos)} Clientes com Maior Oportunidade de Recuperação (>{dias_corte} dias ausentes)**")
-            
-            for idx, row_cli in clientes_abandonos.iterrows():
-                cliente_nome = row_cli['Cliente']
-                fat_total_cli = row_cli['Fat_Perdido_Total']
-                
-                prods_cli = abandonos[abandonos['Cliente'] == cliente_nome].sort_values(by='Fat_Total', ascending=False)
-                
-                detalhes_c = extrair_detalhes_cliente(cliente_nome, dict_cadastro, dict_produtos_segmentos)
-                
-                with st.expander(f"🚨 {detalhes_c['codigo']} - {detalhes_c['nome']} (Fantasia: {detalhes_c['fantasia']}) — Potencial: R$ {fat_total_cli:,.2f}"):
-                    st.markdown("**Itens que o cliente parou de comprar:**")
-                    
-                    for _, p_row in prods_cli.iterrows():
-                        prod = p_row['Produto']
-                        
-                        is_oferta = False
-                        if ofertas_memoria:
-                            for of in ofertas_memoria:
-                                if all(c in limpar_texto(of) for c in extrair_palavras_produto(prod)[:2]):
-                                    is_oferta = True
-                                    break
-                        
-                        tag_oferta = " <span style='background-color:#DE350B; color:white; padding:2px 4px; border-radius:3px; font-size:10px; font-weight:bold;'>🚨 NA OFERTA!</span>" if is_oferta else ""
-                        
-                        st.markdown(f"""
-                        <p style='font-size: 14px; margin-bottom: 4px; line-height: 1.2;'>
-                            • {prod} {tag_oferta}<br>
-                            <span style='color: gray; font-size: 12px;'>Histórico: R$ {p_row['Fat_Total']:,.2f} ({p_row['Qtd_Compras']} ped.) | Última compra: {p_row['Ultima_Compra'].strftime('%d/%m/%Y')} (há {p_row['Dias_Sem_Comprar']} dias)</span>
-                        </p>
-                        """, unsafe_allow_html=True)
-                    
-                    st.write("")
-                    if st.button(f"🔍 Ver Perfil Completo do Cliente", key=f"btn_recup_{idx}"):
-                        st.session_state.busca_direta_cliente = cliente_nome
-                        st.session_state.sub_aba_consulta = "👤 Por Cliente"
-                        st.rerun()
-
-    elif st.session_state.sub_aba_consulta == "🏢 Exclusivos Filial 6":
-        st.subheader("🎯 Clientes Exclusivos da Filial 6")
-        st.write("Estes clientes compraram somente na Filial 6 este mês. Excelente gancho para oferecer o mix da Filial 2!")
-        
-        clientes_fl6_mes = df_fl6['Cliente'].unique() if not df_fl6.empty else []
-        clientes_fl2_mes = df_fl2['Cliente'].unique() if not df_fl2.empty else []
-        exclusivos_fl6 = [c for c in clientes_fl6_mes if c not in clientes_fl2_mes]
-        
-        if not exclusivos_fl6:
-            st.info("Nenhum cliente exclusivo da Filial 6 identificado no mês atual.")
-        else:
-            st.write(f"Identificados **{len(exclusivos_fl6)}** clientes nesta condição:")
-            for c_excl in exclusivos_fl6:
-                renderizar_card_cliente(c_excl, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_excl))
-                with st.expander(f"📦 Ver Mix Comprado na FL6 por {c_excl}"):
-                    df_c_excl = df_total[df_total['Cliente'] == c_excl]
-                    st.markdown("**Top itens comprados na FL6:**")
-                    top_compras_excl = df_c_excl.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
-                    for _, r in top_compras_excl.iterrows():
-                        st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
-
-    elif st.session_state.sub_aba_consulta == "🏆 Parceiros Estratégicos":
-        st.subheader("🎯 Oportunidades: Marcas Estratégicas")
-        marcas_parceiras = {
-            "Marca 1: Lebon, Doriana, Seara, Frangosul": ["lebon", "doriana", "seara", "frangosul"],
-            "Marca 2: Frivatti": ["frivatti"],
-            "Marca 3: Brasa": ["brasa"],
-            "Marca 4: Mccain": ["mccain"],
-            "Marca 5: Ceratti": ["ceratti"],
-            "Marca 6: Confrescor": ["confrescor"]
-        }
-        
-        col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
-        with col_m1: marca_selecionada = st.selectbox("Selecione a Marca:", list(marcas_parceiras.keys()))
-        with col_m2: produto_filtro = st.text_input("Filtro Adicional (Cód. ou Produto):", placeholder="Ex: Batata Mccain...")
-        with col_m3: busca_cliente_op = st.text_input("Localizar Cliente:", placeholder="Nome...")
-            
-        palavras_da_marca = marcas_parceiras[marca_selecionada]
-        nome_amigavel_marca = marca_selecionada.split(':')[0]
-        
-        clientes_compraram_mes = df_mes_atual['Cliente'].unique() if not df_mes_atual.empty else []
-        
-        if produto_filtro.strip():
-            compradores_alvo_df = filtrar_por_palavras(df_mes_atual, 'Produto_Busca', produto_filtro.strip())
-            texto_aviso = f"o produto '{produto_filtro.strip()}'"
-        else:
-            mask_marca = df_mes_atual['Produto_Busca'].apply(lambda x: any(palavra in str(x) for palavra in palavras_da_marca))
-            compradores_alvo_df = df_mes_atual[mask_marca]
-            texto_aviso = f"nenhum produto da marca selecionada"
-
-        compradores_alvo = compradores_alvo_df['Cliente'].unique().tolist()
-            
-        col_kpi, col_btn = st.columns([2, 1])
-        with col_kpi:
-            st.info(f"📈 **KPI da Marca:** Já temos **{len(compradores_alvo)}** clientes positivados com {nome_amigavel_marca if not produto_filtro.strip() else texto_aviso} neste mês!")
-        
-        with col_btn:
-            if not compradores_alvo_df.empty:
-                compradores_alvo_df['Data_Formatada'] = pd.to_datetime(compradores_alvo_df['Dt. Delivery']).dt.strftime('%d/%m/%Y')
-                df_export = compradores_alvo_df[['Data_Formatada', 'Cliente', 'Produto']].copy()
-                df_export.columns = ['Data da Compra', 'Nome Cliente', 'Descrição do Produto']
-                import io
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_export.to_excel(writer, index=False, sheet_name='Positivados')
-                st.download_button(label="📥 Baixar Excel", data=buffer.getvalue(), file_name=f"positivados.xlsx")
-        
-        clientes_oportunidade_brutos = [c for c in clientes_compraram_mes if c not in compradores_alvo]
-        clientes_oportunidade = [c for c in clientes_oportunidade_brutos if busca_cliente_op.strip().upper() in c.upper()]
-        
-        st.write("---")
-        if not clientes_oportunidade:
-            st.success(f"Excelente! Todos os clientes positivados este mês já compraram {texto_aviso}.")
-        else:
-            st.markdown(f"📊 Encontrados **{len(clientes_oportunidade)}** clientes positivados que não compraram {texto_aviso}:")
-            for c_op in clientes_oportunidade:
-                renderizar_card_cliente(c_op, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_op))
-                with st.expander(f"📦 O que ele comprou neste mês (Outras Marcas)"):
-                    df_c_op = df_mes_atual[df_mes_atual['Cliente'] == c_op]
-                    top_compras_op = df_c_op.groupby('Produto')['Faturamento Brut'].sum().nlargest(3).reset_index()
-                    for _, r in top_compras_op.iterrows():
-                        st.write(f"· {r['Produto']} (R$ {r['Faturamento Brut']:,.2f})")
-
-# ==============================================================================
-# --- ABA 4: COTAÇÃO ---
-# ==============================================================================
-elif st.session_state.aba_atual == "💲 Cotação":
-    st.subheader("💲 Sistema Ágil de Cotação")
-    st.markdown("Cole sua lista de produtos solicitados pelo cliente. O sistema vai cruzar com as ofertas ativas hoje.")
-    
-    texto_cotacao = st.text_area("📋 Cole a lista de produtos (um por linha):", height=200)
-    
-    if st.button("🔍 Cruzar com Ofertas da Memória", type="primary"):
-        if texto_cotacao.strip():
-            ofertas_memoria = st.session_state.get('memoria_ofertas_cruas_dia', []) + st.session_state.get('memoria_ofertas_cruas_rel', [])
-            if not ofertas_memoria:
-                st.warning("⚠️ Cole as ofertas do dia na aba 'Ofertas' antes de realizar cotações cruzadas.")
-            else:
-                linhas_cot = [l.strip() for l in texto_cotacao.split('\n') if l.strip()]
-                resultado_final = []
-                for linha_cot in linhas_cot:
-                    chaves_cot = extrair_palavras_produto(linha_cot)
-                    match_encontrado = False
-                    if chaves_cot:
-                        for of in ofertas_memoria:
-                            if len(chaves_cot) >= 2 and all(limpar_texto(c) in limpar_texto(of) for c in chaves_cot[:2]):
-                                resultado_final.append(of)
-                                match_encontrado = True; break
-                            elif len(chaves_cot) < 2 and limpar_texto(chaves_cot[0]) in limpar_texto(of):
-                                resultado_final.append(of)
-                                match_encontrado = True; break
-                    if not match_encontrado: resultado_final.append(linha_cot) 
-                st.session_state.resultado_cotacao = "\n".join(resultado_final)
-                st.success("✅ Cotação cruzada com sucesso!")
-        else:
-            st.warning("Cole alguma lista.")
-            
-    if "resultado_cotacao" in st.session_state and st.session_state.resultado_cotacao:
-        st.text_area("🎯 Lista Pronta para Retorno:", value=st.session_state.resultado_cotacao, height=300)
-        
-        texto_js_safe_cot = json.dumps(st.session_state.resultado_cotacao)
-        components.html(f"""
-        <button id="copyBtnCot" style="width: 100%; background-color: #00875A; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer;">📋 Copiar para WhatsApp</button>
-        <script>
-        document.getElementById('copyBtnCot').addEventListener('click', function() {{
-            navigator.clipboard.writeText({texto_js_safe_cot});
-            this.innerText = '✅ Copiado com sucesso!';
-            setTimeout(() => {{ this.innerText = '📋 Copiar para WhatsApp'; }}, 2000);
-        }});
-        </script>
-        """, height=55)
-
-# ==============================================================================
-# --- ABA 5: CARDÁPIOS ---
-# ==============================================================================
-elif st.session_state.aba_atual == "🍔 Cardápios":
-    st.subheader("📝 Cadastro Inteligente de Cardápios")
-    st.write("Insira os produtos do cardápio do cliente. O sistema salvará no Neon e cruzará com todas as recomendações da sua carteira.")
-
-    clientes_lista = sorted([c for c in df_total['Cliente'].dropna().unique() if str(c).strip()])
-    cliente_selecionado = st.selectbox("🔍 Selecione o Cliente (digite para buscar):", ["-- Selecione --"] + clientes_lista)
-
-    if cliente_selecionado != "-- Selecione --":
-        texto_cardapio = st.text_area("📋 Cole os produtos do cardápio (um por linha):", height=150)
-        
-        if 'alerta_cardapio' not in st.session_state:
-            st.session_state.alerta_cardapio = False
-        
-        if st.button("💾 Analisar e Salvar", type="primary"):
-            if texto_cardapio.strip():
-                linhas = [l.strip() for l in texto_cardapio.split('\n') if l.strip()]
-                novos_produtos = []
-                for linha in linhas:
-                    limpo = limpar_texto(linha)
-                    if limpo and limpo not in novos_produtos:
-                        novos_produtos.append(limpo)
-                
-                st.session_state.temp_novos_produtos = novos_produtos
-                
-                if cliente_selecionado in dict_cardapios_neon:
-                    st.session_state.alerta_cardapio = True
-                    st.rerun()
-                else:
-                    m_cod_c = re.match(r'^(\d+)', str(cliente_selecionado))
-                    cod_c = m_cod_c.group(1) if m_cod_c else ""
-                    info_cli = dict_cadastro.get(cliente_selecionado) or dict_cadastro.get(cod_c, {})
-                    salvar_cardapio_neon(cliente_selecionado, novos_produtos, info_cli.get("fantasia", ""))
-                    st.success("✅ Cardápio salvo com sucesso no banco de dados!")
-                    st.session_state.alerta_cardapio = False
-                    st.rerun()
-            else:
-                st.warning("⚠️ O campo de produtos está vazio.")
-                    
-        if st.session_state.get('alerta_cardapio', False):
-            st.warning(f"⚠️ O cliente **{cliente_selecionado}** já possui um cardápio cadastrado!")
-            st.write("**Produtos já existentes:**", ", ".join(dict_cardapios_neon[cliente_selecionado]))
-            
-            col_up, col_ig = st.columns(2)
-            with col_up:
-                if st.button("🔄 Atualizar Cardápio (Adicionar Novos)"):
-                    produtos_antigos = dict_cardapios_neon[cliente_selecionado]
-                    produtos_combinados = list(set(produtos_antigos + st.session_state.temp_novos_produtos))
-                    m_cod_c = re.match(r'^(\d+)', str(cliente_selecionado))
-                    cod_c = m_cod_c.group(1) if m_cod_c else ""
-                    info_cli = dict_cadastro.get(cliente_selecionado) or dict_cadastro.get(cod_c, {})
-                    salvar_cardapio_neon(cliente_selecionado, produtos_combinados, info_cli.get("fantasia", ""))
-                    st.success("✅ Cardápio atualizado com novos itens e Fantasia sincronizada!")
-                    st.session_state.alerta_cardapio = False
-                    st.rerun()
-            with col_ig:
-                if st.button("❌ Ignorar (Cancelar)"):
-                    st.session_state.alerta_cardapio = False
-                    st.info("Ação cancelada.")
-                    st.rerun()
+        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30)
