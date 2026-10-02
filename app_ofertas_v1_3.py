@@ -1218,7 +1218,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     st.markdown(f"**{row['Cliente']}** - R$ {row['Faturamento Bruto']:,.2f}")
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
-        elif st.session_state.sub_aba_consulta == "📉 Recuperação":
+
+elif st.session_state.sub_aba_consulta == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
         st.write("Identifique clientes que compravam determinados itens e pararam. A lista agrupa o faturamento perdido por cliente.")
         
