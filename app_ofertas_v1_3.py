@@ -17,7 +17,7 @@ from datetime import date
 # ==========================================
 # 0. CONFIGURAÇÃO DA PÁGINA (Deve ser o 1º comando)
 # ==========================================
-st.set_page_config(page_title="Delly's Inteligência", layout="centered")
+st.set_page_config(page_title="Pixel Vendas", layout="centered")
 
 # ==========================================
 # 1. CONFIGURAÇÕES E CHAVES FIXAS
