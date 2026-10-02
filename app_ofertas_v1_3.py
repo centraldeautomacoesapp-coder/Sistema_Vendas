@@ -1067,17 +1067,21 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # ==============================================================================
+# ==============================================================================
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
-    st.session_state.sub_aba_consulta = st.radio(
+    st.radio(
         "Filtro de Pesquisa:", 
         ["👤 Por Cliente", "📦 Por Produto", "📉 Recuperação", "🏢 Exclusivos Filial 6", "🏆 Parceiros Estratégicos"], 
-        horizontal=True
+        horizontal=True,
+        key="sub_aba_consulta"
     )
     st.write("---")
     
-    if st.session_state.sub_aba_consulta == "👤 Por Cliente":
+    sub_atual = st.session_state.sub_aba_consulta
+    
+    if sub_atual == "👤 Por Cliente":
         st.subheader("Raio-X do Cliente")
         input_busca = st.text_input("Nome ou Código:", value=st.session_state.busca_direta_cliente).strip()
         
@@ -1088,7 +1092,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             if len(nomes_encontrados) > 0:
                 c_sel = st.selectbox("Selecione o Cliente:", nomes_encontrados)
                 
-                # --- CARD NOVO E VISUAL DO CLIENTE ---
                 renderizar_card_cliente(c_sel, dict_cadastro, dict_produtos_segmentos, obter_badges_html(c_sel))
                 
                 df_cli = df_total[df_total['Cliente'] == c_sel]
@@ -1144,7 +1147,6 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 
                 m_cod_c = re.match(r'^(\d+)', str(c_sel))
                 cod_c = m_cod_c.group(1) if m_cod_c else ""
-                info_c_extra = dict_cadastro.get(c_sel) or dict_cadastro.get(cod_c, {"fantasia": ""})
                 nome_limpo_cli = limpar_texto(c_sel)
                 
                 segmentos_do_cliente = set()
@@ -1176,7 +1178,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     
                     REGRAS PARA A MENSAGEM:
                     - MUITO IMPORTANTE: Se houver algum 'Produto Abandonado' que 'ESTÁ NA OFERTA', você DEVE enfatizar isso dizendo que o preço do que ele costumava comprar baixou.
-                    - Faça links inteligentes ("Vi que você tem Pizzaria, sugiro o produto X...").
+                    - Faça links inteligentes.
                     - Formato exclusivo para WhatsApp: Pule linhas (duplas) entre os assuntos, use Emojis e *negrito* nos nomes dos produtos.
                     - NÃO INVENTE PREÇOS, deixe apenas os produtos.
                     - Mensagem direta e vendedora.
@@ -1205,7 +1207,7 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             else:
                 st.warning("Cliente não encontrado.")
                 
-    elif st.session_state.sub_aba_consulta == "📦 Por Produto":
+    elif sub_atual == "📦 Por Produto":
         st.subheader("Análise por Produto")
         input_prod = st.text_input("Nome do produto:").strip()
         if input_prod:
@@ -1219,30 +1221,26 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
 
-elif st.session_state.sub_aba_consulta == "📉 Recuperação":
+    elif sub_atual == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
         st.write("Identifique clientes que compravam determinados itens e pararam. A lista agrupa o faturamento perdido por cliente.")
         
-        # Garante que as variáveis necessárias existem
-        if 'df_total' in locals() and not df_total.empty:
-            
-            # Mapeamento de Cidades
+        if not df_total.empty:
             cidades_disponiveis_rec = set()
-            if 'dict_cadastro' in locals() and dict_cadastro:
-                for cli_cad, info_cad in dict_cadastro.items():
-                    cid = info_cad.get("cidade")
-                    if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
-                        cidades_disponiveis_rec.add(str(cid).strip().upper())
-                    m = re.search(r'\[(.*?)\]', str(cli_cad))
-                    if m and m.group(1).strip():
-                        cidades_disponiveis_rec.add(m.group(1).strip().upper())
+            for cli_cad, info_cad in dict_cadastro.items():
+                cid = info_cad.get("cidade")
+                if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
+                    cidades_disponiveis_rec.add(str(cid).strip().upper())
+                m = re.search(r'\[(.*?)\]', str(cli_cad))
+                if m and m.group(1).strip():
+                    cidades_disponiveis_rec.add(m.group(1).strip().upper())
                     
             for cli in df_total['Cliente'].unique():
                 if pd.isna(cli) or str(cli).lower() == 'nan': continue
                 m_cod = re.match(r'^(\d+)', str(cli))
                 codigo = m_cod.group(1) if m_cod else ""
-                info = dict_cadastro.get(str(cli), {}) if 'dict_cadastro' in locals() else {}
-                if not info and codigo and 'dict_cadastro' in locals():
+                info = dict_cadastro.get(str(cli), {})
+                if not info and codigo:
                     info = dict_cadastro.get(codigo, {})
                 cid = info.get("cidade") if info else None
                 if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
@@ -1262,34 +1260,29 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
 
             dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
 
-            # Processamento do Ranking de Abandono
             with st.spinner("Calculando itens abandonados por cliente..."):
                 max_datas_cli_prod = df_total.groupby(['Cliente', 'Produto'])['Data_Datetime'].max().reset_index()
                 max_datas_cli_prod['Dias_Sem_Compra'] = (data_atual_sistema - max_datas_cli_prod['Data_Datetime']).dt.days
                 
-                # Filtra itens que ultrapassaram o corte de dias
                 df_abandonados = max_datas_cli_prod[max_datas_cli_prod['Dias_Sem_Compra'] > dias_corte].copy()
                 
                 if not df_abandonados.empty:
-                    # Traz o faturamento histórico desses itens para calcular o peso financeiro da perda
                     df_fat_prod = df_total.groupby(['Cliente', 'Produto'])['Faturamento Bruto'].sum().reset_index()
                     df_abandonados = pd.merge(df_abandonados, df_fat_prod, on=['Cliente', 'Produto'], how='left')
                     
-                    # Agrupa a soma dos itens abandonados por cliente
                     ranking_clientes = df_abandonados.groupby('Cliente').agg(
                         Fat_Total_Abandonado=('Faturamento Bruto', 'sum'),
                         Qtd_Itens_Abandonados=('Produto', 'count')
                     ).reset_index().sort_values(by='Fat_Total_Abandonado', ascending=False)
                     
-                    # Filtro por cidade se houver seleção
                     if cidades_selecionadas_rec:
                         cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
                         clientes_filtrados_cidade = []
                         for c in ranking_clientes['Cliente']:
                             m_cod = re.match(r'^(\d+)', str(c))
                             codigo = m_cod.group(1) if m_cod else ""
-                            info = dict_cadastro.get(str(c), {}) if 'dict_cadastro' in locals() else {}
-                            if not info and codigo and 'dict_cadastro' in locals():
+                            info = dict_cadastro.get(str(c), {})
+                            if not info and codigo:
                                 info = dict_cadastro.get(codigo, {})
                             cidade_cli = info.get("cidade", "") if info else ""
                             cidade_cli_limpa = limpar_texto(cidade_cli)
@@ -1303,7 +1296,6 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
 
                     st.markdown(f"### 🏆 Total de Clientes com Oportunidades de Recuperação: **{len(ranking_clientes)}**")
                     
-                    # Exibição do Ranking em Cards
                     for idx, row in ranking_clientes.head(30).iterrows():
                         c_nome = row['Cliente']
                         fat_perdido = row['Fat_Total_Abandonado']
@@ -1313,7 +1305,6 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
                             badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_itens} itens)</span>'
                             renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_fat)
                             
-                            # Lista rápida dos produtos abandonados deste cliente específico
                             itens_cli_ab = df_abandonados[df_abandonados['Cliente'] == c_nome].sort_values(by='Faturamento Bruto', ascending=False)
                             
                             texto_itens_ab = ""
@@ -1325,7 +1316,6 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
                                 
                                 chave_msg_rec = f"msg_rec_{idx}"
                                 
-                                # Botão individual para acionar a IA sob demanda para este cliente
                                 if st.button("🧠 Gerar Mensagem de Resgate via IA", key=f"btn_ia_rec_{idx}", type="primary"):
                                     prompt_rec = f"""
                                     Atue como um excelente representante comercial B2B da distribuidora Delly's. 
@@ -1334,19 +1324,17 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
                                     {texto_itens_ab}
                                     
                                     REGRAS PARA A MENSAGEM:
-                                    - Tom empático, curioso e profissional ("Notei que faz alguns dias que você não repõe... aconteceu algo com o produto ou prefere outra opção?").
+                                    - Tom empático, curioso e profissional.
                                     - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes dos produtos abandonados.
-                                    - Termine abrindo espaço para o diálogo e perguntando se pode separar uma carga de reposição para ele. Sem 'Assinado' ou despedidas formais longas.
+                                    - Termine abrindo espaço para o diálogo.
                                     """
-                                    spinner_func = getattr(st, 'ynes_spinner', st.spinner)
-                                    with spinner_func("Gerando mensagem personalizada..."):
+                                    with st.spinner("Gerando mensagem personalizada..."):
                                         try:
-                                            modelo_msg = genai.GenerativeModel('gemini-2.5-flash')
+                                            modelo_msg = genai.GenerativeModel('gemini-3.5-flash')
                                             st.session_state[chave_msg_rec] = modelo_msg.generate_content(prompt_rec).text
                                         except Exception as e:
                                             st.error(f"Erro ao gerar com IA: {e}")
                                 
-                                # Exibe a caixa de texto caso a mensagem já tenha sido gerada
                                 if chave_msg_rec in st.session_state and st.session_state[chave_msg_rec]:
                                     st.text_area("Mensagem de Abordagem:", value=st.session_state[chave_msg_rec], height=180, key=f"txt_area_rec_{idx}")
                                     
@@ -1355,3 +1343,67 @@ elif st.session_state.sub_aba_consulta == "📉 Recuperação":
                     st.info("Nenhum produto abandonado encontrado para o período de corte selecionado.")
         else:
             st.warning("Carregue os dados de vendas primeiro para visualizar a recuperação.")
+
+    elif sub_atual == "🏢 Exclusivos Filial 6":
+        st.subheader("🏢 Clientes Exclusivos da Filial 6")
+        st.write("Clientes que possuem faturamento registrado na Filial 6, mas não possuem faturamento na Filial 2.")
+        
+        if not df_total.empty:
+            cli_fl2 = set(df_total[df_total['Filial'].astype(str).str.contains('2', na=False)]['Cliente'].unique())
+            cli_fl6 = set(df_total[df_total['Filial'].astype(str).str.contains('6', na=False)]['Cliente'].unique())
+            
+            exclusivos_f6 = sorted(list(cli_fl6 - cli_fl2))
+            
+            if exclusivos_f6:
+                st.markdown(f"📊 Total de Clientes Exclusivos da Filial 6: **{len(exclusivos_f6)}**")
+                
+                cidades_fl6 = set()
+                for c in exclusivos_f6:
+                    m_cod = re.match(r'^(\d+)', str(c))
+                    cod = m_cod.group(1) if m_cod else ""
+                    info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(cod, {}) if cod else {})
+                    cid = info.get("cidade") or ""
+                    if cid: cidades_fl6.add(cid.upper())
+                
+                cidades_fl6_list = sorted(list(cidades_fl6))
+                cidade_filtro_f6 = st.multiselect("📍 Filtrar por Município (Filial 6):", options=cidades_fl6_list, key="multiselect_f6_cid")
+                
+                clientes_exibicao_f6 = exclusivos_f6
+                if cidade_filtro_f6:
+                    cidades_sel_limpas = [limpar_texto(c) for c in cidade_filtro_f6]
+                    clientes_exibicao_f6 = []
+                    for c in exclusivos_f6:
+                        m_cod = re.match(r'^(\d+)', str(c))
+                        cod = m_cod.group(1) if m_cod else ""
+                        info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(cod, {}) if cod else {})
+                        cid = limpar_texto(info.get("cidade", ""))
+                        if any(cs in cid or cid in cs for cs in cidades_sel_limpas):
+                            clientes_exibicao_f6.append(c)
+                
+                st.markdown(f"Exibindo **{len(clientes_exibicao_f6)}** clientes:")
+                for c_nome in clientes_exibicao_f6[:50]:
+                    fat_cli_f6 = df_total[(df_total['Cliente'] == c_nome) & (df_total['Filial'].astype(str).str.contains('6', na=False))]['Faturamento Bruto'].sum()
+                    badge_f6 = f'<span style="background-color:#FF8B00; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">💰 Faturamento Filial 6: R$ {fat_cli_f6:,.2f}</span>'
+                    renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_f6)
+            else:
+                st.info("Nenhum cliente exclusivo da Filial 6 encontrado.")
+
+    elif sub_atual == "🏆 Parceiros Estratégicos":
+        st.subheader("🏆 Parceiros Estratégicos (Top Clientes por Faturamento)")
+        st.write("Ranking dos principais clientes da base com base no faturamento bruto total acumulado.")
+        
+        if not df_total.empty:
+            top_parceiros = df_total.groupby('Cliente').agg(
+                Fat_Total=('Faturamento Bruto', 'sum'),
+                Qtd_Compras=('Faturamento Bruto', 'count')
+            ).reset_index().sort_values(by='Fat_Total', ascending=False).head(50)
+            
+            st.markdown(f"Exibindo os **{len(top_parceiros)}** maiores parceiros estratégicos:")
+            
+            for idx, row in top_parceiros.iterrows():
+                c_nome = row['Cliente']
+                fat_total = row['Fat_Total']
+                qtd_compras = row['Qtd_Compras']
+                
+                badge_vip = f'<span style="background-color:#6554C0; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px;">👑 Faturamento Total: R$ {fat_total:,.2f} ({qtd_compras} pedidos)</span>'
+                renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_vip)
