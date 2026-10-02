@@ -152,8 +152,11 @@ def carregar_dados_nuvem(data_atual):
     if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
     
     try:
-        gdown.download_folder(DRIVE_VENDAS, output=pasta_destino, quiet=True)
-        gdown.download_folder(DRIVE_CADASTRO, output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_HISTORICO_COMPRAS, output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_LISTA_CLIENTES, output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_GRADE_ENTREGAS, output=pasta_destino, quiet=True)
+        gdown.download_folder(DRIVE_CLIENTES_CHURN, output=pasta_destino, quiet=True)
+        
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True) + \
