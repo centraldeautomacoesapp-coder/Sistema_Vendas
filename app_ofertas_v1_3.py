@@ -24,8 +24,12 @@ st.set_page_config(page_title="Delly's Inteligência", layout="centered")
 # ==========================================
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 NEON_DB_URL = st.secrets["NEON_DB_URL"]
-DRIVE_VENDAS = st.secrets["DRIVE_VENDAS"]
-DRIVE_CADASTRO = st.secrets["DRIVE_CADASTRO"]
+DRIVE_HISTORICO_COMPRAS = st.secrets["DRIVE_HISTORICO_COMPRAS"]
+DRIVE_LISTA_CLIENTES = st.secrets["DRIVE_LISTA_CLIENTES"]
+DRIVE_GRADE_ENTREGAS = st.secrets["DRIVE_GRADE_ENTREGAS"]
+DRIVE_CLIENTES_CHURN = st.secrets["DRIVE_CLIENTES_CHURN"]
+TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 
 # --- AUXILIARES ---
 def limpar_texto(texto):
