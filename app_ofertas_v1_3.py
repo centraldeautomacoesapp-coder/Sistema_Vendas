@@ -1067,8 +1067,6 @@ elif st.session_state.aba_atual == "🚨 Alertas":
                 st.warning("⚠️ Por favor, marque pelo menos um Checkbox na lista acima para poder gerar o texto!")
 
 # ==============================================================================
-# ==============================================================================
-# ==============================================================================
 # --- ABA 3: CONSULTA ---
 # ==============================================================================
 elif st.session_state.aba_atual == "🔍 Consulta":
@@ -1234,8 +1232,8 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 st.warning("Nenhum produto encontrado com este nome.")
 
     elif sub_atual == "📉 Recuperação":
-        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
-        st.write("Identifique clientes que compravam determinados itens e pararam. Ordenado do maior para o menor valor em R$ em aberto.")
+        st.subheader("📉 Ranking de Produtos Abandonados (Recuperação por Família/Palavra-Chave)")
+        st.write("Identifique clientes que compravam determinada família de produtos (palavra-chave) e pararam de comprar recentemente, verificando se não houve compra de outra marca equivalente.")
         
         if not df_total.empty:
             if df_total['Faturamento Bruto'].dtype == object or not pd.api.types.is_numeric_dtype(df_total['Faturamento Bruto']):
@@ -1247,6 +1245,15 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                     .str.strip()
                 )
                 df_total['Faturamento Bruto'] = pd.to_numeric(df_total['Faturamento Bruto'], errors='coerce').fillna(0.0)
+
+            # Função auxiliar para extrair chave/família do produto (ex: Picanha Friboi -> Picanha)
+            def obter_chave_produto(nome_prod):
+                limpo = re.sub(r'\b(\d+([kKgG]|ml|LT|UN|PCT|CX)?)\b', '', str(nome_prod), flags=re.IGNORECASE)
+                palavras = [p for p in limpo.split() if len(p) > 2]
+                return " ".join(palavras[:2]).upper() if palavras else str(nome_prod).upper()
+
+            if 'Chave_Produto' not in df_total.columns:
+                df_total['Chave_Produto'] = df_total['Produto'].apply(obter_chave_produto)
 
             cidades_disponiveis_rec = set()
             for cli_cad, info_cad in dict_cadastro.items():
@@ -1280,21 +1287,22 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                 key="multiselect_rec_cidades"
             )
 
-            dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
+            dias_corte = st.slider("Considerar abandono após (dias sem comprar a categoria/família):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
 
-            with st.spinner("Calculando itens abandonados por cliente..."):
-                max_datas_cli_prod = df_total.groupby(['Cliente', 'Produto'])['Data_Datetime'].max().reset_index()
-                max_datas_cli_prod['Dias_Sem_Compra'] = (data_atual_sistema - max_datas_cli_prod['Data_Datetime']).dt.days
+            with st.spinner("Calculando famílias de produtos abandonadas por cliente..."):
+                # Agrupar por Cliente e Chave_Produto (Família) para verificar se comprou recentemente QUALQUER marca dessa família
+                max_datas_cli_familia = df_total.groupby(['Cliente', 'Chave_Produto'])['Data_Datetime'].max().reset_index()
+                max_datas_cli_familia['Dias_Sem_Compra'] = (data_atual_sistema - max_datas_cli_familia['Data_Datetime']).dt.days
                 
-                df_abandonados = max_datas_cli_prod[max_datas_cli_prod['Dias_Sem_Compra'] > dias_corte].copy()
+                df_abandonados_familia = max_datas_cli_familia[max_datas_cli_familia['Dias_Sem_Compra'] > dias_corte].copy()
                 
-                if not df_abandonados.empty:
-                    df_fat_prod = df_total.groupby(['Cliente', 'Produto'])['Faturamento Bruto'].sum().reset_index()
-                    df_abandonados = pd.merge(df_abandonados, df_fat_prod, on=['Cliente', 'Produto'], how='left')
+                if not df_abandonados_familia.empty:
+                    df_fat_familia = df_total.groupby(['Cliente', 'Chave_Produto'])['Faturamento Bruto'].sum().reset_index()
+                    df_abandonados_familia = pd.merge(df_abandonados_familia, df_fat_familia, on=['Cliente', 'Chave_Produto'], how='left')
                     
-                    ranking_clientes = df_abandonados.groupby('Cliente').agg(
+                    ranking_clientes = df_abandonados_familia.groupby('Cliente').agg(
                         Fat_Total_Abandonado=('Faturamento Bruto', 'sum'),
-                        Qtd_Itens_Abandonados=('Produto', 'count')
+                        Qtd_Familias_Abandonadas=('Chave_Produto', 'count')
                     ).reset_index().sort_values(by='Fat_Total_Abandonado', ascending=False)
                     
                     if cidades_selecionadas_rec:
@@ -1316,26 +1324,47 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                                 clientes_filtrados_cidade.append(c)
                         ranking_clientes = ranking_clientes[ranking_clientes['Cliente'].isin(clientes_filtrados_cidade)]
 
-                    st.markdown(f"### 🏆 Total de Clientes com Oportunidades de Recuperação: **{len(ranking_clientes)}**")
+                    total_cli_rec = len(ranking_clientes)
+                    st.markdown(f"### 🏆 Total de Clientes com Oportunidades de Recuperação: **{total_cli_rec}**")
                     
-                    for idx, row in ranking_clientes.head(30).iterrows():
+                    # Controles de Paginação para exibir todos os clientes sem cortes
+                    c_pag1, c_pag2 = st.columns([2, 2])
+                    with c_pag1:
+                        tamanho_pagina_rec = st.selectbox("Exibir por página:", options=[10, 20, 50, 100, "Todos"], index=1, key="pag_rec_size_sel")
+                    
+                    clientes_pagina = ranking_clientes
+                    if tamanho_pagina_rec != "Todos":
+                        t_pag_int = int(tamanho_pagina_rec)
+                        total_paginas = max(1, (total_cli_rec + t_pag_int - 1) // t_pag_int)
+                        with c_pag2:
+                            pagina_atual = st.number_input("Página:", min_value=1, max_value=total_paginas, value=1, key="pag_rec_num_input")
+                        ini = (pagina_atual - 1) * t_pag_int
+                        fim = ini + t_pag_int
+                        clientes_pagina = ranking_clientes.iloc[ini:fim]
+                        st.caption(f"Mostrando clientes de **{ini+1}** a **{min(fim, total_cli_rec)}** de um total de **{total_cli_rec}**")
+                    
+                    for idx, row in clientes_pagina.iterrows():
                         c_nome = row['Cliente']
                         fat_perdido = row['Fat_Total_Abandonado']
-                        qtd_itens = row['Qtd_Itens_Abandonados']
+                        qtd_familias = row['Qtd_Familias_Abandonadas']
                         
                         with st.container():
-                            badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_itens} itens)</span>'
+                            badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_familias} categorias)</span>'
                             renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_fat)
                             
-                            itens_cli_ab = df_abandonados[df_abandonados['Cliente'] == c_nome].sort_values(by='Faturamento Bruto', ascending=False)
+                            familias_cli_ab = df_abandonados_familia[df_abandonados_familia['Cliente'] == c_nome].sort_values(by='Faturamento Bruto', ascending=False)
                             
                             texto_itens_ab = ""
-                            for _, it_row in itens_cli_ab.iterrows():
-                                fat_item = it_row['Faturamento Bruto']
-                                dias_item = it_row['Dias_Sem_Compra']
-                                texto_itens_ab += f"  • {it_row['Produto']} — R$ {fat_item:,.2f} ({dias_item} dias sem comprar)\n"
+                            for _, it_row in familias_cli_ab.iterrows():
+                                chave_fam = it_row['Chave_Produto']
+                                fat_fam = it_row['Faturamento Bruto']
+                                dias_fam = it_row['Dias_Sem_Compra']
+                                # Buscar produtos originais comprados nesta chave
+                                prods_originais = df_total[(df_total['Cliente'] == c_nome) & (df_total['Chave_Produto'] == chave_fam)]['Produto'].unique()
+                                lista_prods_str = ", ".join(prods_originais[:3])
+                                texto_itens_ab += f"  • Família [{chave_fam}] (Ex: {lista_prods_str}) — R$ {fat_fam:,.2f} ({dias_fam} dias sem comprar)\n"
                             
-                            with st.expander(f"📦 Ver os {qtd_itens} itens abandonados e gerar abordagem"):
+                            with st.expander(f"📦 Ver as {qtd_familias} categorias abandonadas e gerar abordagem"):
                                 st.markdown(f"<pre style='font-size:12px; background:#f4f5f7; padding:8px;'>{texto_itens_ab}</pre>", unsafe_allow_html=True)
                                 
                                 chave_msg_rec = f"msg_rec_{idx}"
@@ -1344,12 +1373,12 @@ elif st.session_state.aba_atual == "🔍 Consulta":
                                     prompt_rec = f"""
                                     Atue como um excelente representante comercial B2B da distribuidora Delly's. 
                                     Crie uma mensagem curta de WhatsApp para o cliente '{c_nome}'.
-                                    O objetivo é entender por que he parou de comprar e resgatá-lo em relação aos seguintes produtos de alto volume que he abandonou há algum tempo:
+                                    O objetivo é entender por que ele parou de comprar essas categorias/famílias de produtos de alto volume que abandonou há algum tempo:
                                     {texto_itens_ab}
                                     
                                     REGRAS PARA A MENSAGEM:
                                     - Tom empático, curioso e profissional.
-                                    - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes dos produtos abandonados.
+                                    - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes das categorias abandonadas.
                                     - Termine abrindo espaço para o diálogo.
                                     """
                                     with st.spinner("Gerando mensagem personalizada..."):
@@ -1419,35 +1448,27 @@ elif st.session_state.aba_atual == "🔍 Consulta":
         st.write("Selecione um parceiro estratégico para ver quantos clientes foram positivados no mês e quais clientes ativos ainda não compram dele.")
         
         if not df_mes_atual.empty:
-            # Tentar identificar coluna de parceiro/fornecedor/marca/segmento
             colunas_parceiro_cand = [c for c in ['Fornecedor', 'Marca', 'Fabricante', 'Segmento', 'Categoria'] if c in df_mes_atual.columns]
             
             if colunas_parceiro_cand:
                 col_parceiro_escolhida = colunas_parceiro_cand[0]
                 parceiros_disponiveis = sorted([str(x) for x in df_mes_atual[col_parceiro_escolhida].dropna().unique() if str(x).strip()])
             else:
-                # Fallback: extrair segmentos do dicionário ou usar produtos
                 parceiros_disponiveis = sorted(list(dict_produtos_segmentos.keys())) if dict_produtos_segmentos else []
             
             if parceiros_disponiveis:
                 parceiro_selecionado = st.selectbox("Selecione o Parceiro Estratégico:", options=parceiros_disponiveis, key="select_parceiro_est")
                 
                 if parceiro_selecionado:
-                    # Identificar clientes que compraram deste parceiro no mês
                     if colunas_parceiro_cand:
                         cli_compraram_parceiro = set(df_mes_atual[df_mes_atual[col_parceiro_escolhida].astype(str) == str(parceiro_selecionado)]['Cliente'].unique())
                     else:
-                        # Buscar por produtos associados ao segmento/parceiro
                         prods_parceiro = [p for p, segs in dict_produtos_segmentos.items() if parceiro_selecionado in segs]
                         cli_compraram_parceiro = set(df_mes_atual[df_mes_atual['Produto'].isin(prods_parceiro)]['Cliente'].unique())
                     
-                    # Clientes positivados no mês total
                     cli_ativos_mes = set(df_mes_atual['Cliente'].unique())
-                    
-                    # Clientes que compraram no mês mas NÃO compraram deste parceiro
                     cli_nao_compraram_parceiro = sorted(list(cli_ativos_mes - cli_compraram_parceiro))
                     
-                    # Métricas e contagem
                     col_m1, col_m2 = st.columns(2)
                     with col_m1:
                         st.metric("✅ Clientes Positivados do Parceiro", len(cli_compraram_parceiro))
