@@ -1219,9 +1219,9 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             else:
                 st.warning("Nenhum produto encontrado com este nome.")
 
-    elif st.session_state.sub_aba_consulta == "📉 Recuperação":
+   elif st.session_state.sub_aba_consulta == "📉 Recuperação":
         st.subheader("📉 Ranking de Produtos Abandonados (Recuperação)")
-        st.write("Identifique clientes que compravam muito determinados itens e pararam. A lista agrupa todos os itens perdidos por cliente.")
+        st.write("Identifique clientes que compravam determinados itens e pararam. A lista agrupa o faturamento perdido por cliente.")
         
         cidades_disponiveis_rec = set()
         for cli_cad, info_cad in dict_cadastro.items():
@@ -1232,12 +1232,110 @@ elif st.session_state.aba_atual == "🔍 Consulta":
             if m and m.group(1).strip():
                 cidades_disponiveis_rec.add(m.group(1).strip().upper())
                 
+        for cli in df_total['Cliente'].unique():
+            if pd.isna(cli) or str(cli).lower() == 'nan': continue
+            m_cod = re.match(r'^(\d+)', str(cli))
+            codigo = m_cod.group(1) if m_cod else ""
+            info = dict_cadastro.get(str(cli), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
+            cid = info.get("cidade") or info.get("cidade")
+            if cid and str(cid).strip() and str(cid).strip().lower() != 'nan':
+                cidades_disponiveis_rec.add(str(cid).strip().upper())
+            m = re.search(r'\[(.*?)\]', str(cli))
+            if m and m.group(1).strip():
+                cidades_disponiveis_rec.add(m.group(1).strip().upper())
+
         cidades_disponiveis_rec = sorted(list(cidades_disponiveis_rec))
         
         cidades_selecionadas_rec = st.multiselect(
             "📍 Filtrar Ranking por Município(s):", 
             options=cidades_disponiveis_rec, 
-            placeholder="Selecione as cidades (deixe vazio para o ranking geral)"
+            placeholder="Selecione as cidades (deixe vazio para o ranking geral)",
+            key="multiselect_rec_cidades"
         )
 
-        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30)
+        dias_corte = st.slider("Considerar abandono após (dias sem comprar):", min_value=15, max_value=120, value=30, key="slider_dias_corte_rec")
+
+        # Processamento do Ranking de Abandono
+        with st.spinner("Calculando itens abandonados por cliente..."):
+            max_datas_cli_prod = df_total.groupby(['Cliente', 'Produto'])['Data_Datetime'].max().reset_index()
+            max_datas_cli_prod['Dias_Sem_Compra'] = (data_atual_sistema - max_datas_cli_prod['Data_Datetime']).dt.days
+            
+            # Filtra itens que ultrapassaram o corte de dias
+            df_abandonados = max_datas_cli_prod[max_datas_cli_prod['Dias_Sem_Compra'] > dias_corte].copy()
+            
+            if not df_abandonados.empty:
+                # Traz o faturamento histórico desses itens para calcular o peso financeiro da perda
+                df_fat_prod = df_total.groupby(['Cliente', 'Produto'])['Faturamento Bruto'].sum().reset_index()
+                df_abandonados = pd.merge(df_abandonados, df_fat_prod, on=['Cliente', 'Produto'], how='left')
+                
+                # Agrupa a soma dos itens abandonados por cliente
+                ranking_clientes = df_abandonados.groupby('Cliente').agg(
+                    Fat_Total_Abandonado=('Faturamento Bruto', 'sum'),
+                    Qtd_Itens_Abandonados=('Produto', 'count')
+                ).reset_index().sort_values(by='Fat_Total_Abandonado', ascending=False)
+                
+                # Filtro por cidade se houver seleção
+                if cidades_selecionadas_rec:
+                    cidades_sel_limpas = [limpar_texto(c) for c in cidades_selecionadas_rec]
+                    clientes_filtrados_cidade = []
+                    for c in ranking_clientes['Cliente']:
+                        m_cod = re.match(r'^(\d+)', str(c))
+                        codigo = m_cod.group(1) if m_cod else ""
+                        info = dict_cadastro.get(str(c), {}) or (dict_cadastro.get(codigo, {}) if codigo else {})
+                        cidade_cli = info.get("cidade") or info.get("cidade") or ""
+                        cidade_cli_limpa = limpar_texto(cidade_cli)
+                        if not cidade_cli_limpa:
+                            m_mun = re.search(r'\[(.*?)\]', str(c))
+                            if m_mun: cidade_cli_limpa = limpar_texto(m_mun.group(1))
+                        
+                        if cidade_cli_limpa and any(cs in cidade_cli_limpa or cidade_cli_limpa in cs for cs in cidades_sel_limpas):
+                            clientes_filtrados_cidade.append(c)
+                    ranking_clientes = ranking_clientes[ranking_clientes['Cliente'].isin(clientes_filtrados_cidade)]
+
+                st.markdown(f"### 🏆 Total de Clientes com Oportunidades de Recuperação: **{len(ranking_clientes)}**")
+                
+                # Exibição do Ranking em Cards
+                for idx, row in ranking_clientes.head(30).iterrows():
+                    c_nome = row['Cliente']
+                    fat_perdido = row['Fat_Total_Abandonado']
+                    qtd_itens = row['Qtd_Itens_Abandonados']
+                    
+                    with st.container():
+                        badge_fat = f'<span style="background-color:#0052CC; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:13px; margin-right:6px;">💰 R$ {fat_perdido:,.2f} em aberto ({qtd_itens} itens)</span>'
+                        renderizar_card_cliente(c_nome, dict_cadastro, dict_produtos_segmentos, badge_fat)
+                        
+                        # Lista rápida dos produtos abandonados deste cliente específico
+                        itens_cli_ab = df_abandonados[df_abandonados['Cliente'] == c_nome].sort_values(by='Faturamento Bruto', ascending=False)
+                        
+                        texto_itens_ab = ""
+                        for _, it_row in itens_cli_ab.iterrows():
+                            texto_itens_ab += f"  • {it_row['Produto']} ({it_row['Dias_Sem_Compra']} dias sem comprar)\n"
+                        
+                        with st.expander(f"📦 Ver os {qtd_itens} itens abandonados e gerar abordagem"):
+                            st.markdown(f"<pre style='font-size:12px; background:#f4f5f7; padding:8px;'>{texto_itens_ab}</pre>", unsafe_allow_html=True)
+                            
+                            chave_msg_rec = f"msg_rec_{idx}"
+                            if st.button("🧠 Gerar Mensagem de Resgate via IA", key=f"btn_ia_rec_{idx}", type="primary"):
+                                prompt_rec = f"""
+                                Atue como um excelente vendedor B2B da distribuidora Delly's. Crie uma mensagem curta de WhatsApp para o cliente '{c_nome}'.
+                                O objetivo é resgatar o cliente que parou de comprar os seguintes produtos de alto volume:
+                                {texto_itens_ab}
+                                
+                                REGRAS PARA A MENSAGEM:
+                                - Tom empático, comercial e profissional ("Notei que faz uns dias que você não repõe...").
+                                - Formato exclusivo para WhatsApp: Pule linhas duplas, use Emojis e *negrito* nos nomes dos produtos.
+                                - Termine chamando para ação e perguntando se pode separar a carga. Sem 'Assinado'.
+                                """
+                                with st.ynes_spinner if hasattr(st, 'ynes_spinner') else st.spinner("Gerando mensagem..."):
+                                    try:
+                                        modelo_msg = genai.GenerativeModel('gemini-3.5-flash')
+                                        st.session_state[chave_msg_rec] = modelo_msg.generate_content(prompt_rec).text
+                                    except Exception as e:
+                                        st.error(f"Erro ao gerar com IA: {e}")
+                            
+                            if chave_msg_rec in st.session_state and st.session_state[chave_msg_rec]:
+                                st.text_area("Mensagem:", value=st.session_state[chave_msg_rec], height=180, key=f"txt_area_rec_{idx}")
+                                
+                    st.write("---")
+            else:
+                st.info("Nenhum produto abandonado encontrado para o período de corte selecionado.")
