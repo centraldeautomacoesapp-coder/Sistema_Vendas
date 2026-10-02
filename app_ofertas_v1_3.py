@@ -160,7 +160,8 @@ def carregar_dados_nuvem(data_atual):
     except: pass
     
     arquivos_excel = glob.glob(os.path.join(pasta_destino, "**", "*.xlsx"), recursive=True) + \
-                     glob.glob(os.path.join(pasta_destino, "**", "*.xls"), recursive=True)
+                     glob.glob(os.path.join(pasta_destino, "**", "*.xls"), recursive=True) + \
+                     glob.glob(os.path.join(pasta_destino, "**", "*.csv"), recursive=True)
     
     cod_to_full = {}
     cadastro_clientes = {}
